@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#07091a" />
+    <title>Offline · Careon Pulse</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background:
+          radial-gradient(circle at 28% -8%, rgb(48 72 255 / 28%), transparent 34rem),
+          radial-gradient(circle at 88% 12%, rgb(191 29 255 / 23%), transparent 30rem),
+          #07091a;
+        color: #dce5ff;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        display: grid;
+        place-items: center;
+        text-align: center;
+      }
+      main {
+        padding: 2rem;
+        max-width: 26rem;
+      }
+      .mark {
+        width: 64px;
+        height: 64px;
+        margin: 0 auto 1.25rem;
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #169bff 0%, #7c4dff 52%, #bf1dff 100%);
+        box-shadow: 0 12px 28px -14px rgb(22 155 255 / 95%);
+      }
+      h1 {
+        font-size: 1.35rem;
+        margin: 0 0 0.5rem;
+      }
+      p {
+        margin: 0 0 1.5rem;
+        color: #94a3c7;
+        line-height: 1.55;
+      }
+      button {
+        padding: 0.65rem 1.4rem;
+        border: 1px solid rgb(128 139 255 / 35%);
+        border-radius: 999px;
+        background: rgb(22 155 255 / 18%);
+        color: #dce5ff;
+        font-size: 0.95rem;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:hover {
+        background: rgb(22 155 255 / 30%);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark" aria-hidden="true">
+        <svg
+          aria-hidden="true"
+          width="38"
+          height="38"
+          viewBox="0 0 32 32"
+          fill="none"
+          stroke="#ffffff"
+          stroke-width="2.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M4.5 16h5.2l2.6-6.8 5.2 15.6 3.3-8.8h6.7" />
+        </svg>
+      </div>
+      <h1>U bent offline</h1>
+      <p>Careon Pulse heeft een internetverbinding nodig om het dashboard te laden. Controleer uw verbinding en probeer het opnieuw.</p>
+      <button type="button" onclick="location.reload()">Opnieuw proberen</button>
+    </main>
+  </body>
+</html>
