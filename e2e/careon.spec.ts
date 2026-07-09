@@ -33,6 +33,15 @@ test.describe("auth", () => {
     await expect(page.getByText("Onjuiste combinatie — probeer het opnieuw.")).toBeVisible();
   });
 
+  test("username is case-insensitive", async ({ page }) => {
+    await page.goto(LOGIN_URL);
+    await page.getByPlaceholder("Gebruikersnaam").fill("USER1");
+    await page.getByPlaceholder("Wachtwoord").fill("demo1234");
+    await page.getByRole("button", { name: "Inloggen" }).click();
+    await page.waitForURL("**/dashboard/directiecockpit");
+    await expect(page.getByRole("heading", { name: "Directiecockpit" })).toBeVisible();
+  });
+
   test("valid login lands on Directiecockpit, logout returns to login", async ({ page }) => {
     await page.goto(LOGIN_URL);
     await page.getByPlaceholder("Gebruikersnaam").fill("user1");

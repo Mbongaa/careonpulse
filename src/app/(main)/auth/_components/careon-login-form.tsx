@@ -33,7 +33,10 @@ export function CareonLoginForm() {
     setInvalid(false);
 
     window.setTimeout(() => {
-      const ok = username.trim() === CAREON_DEMO_CREDENTIALS.username && password === CAREON_DEMO_CREDENTIALS.password;
+      // Username is case-insensitive; the password stays case-sensitive.
+      const ok =
+        username.trim().toLowerCase() === CAREON_DEMO_CREDENTIALS.username.toLowerCase() &&
+        password === CAREON_DEMO_CREDENTIALS.password;
       if (ok) {
         careonLogin();
         router.replace("/dashboard/directiecockpit");

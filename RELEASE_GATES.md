@@ -84,6 +84,17 @@ Client explicitly requested real AI instead of the placeholder. Implemented with
 - Config: `OPENAI_API_KEY` via `.env.local` (gitignored, verified with `git check-ignore`) or Vercel env vars; `.env.example` documents the contract. The e2e webServer pins `CAREON_ASSISTANT_LIVE=0` so the suite stays deterministic and never calls the provider.
 - Verified: route smoke-tested in all modes (dummy key → live:true + upstream failure → sanitized 502; no header → 401; disabled → 503 with live:false), Biome clean (152 files), tsc clean, verify:careon 123/123, clean build (route in the table), `npx playwright test` **65/65** (new API-mode gate in careon.spec.ts). Awaiting the real key from the client owner to activate.
 
+## Superseding requirement — Assistant canvas mobile redesign (2026-07-09)
+
+Client reported the assistant canvas was cramped on mobile (chat and canvas shared one phone screen in a stacked grid). Redesigned mobile-only; the desktop lg+ side-by-side layout is untouched (verified by screenshot + a programmatic dock-hidden check at 1440px):
+
+- Below `lg` the chat keeps the full workspace height; the inline canvas pane is `hidden lg:flex`.
+- The canvas now opens as a full-height (92dvh) vaul bottom drawer: drag handle, "Artefact-canvas" title, close button, safe-area clearance; same `AssistantArtifactCanvas` component inside (item chips, visuals, claims, sources, print, page link).
+- New "Canvas bekijken" dock above the composer (mobile only): shows the stage while a turn runs ("Bronnen lezen en nadenken…" / "Canvas samenstellen…"), then intent label + item count; tapping it — or any artifact chip under a message — opens the drawer (`select()` checks the same 1024px media query and no-ops on desktop). Crossing to ≥lg closes the drawer.
+- Print safeguard: `@media print` now forces `body { position: static }` so exporting from inside the drawer (vaul pins the body) cannot shift the print layout.
+- New permanent gate in `e2e/mobile.spec.ts`: quick prompt → dock ready → inline pane hidden + no horizontal overflow → drawer opens with the artifact → closes → chip reopens it.
+- Evidence: iPhone-13 screenshots reviewed in careon+light (`test-results/assistant-mobile-{careon,light}-dock.png`, `...-drawer.png`, careon `...-drawer-proof.png`, `...-dock-pending.png`) plus desktop reference `test-results/assistant-desktop-careon-canvas.png`. Full pass on the final code state: `npm run check` clean (152 files), `tsc --noEmit` clean, `verify:careon` 123/123, clean `npm run build`, `npx playwright test` **67/67**.
+
 ## Previous functional pass — ALL FUNCTIONAL GATES GREEN ✅ (2026-07-08, it.6)
 
 One uninterrupted sequence on the final code state: `npm run check` clean (119 files) → `tsc --noEmit` clean → `verify:careon` 104/104 → clean `npm run build` (route table = Careon app only) → `npx playwright test` 37/37 (15 functional + 22 axe WCAG-AA, desktop + mobile, light + dark). Production server left running on port 3000.

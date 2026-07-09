@@ -692,6 +692,9 @@ html {
     height: 11in !important;
     margin: 0 !important;
     overflow: hidden !important;
+    /* The mobile canvas drawer (vaul) pins the body while open; undo that
+       lock during print so the export lays out from the page origin. */
+    position: static !important;
   }
 
   body > *:not([data-print-root]) {

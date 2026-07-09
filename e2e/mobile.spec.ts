@@ -65,6 +65,38 @@ test("mobile: filter popover exposes Periode/Locatie/Team @mobile", async ({ pag
   await expect(page.getByRole("table")).toBeHidden();
 });
 
+test("mobile: assistant canvas opens in a full-height drawer @mobile", async ({ page }) => {
+  await loginViaSession(page);
+  await page.goto("/dashboard/assistent");
+  await expect(page.getByRole("heading", { name: "Careon AI-assistent" })).toBeVisible();
+
+  // Ask via a quick prompt; the dock above the composer tracks the turn.
+  await page.getByRole("button", { name: "Samenvatting van vandaag" }).click();
+  const dock = page.getByRole("button", { name: /Canvas bekijken/ });
+  await expect(dock).toBeVisible({ timeout: 20_000 });
+
+  // The chat keeps the full viewport: the inline canvas pane stays hidden on
+  // mobile and nothing overflows horizontally while a canvas exists.
+  await expect(page.locator('section[aria-label="Artefact-canvas"]')).toBeHidden();
+  const overflow = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth,
+    inner: window.innerWidth,
+  }));
+  expect(overflow.scroll).toBeLessThanOrEqual(overflow.inner + 1);
+
+  // Dock opens the drawer with the artifact canvas inside.
+  await dock.click();
+  const drawer = page.locator('[data-slot="drawer-content"]');
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByText("Geselecteerd artefact")).toBeVisible();
+
+  // Close, then reopen via the artifact chip under the assistant message.
+  await page.getByRole("button", { name: "Canvas sluiten" }).click();
+  await expect(drawer).toBeHidden();
+  await page.locator('ul[aria-label="Artefacten bij dit antwoord"] button').first().click();
+  await expect(page.locator('[data-slot="drawer-content"]')).toBeVisible();
+});
+
 test("mobile: assistant thread sheet opens and closes @mobile", async ({ page }) => {
   await loginViaSession(page);
   await page.goto("/dashboard/assistent");

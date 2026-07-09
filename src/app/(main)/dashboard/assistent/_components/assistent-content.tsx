@@ -11,18 +11,20 @@ import {
   useRemoteThreadListRuntime,
   useThreadRuntime,
 } from "@assistant-ui/react";
-import { Activity, Brain, PanelLeft, Printer, Zap } from "lucide-react";
+import { Activity, BarChart3, Brain, ChevronUp, Loader2, PanelLeft, Printer, X, Zap } from "lucide-react";
 
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
 import { Thread } from "@/components/assistant-ui/thread";
 import { ThreadList, type ThreadListLabels } from "@/components/assistant-ui/thread-list";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Drawer, DrawerClose, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CAREON_ALERTS } from "@/data/careon/careon-alerts";
 import {
+  ASSISTANT_INTENT_META,
   ASSISTANT_QUICK_PROMPTS,
   type AssistantArtifact,
   type AssistantIntentId,
@@ -38,8 +40,10 @@ import { AssistantArtifactCanvas } from "./assistant-canvas";
 import {
   AssistantCanvasContext,
   type AssistantCanvasState,
+  assistantArtifactItems,
   defaultArtifactItemId,
   readMessageCustom,
+  useAssistantCanvas,
 } from "./assistant-context";
 import { AssistantExportOverlay, type AssistantExportPayload, type AssistantExportTurn } from "./assistant-export";
 import { AssistantMessageExtras } from "./assistant-extras";
@@ -60,6 +64,10 @@ const THREAD_LIST_LABELS: ThreadListLabels = {
 };
 
 type ReasoningStyle = "standaard" | "diep";
+
+// Below this width the canvas lives in a bottom drawer instead of the inline
+// pane; must match the `lg:` classes on the workspace grid.
+const CANVAS_INLINE_QUERY = "(min-width: 1024px)";
 
 function sleepFrame(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.reject(signal.reason ?? new Error("cancelled"));
@@ -184,6 +192,18 @@ export function AssistentContent() {
     messageKey: null,
   });
 
+  // On phones the canvas opens as a full-height bottom drawer; the inline
+  // pane only exists from lg up. Close the drawer when crossing to desktop.
+  const [mobileCanvasOpen, setMobileCanvasOpen] = useState(false);
+  useEffect(() => {
+    const mql = window.matchMedia(CANVAS_INLINE_QUERY);
+    const onChange = (event: MediaQueryListEvent) => {
+      if (event.matches) setMobileCanvasOpen(false);
+    };
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+
   const select = useCallback((artifact: AssistantArtifact, itemId?: string | null, messageKey?: string | null) => {
     setCanvas({
       artifact,
@@ -192,6 +212,7 @@ export function AssistentContent() {
       selectedItemId: itemId ?? defaultArtifactItemId(artifact),
       messageKey: messageKey ?? null,
     });
+    if (!window.matchMedia(CANVAS_INLINE_QUERY).matches) setMobileCanvasOpen(true);
   }, []);
 
   const canvasValue = useMemo(() => ({ ...canvas, select }), [canvas, select]);
@@ -379,10 +400,9 @@ export function AssistentContent() {
             <div
               className={cn(
                 "grid min-h-0 flex-1 grid-cols-1 gap-4 p-4",
-                // On mobile the canvas stacks under the chat in a capped row;
-                // from lg the two sit side by side exactly as before.
-                hasCanvas &&
-                  "grid-rows-[minmax(0,1fr)_auto] lg:grid-rows-none lg:[grid-template-columns:minmax(0,1.1fr)_minmax(320px,0.9fr)]",
+                // On mobile the chat keeps the full height (the canvas opens
+                // in a bottom drawer); from lg the two sit side by side.
+                hasCanvas && "lg:[grid-template-columns:minmax(0,1.1fr)_minmax(320px,0.9fr)]",
               )}
             >
               <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
@@ -407,6 +427,7 @@ export function AssistentContent() {
                   }}
                   footerBeforeComposer={
                     <div className="flex flex-col gap-2">
+                      <AssistantCanvasDock onOpen={() => setMobileCanvasOpen(true)} />
                       <AssistantSourceMeta aiLive={aiLive} />
                       <AssistantQuickPrompts />
                     </div>
@@ -415,7 +436,7 @@ export function AssistentContent() {
               </div>
               {hasCanvas ? (
                 <AssistantArtifactCanvas
-                  className="max-h-[45dvh] lg:max-h-none"
+                  className="hidden lg:flex"
                   onExport={(artifact) =>
                     setExportPayload({
                       mode: "artifact",
@@ -427,6 +448,34 @@ export function AssistentContent() {
             </div>
           </div>
         </div>
+
+        {/* Mobile canvas: full-height bottom drawer with the same artifact canvas. */}
+        <Drawer open={mobileCanvasOpen && hasCanvas} onOpenChange={setMobileCanvasOpen}>
+          <DrawerContent
+            aria-describedby={undefined}
+            className="h-[92dvh] data-[vaul-drawer-direction=bottom]:max-h-[92dvh]"
+          >
+            <div className="flex shrink-0 items-center justify-between gap-2 px-4 pt-1 pb-2">
+              <DrawerTitle className="text-sm">Artefact-canvas</DrawerTitle>
+              <DrawerClose asChild>
+                <Button variant="ghost" size="icon" className="size-8" aria-label="Canvas sluiten">
+                  <X className="size-4" />
+                </Button>
+              </DrawerClose>
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+              <AssistantArtifactCanvas
+                className="flex-1 rounded-none border-0 bg-transparent"
+                onExport={(artifact) =>
+                  setExportPayload({
+                    mode: "artifact",
+                    turns: [{ id: "artifact", question: "", answer: "", artifact }],
+                  })
+                }
+              />
+            </div>
+          </DrawerContent>
+        </Drawer>
 
         {exportPayload ? (
           <AssistantExportOverlay payload={exportPayload} source={source} onClose={() => setExportPayload(null)} />
@@ -482,6 +531,42 @@ function AssistantSourceMeta({ aiLive }: Readonly<{ aiLive: boolean }>) {
         </Badge>
       ) : null}
     </div>
+  );
+}
+
+// Mobile-only entry to the canvas drawer, docked above the composer: shows
+// the assembly stage while a turn runs and the ready artifact afterwards.
+function AssistantCanvasDock({ onOpen }: Readonly<{ onOpen: () => void }>) {
+  const { artifact, pending, stage } = useAssistantCanvas();
+
+  if (!artifact && !pending) return null;
+
+  if (pending || !artifact) {
+    return (
+      <div className="flex min-h-10 items-center gap-2.5 rounded-xl border border-dashed px-3 py-2 text-muted-foreground text-xs lg:hidden">
+        <Loader2 className="size-4 shrink-0 animate-spin" />
+        {stage === "thinking" ? "Bronnen lezen en nadenken…" : "Canvas samenstellen…"}
+      </div>
+    );
+  }
+
+  const items = assistantArtifactItems(artifact);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group flex min-h-11 w-full items-center gap-2.5 rounded-xl border border-primary/40 bg-primary/5 px-3 py-2 text-start transition-colors hover:bg-primary/10 lg:hidden"
+    >
+      <BarChart3 className="size-4 shrink-0 text-primary" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-medium text-xs leading-tight">Canvas bekijken</span>
+        <span className="block truncate text-muted-foreground text-xs">
+          {ASSISTANT_INTENT_META[artifact.intent].label} ·{" "}
+          {items.length === 1 ? "1 onderdeel" : `${items.length} onderdelen`}
+        </span>
+      </span>
+      <ChevronUp className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:-translate-y-0.5" />
+    </button>
   );
 }
 
