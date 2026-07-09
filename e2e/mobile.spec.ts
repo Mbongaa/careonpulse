@@ -12,6 +12,7 @@ const ROUTES = [
   "/dashboard/planning",
   "/dashboard/behandelaren",
   "/dashboard/dossiercontrole",
+  "/dashboard/dossiers-productie",
   "/dashboard/kwaliteit",
   "/dashboard/financieel",
   "/dashboard/hr",

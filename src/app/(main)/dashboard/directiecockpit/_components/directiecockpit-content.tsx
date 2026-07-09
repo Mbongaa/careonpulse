@@ -9,6 +9,7 @@ import { COCKPIT_INSIGHTS } from "@/data/careon/careon-kpis";
 import { CAREON_ROUTES } from "@/data/careon/careon-pages";
 
 import { CaseloadChart, InstroomUitstroomChart, NoShowChart } from "./cockpit-charts";
+import { DossiersProductieSummary } from "./dossiers-productie-summary";
 import { UrgentAlertsPanel } from "./urgent-alerts";
 
 export function DirectiecockpitContent() {
@@ -28,6 +29,7 @@ export function DirectiecockpitContent() {
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-12">
         <InstroomUitstroomChart className="lg:col-span-8" />
         <UrgentAlertsPanel className="lg:col-span-4" />
+        <DossiersProductieSummary className="lg:col-span-12" />
         <CareonOmzetChart className="lg:col-span-6" />
         <NoShowChart className="lg:col-span-3" />
         <CaseloadChart className="lg:col-span-3" />

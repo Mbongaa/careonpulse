@@ -18,6 +18,7 @@ export type CareonPageId =
   | "planning"
   | "behandelaren"
   | "dossiers"
+  | "dossiersProductie"
   | "kwaliteit"
   | "financieel"
   | "hr"

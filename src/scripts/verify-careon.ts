@@ -12,6 +12,21 @@
 import { CAREON_ALERTS, CRITICAL_ALERT_COUNT } from "../data/careon/careon-alerts";
 import { caseloadTone, ncTone, noshowTone } from "../data/careon/careon-behandelaren";
 import { parseKpiCsv, SAMPLE_CSV_CONTENT } from "../data/careon/careon-databron";
+import {
+  ACTIEVE_CLIENTEN,
+  DIAGNOSE_GROEPEN,
+  DOSSIERS_PRODUCTIE_METRICS,
+  GESLACHT_VERDELING,
+  LEEFTIJD_GROEPEN,
+  MEDEWERKER_PRODUCTIE,
+  PLAATS_VERDELING,
+  REGIEBEHANDELAREN,
+  regieTone,
+  VERZEKERAAR_VERDELING,
+  WACHTLIJST_BUCKETS,
+  WACHTLIJST_PER_LOCATIE,
+  WACHTLIJST_SUMMARY,
+} from "../data/careon/careon-dossiers-productie";
 import { CAREON_LOCATION_SCALE } from "../data/careon/careon-filters";
 import { FINANCIEEL_METRICS } from "../data/careon/careon-financieel";
 import { HR_METRICS } from "../data/careon/careon-hr";
@@ -227,6 +242,52 @@ check("nc 0 good", ncTone(0), "good");
 check("compliance 96/98 good", complianceTone(96, 98), "good");
 check("compliance 78/85 warn", complianceTone(78, 85), "warn");
 check("compliance 91/100 bad", complianceTone(91, 100), "bad");
+
+// ---- Dossiers & productie (client feature, handoff 07): reconciliation with audited values ----
+const sumAantal = (groepen: { aantal: number }[]) => groepen.reduce((sum, g) => sum + g.aantal, 0);
+check("dp actieve clienten = cockpit actief", ACTIEVE_CLIENTEN, 1248);
+check(
+  "dp afsluitingen som = gesloten dossiers 74",
+  MEDEWERKER_PRODUCTIE.reduce((sum, row) => sum + row.afsluitingen, 0),
+  metric(PATIENTEN_METRICS, "Uitstroom").value,
+);
+check(
+  "dp productie-uren per mw = declarabel + indirect",
+  MEDEWERKER_PRODUCTIE.every((row) => row.productieUren === row.declU + row.indirU),
+  true,
+);
+check("dp medewerkers = 10 geauditeerde behandelaren", MEDEWERKER_PRODUCTIE.length, 10);
+check(
+  "dp KPI productie-uren = som medewerkers",
+  metric(DOSSIERS_PRODUCTIE_METRICS, "Productie-uren").value,
+  MEDEWERKER_PRODUCTIE.reduce((sum, row) => sum + row.productieUren, 0),
+);
+check("dp diagnoses som = actieve clienten", sumAantal(DIAGNOSE_GROEPEN), ACTIEVE_CLIENTEN);
+check(
+  "dp geslacht som = actieve clienten",
+  GESLACHT_VERDELING.reduce((sum, g) => sum + g.value, 0),
+  ACTIEVE_CLIENTEN,
+);
+check("dp leeftijd som = actieve clienten", sumAantal(LEEFTIJD_GROEPEN), ACTIEVE_CLIENTEN);
+check("dp plaats som = actieve clienten", sumAantal(PLAATS_VERDELING), ACTIEVE_CLIENTEN);
+check("dp verzekeraars som = actieve clienten", sumAantal(VERZEKERAAR_VERDELING), ACTIEVE_CLIENTEN);
+check(
+  "dp regiebehandelaren som = actieve clienten",
+  REGIEBEHANDELAREN.reduce((sum, row) => sum + row.clienten, 0),
+  ACTIEVE_CLIENTEN,
+);
+check(
+  "dp wachtlijst totaal = intake 43 + behandeling 27",
+  WACHTLIJST_SUMMARY.totaal,
+  metric(PATIENTEN_METRICS, "Wachtlijst intake").value + metric(PATIENTEN_METRICS, "Wachtlijst behandeling").value,
+);
+check("dp wachtlijst buckets som = totaal", sumAantal(WACHTLIJST_BUCKETS), WACHTLIJST_SUMMARY.totaal);
+check("dp wachtlijst per locatie som = totaal", sumAantal(WACHTLIJST_PER_LOCATIE), WACHTLIJST_SUMMARY.totaal);
+check("dp gem wachttijd = planning 5,2 wkn", WACHTLIJST_SUMMARY.gemWachttijdWkn, 5.2);
+check("dp regie tone 236 bad", regieTone(236), "bad");
+check("dp regie tone 214 warn", regieTone(214), "warn");
+check("dp regie tone 168 none", regieTone(168), "none");
+check("dp route", CAREON_ROUTES.dossiersProductie, "/dashboard/dossiers-productie");
 
 console.log(`\nverify-careon: ${passes} passed, ${failures} failed`);
 if (failures > 0) {

@@ -66,6 +66,15 @@ Client asked for the dashboard to be installable on the phone like a native app.
 - Evidence: new `e2e/pwa.spec.ts` gates — manifest fields, sw/icons/offline served with correct headers, and a real Chromium check that the service worker activates and a navigation while offline renders "U bent offline". Full suite on the final build: `npm run check` clean (143 files), `tsc --noEmit` clean, `verify:careon` 104/104, clean `npm run build` (route table + /manifest.webmanifest), `npx playwright test` **58/58**.
 - Install paths: Android/Chrome shows the install prompt automatically; iOS Safari via Deel → Zet op beginscherm. Demo login uses sessionStorage by design, so each fresh app launch starts at the login screen.
 
+## Superseding feature — Dossiers & productie page (2026-07-09)
+
+Client-requested analytics page (agent-handoff/07), implemented as a separate route plus a cockpit summary:
+
+- `/dashboard/dossiers-productie` (sidebar: Zorg → "Dossiers & productie", New badge): Careon Insights banner, 6-KPI strip, dossiers/afsluitingen/productie-uren per medewerker (table ≥md, card list on mobile, filtered by locatie/team), and population panels — diagnoses, geslacht (donut), leeftijd, verwijzers, plaats, verzekeringskoepel, regiebehandelaar (norm 220 + "boven norm" badge), wachtlijst (totaal/urgent/gem. wachttijd + wachtduur-buckets + per locatie).
+- Directiecockpit got a compact summary card (afsluitingen, productie-uren, wachtlijst, top diagnose, grootste verwijzer) linking to the page.
+- Mock data in `src/data/careon/careon-dossiers-productie.ts` reconciles with the audited constants: every population breakdown sums to 1.248 actieve cliënten; afsluitingen per medewerker sum to 74 (= Uitstroom/Gesloten dossiers); productie-uren = declarabel + indirect per medewerker (KPI 1.329 = som); wachtlijst 70 = intake 43 + behandeling 27 (buckets and per-locatie sum to 70; Roermond 31 consistent with de Treeknorm-alert); gem. wachttijd 5,2 wkn = Planning; medewerkers/regiebehandelaren = de 10 geauditeerde behandelaren; verzekeraars = de Financieel-koepels.
+- Verified: `npm run check` clean (151 files), `tsc --noEmit` clean, `verify:careon` **123/123** (19 new reconciliation assertions), clean `npm run build`, `npx playwright test` **64/64** (route added to the a11y ROUTES — axe in light/dark/careon — and the mobile no-overflow sweep; 3 new functional tests: page content, locatie-filter narrowing, cockpit-summary link). Mobile (careon+light), desktop, and cockpit-summary screenshots reviewed.
+
 ## Previous functional pass — ALL FUNCTIONAL GATES GREEN ✅ (2026-07-08, it.6)
 
 One uninterrupted sequence on the final code state: `npm run check` clean (119 files) → `tsc --noEmit` clean → `verify:careon` 104/104 → clean `npm run build` (route table = Careon app only) → `npx playwright test` 37/37 (15 functional + 22 axe WCAG-AA, desktop + mobile, light + dark). Production server left running on port 3000.

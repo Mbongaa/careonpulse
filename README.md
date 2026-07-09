@@ -25,9 +25,11 @@ Release-gate status and iteration history: [RELEASE_GATES.md](RELEASE_GATES.md).
 
 ## What's inside
 
-Ten dashboard sections under `/dashboard/…` (Dutch route names, `/` and `/dashboard` redirect to the cockpit):
+Ten audited dashboard sections under `/dashboard/…` (Dutch route names, `/` and `/dashboard` redirect to the cockpit):
 
 Directiecockpit · Signaleringen · Patiënten · Planning · Behandelaren · Dossiercontrole · Kwaliteit · Financieel · HR · Databron
+
+Plus **Dossiers & productie** (`/dashboard/dossiers-productie`, client-requested): dossiers, afsluitingen en productie-uren per medewerker with population analytics — diagnoses, geslacht, leeftijd, verwijzers, woonplaats, regiebehandelaar, verzekeringskoepel and wachtlijst — topped by Careon Insights, with a compact summary on the Directiecockpit. Its mock data reconciles with the audited constants (see `src/data/careon/careon-dossiers-productie.ts`).
 
 Plus an **AI-assistent** (`/dashboard/assistent`): an assistant-ui chat workspace with a persisted thread list and an artifact canvas (KPI tiles, charts, rank lists, claims, and source references). Answers are deterministic Dutch summaries built from the audited demo dataset — no LLM or backend is involved.
 

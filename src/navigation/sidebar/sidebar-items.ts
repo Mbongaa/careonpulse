@@ -3,6 +3,7 @@ import {
   Bot,
   CalendarDays,
   Database,
+  FolderKanban,
   FolderSearch,
   Landmark,
   LayoutDashboard,
@@ -107,6 +108,13 @@ export const sidebarItems: NavGroup[] = [
         title: "Dossiercontrole",
         url: "/dashboard/dossiercontrole",
         icon: FolderSearch,
+      },
+      {
+        id: "dossiers-productie",
+        title: "Dossiers & productie",
+        url: "/dashboard/dossiers-productie",
+        icon: FolderKanban,
+        badge: "new",
       },
       {
         id: "kwaliteit",

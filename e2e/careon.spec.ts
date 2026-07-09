@@ -118,6 +118,47 @@ test.describe("behandelaren", () => {
   });
 });
 
+test.describe("dossiers & productie", () => {
+  test("page shows reconciled KPIs and population sections", async ({ page }) => {
+    await loginViaSession(page);
+    await page.goto("/dashboard/dossiers-productie");
+    await expect(page.getByRole("heading", { name: "Dossiers & productie" })).toBeVisible();
+    // KPI strip reconciles with audited values (afsluitingen 74, wachtlijst 70).
+    await expect(page.getByText("1.248", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Afsluitingen", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Wachtlijst totaal")).toBeVisible();
+    // Population sections.
+    await expect(page.getByText("Diagnoses binnen de instelling")).toBeVisible();
+    await expect(page.getByText("Depressieve stoornissen", { exact: true })).toBeVisible();
+    await expect(page.getByText("Verzekeringskoepel")).toBeVisible();
+    await expect(page.getByText("Regiebehandelaar", { exact: true })).toBeVisible();
+    await expect(page.getByText("boven norm")).toBeVisible();
+  });
+
+  test("location filter narrows the medewerker table", async ({ page }) => {
+    await loginViaSession(page);
+    await page.goto("/dashboard/dossiers-productie");
+    await expect(page.getByText("10 medewerkers · Alle locaties · Alle teams")).toBeVisible();
+    await page.getByLabel("Locatie").click();
+    await page.getByRole("option", { name: "Roermond" }).click();
+    await expect(page.getByText("3 medewerkers · Roermond · Alle teams")).toBeVisible();
+    await expect(page.getByRole("cell", { name: /L\. Vermeer/ })).toBeVisible();
+  });
+
+  test("cockpit summary links to the page", async ({ page }) => {
+    await loginViaSession(page);
+    await page.goto("/dashboard/directiecockpit");
+    const summary = page.getByText("Dossiers & productie", { exact: true }).first();
+    await expect(summary).toBeVisible();
+    await page
+      .getByRole("link", { name: /Bekijk/ })
+      .first()
+      .click();
+    await page.waitForURL("**/dashboard/dossiers-productie");
+    await expect(page.getByRole("heading", { name: "Dossiers & productie" })).toBeVisible();
+  });
+});
+
 test.describe("databron", () => {
   test.beforeEach(async ({ page }) => {
     await loginViaSession(page);

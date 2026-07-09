@@ -7,6 +7,7 @@ export const CAREON_ROUTES: Record<CareonPageId, string> = {
   planning: "/dashboard/planning",
   behandelaren: "/dashboard/behandelaren",
   dossiers: "/dashboard/dossiercontrole",
+  dossiersProductie: "/dashboard/dossiers-productie",
   kwaliteit: "/dashboard/kwaliteit",
   financieel: "/dashboard/financieel",
   hr: "/dashboard/hr",
@@ -37,6 +38,10 @@ export const CAREON_PAGE_META: Record<CareonPageId, { title: string; sub: string
   dossiers: {
     title: "Dossiercontrole",
     sub: "Twaalf automatische controles op dossiervolledigheid.",
+  },
+  dossiersProductie: {
+    title: "Dossiers & productie",
+    sub: "Dossiers, afsluitingen en productie per medewerker — plus de cliëntpopulatie in één oogopslag.",
   },
   kwaliteit: {
     title: "Kwaliteit",
