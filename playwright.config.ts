@@ -18,6 +18,9 @@ export default defineConfig({
     url: `http://localhost:${PORT}/auth/v1/login`,
     reuseExistingServer: false,
     timeout: 120_000,
+    // Force the assistant onto its deterministic fallback so e2e runs are
+    // reproducible and never call the live AI provider.
+    env: { CAREON_ASSISTANT_LIVE: "0" },
   },
   projects: [
     {

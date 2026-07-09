@@ -118,6 +118,22 @@ test.describe("behandelaren", () => {
   });
 });
 
+test.describe("assistant api", () => {
+  test("health probe reports fallback mode and posts are refused without live AI", async ({ request }) => {
+    // The e2e webServer sets CAREON_ASSISTANT_LIVE=0, so live must be false
+    // and the POST endpoint must refuse with 503 (client then falls back).
+    const health = await request.get("/api/assistant");
+    expect(health.status()).toBe(200);
+    expect((await health.json()).live).toBe(false);
+
+    const post = await request.post("/api/assistant", {
+      headers: { "x-careon-assistant": "1" },
+      data: { question: "test" },
+    });
+    expect(post.status()).toBe(503);
+  });
+});
+
 test.describe("dossiers & productie", () => {
   test("page shows reconciled KPIs and population sections", async ({ page }) => {
     await loginViaSession(page);

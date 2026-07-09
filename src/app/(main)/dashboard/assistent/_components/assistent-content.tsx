@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   AssistantRuntimeProvider,
@@ -26,10 +26,12 @@ import {
   ASSISTANT_QUICK_PROMPTS,
   type AssistantArtifact,
   type AssistantIntentId,
+  type AssistantResponse,
   resolveAssistantResponse,
 } from "@/data/careon/careon-assistant";
 import { COCKPIT_KPIS } from "@/data/careon/careon-kpis";
 import { CAREON_MONTHLY } from "@/data/careon/careon-shared-charts";
+import type { CareonFilters, CareonKpi, CareonSource } from "@/data/careon/careon-types";
 import { cn } from "@/lib/utils";
 
 import { AssistantArtifactCanvas } from "./assistant-canvas";
@@ -46,6 +48,7 @@ import { CareonAssistantThreadListAdapter } from "./assistant-thread-list-adapte
 const STREAM_CHUNK = 6;
 const STREAM_FRAME_MS = 16;
 const CITE = "Bron: geauditeerde Careon Pulse demo-dataset · deterministisch antwoord zonder live AI-model";
+const LIVE_CITE = "Live AI-antwoord · cijfers uitsluitend uit de geauditeerde Careon Pulse demo-dataset";
 
 const THREAD_LIST_LABELS: ThreadListLabels = {
   archive: "Archiveren",
@@ -106,6 +109,40 @@ function runResult(text: string, custom: Record<string, unknown>, complete?: boo
   };
 }
 
+// Compact grounding payload for the live AI route: the deterministic artifact
+// (claims/sources), current filters and cockpit KPIs. The model is instructed
+// to use only these numbers.
+function buildGrounding(
+  response: AssistantResponse,
+  ctx: { kpis: CareonKpi[]; filters: CareonFilters; source: CareonSource },
+): string {
+  const { artifact } = response;
+  return JSON.stringify({
+    filters: ctx.filters,
+    databron: ctx.source.label,
+    cockpitKpis: ctx.kpis.map((kpi) => ({ label: kpi.label, waarde: kpi.value, vorigeMaand: kpi.prev })),
+    artefact: {
+      intent: artifact.intent,
+      pagina: artifact.pageLabel,
+      visualisaties: artifact.visualizations.map((visual) => visual.title),
+      bewijsvoering: artifact.claims,
+      bronnen: artifact.sources,
+    },
+    referentieAntwoord: response.deep,
+  });
+}
+
+// Prior turns (excluding the question being answered), capped server-side too.
+function historyFromMessages(messages: ChatModelRunOptions["messages"]) {
+  const turns: { role: "user" | "assistant"; content: string }[] = [];
+  for (const message of messages) {
+    if (message.role !== "user" && message.role !== "assistant") continue;
+    const content = partText(message.content).trim();
+    if (content) turns.push({ role: message.role, content });
+  }
+  return turns.slice(0, -1).slice(-8);
+}
+
 export function AssistentContent() {
   const { kpis, filters, source } = useCareon();
 
@@ -116,6 +153,28 @@ export function AssistentContent() {
   const [showThreads, setShowThreads] = useState(true);
   const [mobileThreadsOpen, setMobileThreadsOpen] = useState(false);
   const [exportPayload, setExportPayload] = useState<AssistantExportPayload | null>(null);
+
+  // Live AI availability (OPENAI_API_KEY configured server-side). Without it
+  // the assistant keeps working on the deterministic demo answers.
+  const [aiLive, setAiLive] = useState(false);
+  const aiLiveRef = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/assistant")
+      .then((res) => (res.ok ? res.json() : { live: false }))
+      .then((data: { live?: boolean }) => {
+        if (!cancelled) {
+          setAiLive(Boolean(data.live));
+          aiLiveRef.current = Boolean(data.live);
+        }
+      })
+      .catch(() => {
+        // Health probe is best-effort; the deterministic fallback covers us.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [canvas, setCanvas] = useState<AssistantCanvasState>({
     artifact: null,
@@ -152,11 +211,66 @@ export function AssistentContent() {
     setCanvas((prev) => ({ ...prev, pending: true, stage: "thinking" }));
     try {
       yield runResult("", { visualPending: true });
-      await sleepFrame(420, options.abortSignal);
 
       const response = resolveAssistantResponse(text, turnContextRef.current, intentHint);
-      const target = reasoningRef.current === "diep" ? response.deep : response.brief;
       const messageKey = `turn-${Date.now()}`;
+      const commitCanvas = () =>
+        setCanvas({
+          artifact: response.artifact,
+          pending: false,
+          stage: "ready",
+          selectedItemId: defaultArtifactItemId(response.artifact),
+          messageKey,
+        });
+
+      // Live path: stream the answer from the server-side OpenAI route. The
+      // artifact/canvas stays deterministic — only the narrative is generated.
+      if (aiLiveRef.current) {
+        try {
+          const res = await fetch("/api/assistant", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-careon-assistant": "1" },
+            signal: options.abortSignal,
+            body: JSON.stringify({
+              question: text,
+              style: reasoningRef.current,
+              context: buildGrounding(response, turnContextRef.current),
+              history: historyFromMessages(options.messages),
+            }),
+          });
+          if (res.ok && res.body) {
+            setCanvas((prev) => ({ ...prev, pending: true, stage: "assembling" }));
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let streamed = "";
+            let done = false;
+            while (!done) {
+              const chunk = await reader.read();
+              done = chunk.done;
+              if (chunk.value) {
+                streamed += decoder.decode(chunk.value, { stream: true });
+                yield runResult(streamed, { visualPending: true });
+              }
+            }
+            if (streamed.trim()) {
+              commitCanvas();
+              yield runResult(
+                streamed,
+                { artifact: response.artifact, artifactKey: messageKey, cite: LIVE_CITE },
+                true,
+              );
+              return;
+            }
+          }
+        } catch (error) {
+          if (options.abortSignal.aborted) throw error;
+          // Live route failed — continue into the deterministic fallback.
+        }
+      }
+
+      // Deterministic fallback (also the demo mode without a configured key).
+      await sleepFrame(420, options.abortSignal);
+      const target = reasoningRef.current === "diep" ? response.deep : response.brief;
 
       setCanvas((prev) => ({ ...prev, pending: true, stage: "assembling" }));
       for (let index = STREAM_CHUNK; index < target.length; index += STREAM_CHUNK) {
@@ -164,13 +278,7 @@ export function AssistentContent() {
         await sleepFrame(STREAM_FRAME_MS, options.abortSignal);
       }
 
-      setCanvas({
-        artifact: response.artifact,
-        pending: false,
-        stage: "ready",
-        selectedItemId: defaultArtifactItemId(response.artifact),
-        messageKey,
-      });
+      commitCanvas();
       yield runResult(target, { artifact: response.artifact, artifactKey: messageKey, cite: CITE }, true);
     } catch (error) {
       setCanvas((prev) =>
@@ -207,7 +315,7 @@ export function AssistentContent() {
             )}
           >
             <ThreadList labels={THREAD_LIST_LABELS} />
-            <AssistantSourceFootnote />
+            <AssistantSourceFootnote aiLive={aiLive} />
           </aside>
 
           <div className="flex min-w-0 flex-1 flex-col">
@@ -236,7 +344,7 @@ export function AssistentContent() {
                     <ThreadList labels={THREAD_LIST_LABELS} onThreadSelect={() => setMobileThreadsOpen(false)} />
                   </div>
                   <div className="p-3">
-                    <AssistantSourceFootnote />
+                    <AssistantSourceFootnote aiLive={aiLive} />
                   </div>
                 </SheetContent>
               </Sheet>
@@ -299,7 +407,7 @@ export function AssistentContent() {
                   }}
                   footerBeforeComposer={
                     <div className="flex flex-col gap-2">
-                      <AssistantSourceMeta />
+                      <AssistantSourceMeta aiLive={aiLive} />
                       <AssistantQuickPrompts />
                     </div>
                   }
@@ -328,23 +436,16 @@ export function AssistentContent() {
   );
 }
 
-function AssistantSourceFootnote({ className }: Readonly<{ className?: string }>) {
-  const { source } = useCareon();
-
+function AssistantSourceFootnote({ aiLive, className }: Readonly<{ aiLive: boolean; className?: string }>) {
   return (
     <div className={cn("mt-auto flex items-center gap-2 border-t pt-3 text-muted-foreground text-xs", className)}>
-      <span
-        className={cn(
-          "size-2 shrink-0 rounded-full",
-          source.mode === "api" ? "animate-pulse bg-emerald-500" : "bg-amber-500",
-        )}
-      />
-      {source.mode === "api" ? source.label : "Lokale preview · geen live AI"}
+      <span className={cn("size-2 shrink-0 rounded-full", aiLive ? "animate-pulse bg-emerald-500" : "bg-amber-500")} />
+      {aiLive ? "Live AI actief · via beveiligde server" : "Lokale preview · geen live AI"}
     </div>
   );
 }
 
-function AssistantSourceMeta() {
+function AssistantSourceMeta({ aiLive }: Readonly<{ aiLive: boolean }>) {
   const { filters, source } = useCareon();
   const scope = [
     filters.locatie !== "Alle locaties" ? filters.locatie : null,
@@ -353,6 +454,10 @@ function AssistantSourceMeta() {
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-xs">
+      <Badge variant="outline" className="gap-1.5 font-normal">
+        <span className={cn("size-1.5 rounded-full", aiLive ? "animate-pulse bg-emerald-500" : "bg-amber-500")} />
+        {aiLive ? "Live AI" : "Demo-AI"}
+      </Badge>
       <Badge variant="outline" className="gap-1.5 font-normal">
         <span
           className={cn(

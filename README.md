@@ -33,6 +33,8 @@ Plus **Dossiers & productie** (`/dashboard/dossiers-productie`, client-requested
 
 Plus an **AI-assistent** (`/dashboard/assistent`): an assistant-ui chat workspace with a persisted thread list and an artifact canvas (KPI tiles, charts, rank lists, claims, and source references). Answers are deterministic Dutch summaries built from the audited demo dataset — no LLM or backend is involved.
 
+The assistant supports **live AI**: set `OPENAI_API_KEY` in `.env.local` (see `.env.example`) or as a Vercel environment variable and the assistant streams real answers from a server-side route (`src/app/api/assistant/route.ts`) that grounds the model on the demo dataset — the key never reaches the browser, and the artifact canvas stays deterministic. Without a key the assistant automatically uses its deterministic demo answers ("Demo-AI" badge).
+
 The app is **mobile-first and installable as a PWA**: every page has a compact phone layout (bottom navigation in all themes, filter popover, card-list tables) without changing the desktop design, and `manifest.ts` + `public/sw.js` make it installable from the browser (Android: install prompt; iOS: Deel → Zet op beginscherm) with a branded offline fallback. Mobile and PWA behavior are gated by `e2e/mobile.spec.ts` and `e2e/pwa.spec.ts`.
 
 Cross-cutting behavior:
