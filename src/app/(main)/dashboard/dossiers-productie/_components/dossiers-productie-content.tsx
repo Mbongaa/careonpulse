@@ -25,6 +25,7 @@ import {
 } from "./population-breakdown";
 import { RegiebehandelaarPanel } from "./regiebehandelaar-panel";
 import { WachtlijstPanel } from "./wachtlijst-panel";
+import { BehandelduurPanel, ZorgvraagtyperingPanel } from "./zorg-analyse-panels";
 
 export function DossiersProductieContent() {
   const { filters, production } = useCareon();
@@ -77,6 +78,9 @@ export function DossiersProductieContent() {
         <DiagnosesPanel className="lg:col-span-6" />
         <GeslachtPanel className="lg:col-span-3" />
         <LeeftijdPanel className="lg:col-span-3" />
+        {/* Productie-exclusief (geen demo-tegenhanger): renderen null in demo. */}
+        <ZorgvraagtyperingPanel className="lg:col-span-6" />
+        <BehandelduurPanel className="lg:col-span-6" />
         <VerwijzersPanel className="lg:col-span-4" />
         <PlaatsPanel className="lg:col-span-4" />
         <VerzekeraarsPanel className="lg:col-span-4" />

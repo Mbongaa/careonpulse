@@ -105,8 +105,40 @@ function monthKeyOf(iso: string | null): string | null {
 function isBehandelingsfase(labels: string[]): boolean {
   return labels.some((label) => {
     const lower = label.toLowerCase();
-    return lower.includes("behandeling") || lower.includes("schema therapie") || lower.includes("emdr");
+    return (
+      lower.includes("behandeling") || lower.includes("schema therapie") || lower.includes("emdr") || lower === "cgt"
+    );
   });
+}
+
+// Wachtlijstfase uit de labels: de meest gevorderde fase wint (een cliënt kan
+// meerdere labels dragen). Therapievorm-labels (EMDR/CGT/schematherapie)
+// betekenen: wachtend op behandeling.
+const FASE_VOLGORDE = ["Behandeling", "Behandelplan", "Indicatiestelling", "Intake", "Diagnostiek", "Screening"];
+
+function wachtlijstFase(labels: string[]): string {
+  const aanwezig = new Set<string>();
+  for (const label of labels) {
+    const lower = label.toLowerCase();
+    if (isBehandelingsfase([label])) aanwezig.add("Behandeling");
+    else if (lower.startsWith("behandelplan")) aanwezig.add("Behandelplan");
+    else if (lower.startsWith("indicatiestelling")) aanwezig.add("Indicatiestelling");
+    else if (lower.startsWith("intake")) aanwezig.add("Intake");
+    else if (lower.startsWith("diagnostiek")) aanwezig.add("Diagnostiek");
+    else if (lower.startsWith("screening")) aanwezig.add("Screening");
+  }
+  return FASE_VOLGORDE.find((fase) => aanwezig.has(fase)) ?? "Onbekend";
+}
+
+// Taal-tags tussen de wachtlijstlabels (whitelist — de labels mengen fases,
+// locaties en talen in één veld).
+const TAAL_TAGS = new Set(["nederlands", "engels", "pools", "turks", "arabisch", "duits", "frans"]);
+
+function mediaan(sortedValues: number[]): number | null {
+  const n = sortedValues.length;
+  if (n === 0) return null;
+  if (n % 2 === 1) return sortedValues[(n - 1) / 2];
+  return Math.round((sortedValues[n / 2 - 1] + sortedValues[n / 2]) / 2);
 }
 
 function isWachtend(record: ClientRecord): boolean {
@@ -222,6 +254,7 @@ export function computeProductionSnapshot(
 
   const startsPerMaand = groupCount(records, (record) => monthKeyOf(record.episodeStart));
   const eindesPerMaand = groupCount(records, (record) => monthKeyOf(record.episodeEind));
+  const verwijzingenPerMaand = groupCount(records, (record) => monthKeyOf(record.verwijsdatum));
 
   const monthly: ProductionMonthPoint[] = months.map((month) => ({
     m: month.label,
@@ -229,6 +262,7 @@ export function computeProductionSnapshot(
     aanmeldingen: startsPerMaand.get(month.key) ?? 0,
     uitstroom: eindesPerMaand.get(month.key) ?? 0,
     caseload: records.filter((record) => activeAt(record, month.endIso)).length,
+    verwijzingen: verwijzingenPerMaand.get(month.key) ?? 0,
   }));
 
   const actieveClienten = records.filter((record) => activeAt(record, referenceIso));
@@ -245,6 +279,18 @@ export function computeProductionSnapshot(
   const zonderZorgtypering = actieveClienten.filter((record) => record.zorgvraagtype === null);
   const zonderVerwijzer = actieveClienten.filter((record) => record.verwijzer === null);
   const zonderBehandelaar = actieveClienten.filter((record) => record.behandelaar === null);
+  // Cluster van administratief lege dossiers: geen vestiging, geen behandelaar
+  // én geen regiebehandelaar — één registratieprobleem, geen drie losse.
+  const adminOnvolledig = actieveClienten.filter(
+    (record) => record.vestiging === null && record.behandelaar === null && record.regiebehandelaar === null,
+  );
+  // Geselecteerde typering wijkt af van het HoNOS-advies (beide gevuld).
+  const afwijkendeTypering = actieveClienten.filter(
+    (record) =>
+      record.zorgvraagtype !== null &&
+      (record.voorgesteldZorgvraagtype ?? null) !== null &&
+      record.zorgvraagtype !== record.voorgesteldZorgvraagtype,
+  );
   const nietCompleet = actieveClienten.filter(
     (record) => record.diagnoseCode === null || record.zorgvraagtype === null || record.verwijzer === null,
   ).length;
@@ -292,6 +338,29 @@ export function computeProductionSnapshot(
     }
   }
 
+  // Fase-verdeling: elke wachtende telt in precies één (meest gevorderde) fase.
+  const faseCounts = groupCount(wachtenden, (record) => wachtlijstFase(record.wachtlijstLabels));
+  const wachtlijstFases: AantalGroep[] = FASE_VOLGORDE.concat("Onbekend")
+    .map((fase) => ({ label: fase, aantal: faseCounts.get(fase) ?? 0 }))
+    .filter((groep) => groep.aantal > 0);
+
+  // Taal-tags (alleen waar geregistreerd): capaciteitssignaal, bijv. Poolstalige
+  // wachtenden. Per cliënt uniek en op kleine letters gesleuteld, zodat een tag
+  // die in beide labelkolommen staat (of met andere casing) niet dubbel telt.
+  const taalCounts = new Map<string, number>();
+  for (const record of wachtenden) {
+    const talenVanClient = new Set(
+      record.wachtlijstLabels.map((label) => label.toLowerCase()).filter((label) => TAAL_TAGS.has(label)),
+    );
+    for (const taal of talenVanClient) {
+      const label = taal.charAt(0).toUpperCase() + taal.slice(1);
+      taalCounts.set(label, (taalCounts.get(label) ?? 0) + 1);
+    }
+  }
+  const wachtlijstTalen: AantalGroep[] = [...taalCounts.entries()]
+    .map(([label, aantal]) => ({ label, aantal }))
+    .sort((a, b) => b.aantal - a.aantal);
+
   // ---- Gerealiseerde wachttijd (verwijzing → episodestart) ----
   // Negatieve wachttijden (verwijzing ná episodestart geregistreerd — komt in
   // de echte export voor) zijn registratiefouten en worden uitgesloten in
@@ -308,6 +377,32 @@ export function computeProductionSnapshot(
       )
       .map((record) => daysBetween(record.verwijsdatum as string, record.episodeStart as string))
       .filter((dagen) => dagen >= 0);
+
+  // ---- Wachttijd-trend per startmaand ----
+  // De maandmediaan laat de ontwikkeling zien die het kwartaalgemiddelde
+  // verbergt; overTreek telt starters boven de Treeknorm (in dagen).
+  const treeknormDagen = TREEKNORM_WEKEN * 7;
+  const wachtPerStartmaand = groupBy(
+    records.filter(
+      (record) =>
+        record.episodeStart !== null &&
+        record.verwijsdatum !== null &&
+        daysBetween(record.verwijsdatum, record.episodeStart) >= 0,
+    ),
+    (record) => monthKeyOf(record.episodeStart),
+  );
+  const wachttijdTrend = months.map((month) => {
+    const dagen = (wachtPerStartmaand.get(month.key) ?? [])
+      .map((record) => daysBetween(record.verwijsdatum as string, record.episodeStart as string))
+      .sort((a, b) => a - b);
+    return {
+      m: month.label,
+      key: month.key,
+      n: dagen.length,
+      mediaanDagen: mediaan(dagen),
+      overTreek: dagen.filter((d) => d > treeknormDagen).length,
+    };
+  });
 
   const kwartaalStart = months[months.length - 3].key.concat("-01");
   const vorigKwartaalStart = months[months.length - 6].key.concat("-01");
@@ -398,10 +493,27 @@ export function computeProductionSnapshot(
   ].filter((groep) => groep.label !== "Onbekend" || groep.aantal > 0);
 
   const twaalfMaandenTerug = isoFromParts(referenceDate.getUTCFullYear() - 1, referenceDate.getUTCMonth(), 1);
-  const verwijzerCounts = groupCount(
-    records.filter((record) => record.verwijsdatum !== null && record.verwijsdatum >= twaalfMaandenTerug),
-    (record) => (record.verwijzer ? verwijzerLabel(record.verwijzer) : null),
-  );
+  // Groepering primair op AGB-code (authoritatief; vangt naamvarianten die
+  // tekstuele canonicalisatie mist), terugval op de genormaliseerde naam.
+  // Weergavelabel = meest voorkomende naam binnen de groep; gelijknamige
+  // groepen worden voor weergave samengeteld (status quo van naamgroepering).
+  const verwijzerGroepen = new Map<string, { aantal: number; labels: Map<string, number> }>();
+  for (const record of records) {
+    if (record.verwijsdatum === null || record.verwijsdatum < twaalfMaandenTerug || record.verwijzer === null) {
+      continue;
+    }
+    const label = verwijzerLabel(record.verwijzer);
+    const key = record.verwijzerAgb ?? `naam:${label.toLowerCase()}`;
+    const groep = verwijzerGroepen.get(key) ?? { aantal: 0, labels: new Map<string, number>() };
+    groep.aantal += 1;
+    groep.labels.set(label, (groep.labels.get(label) ?? 0) + 1);
+    verwijzerGroepen.set(key, groep);
+  }
+  const verwijzerCounts = new Map<string, number>();
+  for (const groep of verwijzerGroepen.values()) {
+    const label = [...groep.labels.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    verwijzerCounts.set(label, (verwijzerCounts.get(label) ?? 0) + groep.aantal);
+  }
   const verwijzers = topGroepen(verwijzerCounts, 5, "Overige verwijzers");
 
   const plaatsen = topGroepen(
@@ -415,6 +527,153 @@ export function computeProductionSnapshot(
     5,
     "Overig",
   );
+
+  // ---- Zorgvraagtypering (geselecteerd ZT, ZPM) ----
+  // Label = code + omschrijvingsstaart uit de data ("ZT03 · matige problematiek").
+  const ztOmschrijvingen = new Map<string, string>();
+  for (const record of actieveClienten) {
+    const staart = (record.zorgvraagtypeOmschrijving ?? "").split(" - ").pop()?.trim();
+    if (record.zorgvraagtype && staart && !ztOmschrijvingen.has(record.zorgvraagtype)) {
+      ztOmschrijvingen.set(record.zorgvraagtype, staart);
+    }
+  }
+  const ztCounts = groupCount(actieveClienten, (record) => record.zorgvraagtype);
+  const zorgvraagtypes: AantalGroep[] = [...ztCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([code, aantal]) => {
+      const staart = ztOmschrijvingen.get(code);
+      return { label: staart ? `${code} · ${staart}` : code, aantal };
+    });
+  if (zonderZorgtypering.length > 0) {
+    zorgvraagtypes.push({ label: "Geen typering geregistreerd", aantal: zonderZorgtypering.length });
+  }
+
+  // ---- Behandelduur (afgesloten episodes binnen het locatiefilter) ----
+  const afgeslotenEpisodes = records.filter(
+    (record) =>
+      record.episodeStart !== null &&
+      record.episodeEind !== null &&
+      record.episodeEind <= referenceIso &&
+      daysBetween(record.episodeStart, record.episodeEind) >= 0,
+  );
+  const behandelduren = afgeslotenEpisodes
+    .map((record) => daysBetween(record.episodeStart as string, record.episodeEind as string))
+    .sort((a, b) => a - b);
+  const behandelduurGem = mean(behandelduren);
+
+  // Laatste vier vólledige kwartalen (kwartaal van de einddatum): trendsignaal
+  // met eerlijke afbakening — het lopende kwartaal is per definitie onvolledig.
+  const kwartaalVan = (isoDatum: string) => {
+    const jaar = isoDatum.slice(0, 4);
+    const q = Math.ceil(Number(isoDatum.slice(5, 7)) / 3);
+    return `Q${q} '${jaar.slice(2)}`;
+  };
+  const refJaar = Number(referenceIso.slice(0, 4));
+  const refKwartaal0 = Math.floor((Number(referenceIso.slice(5, 7)) - 1) / 3);
+  const voltooideKwartalen: string[] = [];
+  for (let terug = 4; terug >= 1; terug -= 1) {
+    const totaal0 = refJaar * 4 + refKwartaal0 - terug;
+    voltooideKwartalen.push(`Q${(totaal0 % 4) + 1} '${String(Math.floor(totaal0 / 4)).slice(2)}`);
+  }
+  const durenPerKwartaal = groupBy(afgeslotenEpisodes, (record) => kwartaalVan(record.episodeEind as string));
+  const perKwartaal = voltooideKwartalen.map((label) => {
+    const dagen = (durenPerKwartaal.get(label) ?? [])
+      .map((record) => daysBetween(record.episodeStart as string, record.episodeEind as string))
+      .sort((a, b) => a - b);
+    return { label, n: dagen.length, mediaanDagen: mediaan(dagen) };
+  });
+
+  const behandelduur = {
+    afgesloten: behandelduren.length,
+    gemDagen: behandelduurGem === null ? null : Math.round(behandelduurGem),
+    mediaanDagen: mediaan(behandelduren),
+    buckets: [
+      { label: "0–30 dagen", aantal: behandelduren.filter((d) => d <= 30).length },
+      { label: "31–60 dagen", aantal: behandelduren.filter((d) => d > 30 && d <= 60).length },
+      { label: "61–90 dagen", aantal: behandelduren.filter((d) => d > 60 && d <= 90).length },
+      { label: "91–180 dagen", aantal: behandelduren.filter((d) => d > 90 && d <= 180).length },
+      { label: ">180 dagen", aantal: behandelduren.filter((d) => d > 180).length },
+    ],
+    perKwartaal,
+    zonderRegistratie: afgeslotenEpisodes.filter((record) => record.totaleTijdMin === 0).length,
+    churn14: behandelduren.filter((d) => d <= 14).length,
+  };
+
+  // ---- Comorbiditeit (secundaire diagnose geregistreerd) ----
+  const comorbideAantal = actieveClienten.filter((record) => record.heeftSecundaireDiagnose === true).length;
+  const comorbiditeit = {
+    aantal: comorbideAantal,
+    pct: actiefNu === 0 ? 0 : Math.round((comorbideAantal / actiefNu) * 100),
+  };
+
+  // ---- Zorgvorm als Setting-verdeling ----
+  // Het ZPM-label is voor deze instelling 100% SGGZ; de informatieve verdeling
+  // is de ZPM-setting: regulier ambulant (S03) vs outreachend (S04).
+  const settingCounts = groupCount(actieveClienten, (record) => record.setting ?? "Onbekend");
+  const zorgvorm = [
+    { name: "Ambulant (S03)", value: settingCounts.get("S03") ?? 0, color: "var(--chart-1)" },
+    { name: "Outreachend (S04)", value: settingCounts.get("S04") ?? 0, color: "var(--chart-2)" },
+    { name: "Onbekend", value: settingCounts.get("Onbekend") ?? 0, color: "var(--chart-4)" },
+  ].filter((item) => item.value > 0);
+
+  // ---- Contact-proxy: dossiers zonder één minuut geregistreerde tijd ----
+  // Eerlijke ondergrens voor "geen contact": zonder afsprakenexport kennen we
+  // geen contactdata, maar een niet-wachtend dossier dat >30/60 dagen open
+  // staat met nul geregistreerde tijd heeft aantoonbaar geen geregistreerde zorg.
+  const zonderRegistratieOud = (dagen: number) =>
+    actieveClienten.filter(
+      (record) =>
+        !isWachtend(record) &&
+        record.totaleTijdMin === 0 &&
+        record.episodeStart !== null &&
+        daysBetween(record.episodeStart, referenceIso) > dagen,
+    ).length;
+  const geenRegistratie30 = zonderRegistratieOud(30);
+  const geenRegistratie60 = zonderRegistratieOud(60);
+
+  // ---- Hoog-risico (proxy voor "Crisiscliënten") ----
+  // Echte crisisdata zit niet in deze export; ZT05 (zeer ernstig) + ZT08 (zeer
+  // risicovol/chaotisch) is het eerlijke klinische risicosignaal dat er wél in zit.
+  const hoogRisico = actieveClienten.filter(
+    (record) => record.zorgvraagtype === "ZT05" || record.zorgvraagtype === "ZT08",
+  ).length;
+
+  // ---- Productie-uren (cumulatief geregistreerde tijd op actieve dossiers) ----
+  const productieUren = Math.round(actieveClienten.reduce((sum, record) => sum + record.totaleTijdMin, 0) / 60);
+
+  // ---- Declaratierisico's ----
+  const covRisico = actieveClienten.filter(
+    (record) =>
+      (record.covUzovi ?? null) === null ||
+      ((record.polisEinde ?? null) !== null && (record.polisEinde as string) <= referenceIso),
+  ).length;
+  const agbOntbreekt = actieveClienten.filter(
+    (record) => record.verwijzer !== null && (record.verwijzerAgb ?? null) === null,
+  ).length;
+  const afgeslotenZonderDiagnose = afgeslotenEpisodes.filter((record) => record.diagnoseCode === null).length;
+
+  // ---- Datakwaliteit: vulgraad per veld over de héle export ----
+  // Bewust ongefilterd (state.records): dit gaat over registratiediscipline
+  // van het bestand zelf, niet over een locatie.
+  const vulgraad = (veld: string, isGevuld: (record: ClientRecord) => boolean) => ({
+    veld,
+    gevuld: state.records.filter(isGevuld).length,
+    totaal: state.records.length,
+  });
+  const datakwaliteit = [
+    vulgraad("Vestiging", (r) => r.vestiging !== null),
+    vulgraad("Behandelaar", (r) => r.behandelaar !== null),
+    vulgraad("Regiebehandelaar", (r) => r.regiebehandelaar !== null),
+    vulgraad("Verwijzer", (r) => r.verwijzer !== null),
+    vulgraad("AGB-code verwijzer", (r) => (r.verwijzerAgb ?? null) !== null),
+    vulgraad("Verwijsdatum", (r) => r.verwijsdatum !== null),
+    vulgraad("Primaire diagnose", (r) => r.diagnoseCode !== null),
+    vulgraad("Zorgvraagtypering", (r) => r.zorgvraagtype !== null),
+    vulgraad("Setting", (r) => r.setting !== null),
+    vulgraad("Verzekeringskoepel", (r) => r.verzekeraar !== null),
+    vulgraad("COV-check", (r) => (r.covUzovi ?? null) !== null),
+    vulgraad("Woonplaats", (r) => r.plaats !== null),
+  ];
 
   const gemWachtlijstDuur = mean(wachtendenMetDuur.map((item) => item.dagen));
 
@@ -444,8 +703,10 @@ export function computeProductionSnapshot(
   const topVerwijzer = verwijzers[0];
   const wachtlijstTotaal = wachtenden.length;
 
+  const nettoLaatste = aanmeldingenLaatste - uitstroomLaatste;
   const cockpitSummary = [
     { label: "Afsluitingen", value: nl.format(uitstroomLaatste) },
+    { label: `Netto groei (${lastMonth.label})`, value: `${nettoLaatste >= 0 ? "+" : ""}${nl.format(nettoLaatste)}` },
     { label: "Wachtlijst", value: nl.format(wachtlijstTotaal) },
     { label: "Top diagnose", value: topDiagnose ? topDiagnose.label.split(" ")[0] : "—" },
     { label: "Grootste verwijzer", value: topVerwijzer ? topVerwijzer.label : "—" },
@@ -462,6 +723,8 @@ export function computeProductionSnapshot(
     regiebehandelaren[0] && regiebehandelaren[0].clienten > REGIE_NORM
       ? `${regiebehandelaren[0].naam} draagt als regiebehandelaar ${nl.format(regiebehandelaren[0].clienten)} cliënten — ruim boven de regienorm van ${REGIE_NORM}. Overweeg herverdeling.`
       : `Wachtlijst telt ${nl.format(wachtlijstTotaal)} cliënten; ${nl.format(urgentWachtenden.length)} wachten langer dan 60 dagen.`,
+    // Capaciteitsinzicht: netto groei + doorstroom (uitstroom t.o.v. caseload).
+    `Netto groei in ${MAAND_NAMEN[lastMonth.month0]}: ${nettoLaatste >= 0 ? "+" : ""}${nl.format(nettoLaatste)} cliënten (${nl.format(aanmeldingenLaatste)} in, ${nl.format(uitstroomLaatste)} uit); de uitstroom is ${actiefVorigeMaand > 0 ? `${String(round1((uitstroomLaatste / actiefVorigeMaand) * 100)).replace(".", ",")}%` : "—"} van de caseload per maand.`,
   ];
 
   // ---- Patiënten ----
@@ -499,6 +762,29 @@ export function computeProductionSnapshot(
     "Zonder behandelaar": {
       label: "Zonder behandelaar",
       value: zonderBehandelaar.length,
+      prev: null,
+      f: "int",
+      betterLow: true,
+    },
+    // Gesleuteld op het demo-label (zo vindt de pagina de vervanging), maar met
+    // een eerlijker weergavelabel: we meten registratie, niet contactrecentheid.
+    ">30 dgn geen contact": {
+      label: ">30 dgn geen registratie",
+      value: geenRegistratie30,
+      prev: null,
+      f: "int",
+      betterLow: true,
+    },
+    ">60 dgn geen contact": {
+      label: ">60 dgn geen registratie",
+      value: geenRegistratie60,
+      prev: null,
+      f: "int",
+      betterLow: true,
+    },
+    Crisiscliënten: {
+      label: "Hoog-risico (ZT05/ZT08)",
+      value: hoogRisico,
       prev: null,
       f: "int",
       betterLow: true,
@@ -605,7 +891,11 @@ export function computeProductionSnapshot(
       sev: "hoog",
       titel: "Zonder behandelaar",
       unit: "cliënten",
-      detail: `${nl.format(zonderBehandelaar.length)} actieve cliënten hebben geen behandelaar toegewezen.`,
+      detail: `${nl.format(zonderBehandelaar.length)} actieve cliënten hebben geen behandelaar toegewezen${
+        adminOnvolledig.length > 0
+          ? `, waarvan ${nl.format(adminOnvolledig.length)} administratief leeg (ook geen vestiging en regiebehandelaar)`
+          : ""
+      }.`,
       n: zonderBehandelaar.length,
       page: "patienten",
     });
@@ -632,6 +922,15 @@ export function computeProductionSnapshot(
 
   const dossiersProductieMetrics: Record<string, LiveMetric> = {
     "Actieve cliënten": { label: "Actieve cliënten", value: actiefNu, prev: actiefVorigeMaand, f: "int" },
+    // Cumulatief geregistreerde tijd op actieve dossiers — géén maandproductie
+    // (daarvoor is de urenregistratie-export nodig); het venster staat in de subtekst.
+    "Productie-uren": {
+      label: "Productie-uren",
+      value: productieUren,
+      prev: null,
+      f: "int",
+      windowLabel: "cumulatief",
+    },
     Afsluitingen: {
       label: "Afsluitingen",
       value: uitstroomLaatste,
@@ -657,9 +956,18 @@ export function computeProductionSnapshot(
   };
 
   const grootsteWachtLocatie = [...wachtlijstPerLocatie].sort((a, b) => b.aantal - a.aantal)[0];
+  // Meest gestelde specifieke diagnose binnen de grootste groep (kolom
+  // "Primaire diagnose omschrijving" — 1-op-1 met de code, leesbaarder).
+  const topOmschrijving = topDiagnose
+    ? modalValue(
+        actieveClienten
+          .filter((record) => record.diagnoseGroep === topDiagnose.label)
+          .map((record) => record.diagnoseOmschrijving ?? null),
+      )
+    : "—";
   const dossiersProductieInsights = [
     topDiagnose
-      ? `${topDiagnose.label} is met ${nl.format(topDiagnose.aantal)} cliënten (${Math.round((topDiagnose.aantal / Math.max(1, actiefNu)) * 100)}%) de grootste gediagnosticeerde groep.`
+      ? `${topDiagnose.label} is met ${nl.format(topDiagnose.aantal)} cliënten (${Math.round((topDiagnose.aantal / Math.max(1, actiefNu)) * 100)}%) de grootste gediagnosticeerde groep${topOmschrijving !== "—" ? `; meest gesteld: "${topOmschrijving}"` : ""}.`
       : `Nog geen diagnoses geregistreerd in de export.`,
     grootsteWachtLocatie && wachtlijstTotaal > 0
       ? `${grootsteWachtLocatie.label} draagt ${nl.format(grootsteWachtLocatie.aantal)} van de ${nl.format(wachtlijstTotaal)} wachtenden.`
@@ -693,6 +1001,8 @@ export function computeProductionSnapshot(
     cockpitSummary,
     cockpitInsights,
     patientenMetrics,
+    zorgvorm,
+    wachttijdTrend,
     treekLocaties,
     risicoLijst,
     gemWachttijdWkn: {
@@ -711,6 +1021,9 @@ export function computeProductionSnapshot(
       metrics: dossiersProductieMetrics,
       medewerkers,
       diagnoseGroepen,
+      comorbiditeit,
+      zorgvraagtypes,
+      behandelduur,
       geslacht,
       leeftijdGroepen,
       verwijzers,
@@ -722,18 +1035,41 @@ export function computeProductionSnapshot(
         gemWachttijdWkn: gemWachtlijstDuur === null ? null : round1(gemWachtlijstDuur / 7),
         buckets: wachtlijstBuckets,
         perLocatie: wachtlijstPerLocatie,
+        fases: wachtlijstFases,
+        talen: wachtlijstTalen,
       },
       insights: dossiersProductieInsights,
     },
     signaleringen,
+    // Zelfde compliance als dossiercontrole, geschaald naar de score-op-10 die
+    // de kwaliteit-pagina toont — registratie-compleetheid, geen audit.
+    kwaliteitDossierscore: {
+      label: "Dossierkwaliteit",
+      value: round1(compliancePct / 10),
+      prev: null,
+      f: "dec1",
+    },
+    datakwaliteit,
     dossiercontrole: {
       compliancePct,
       gecontroleerd: actiefNu,
       nietCompleet,
+      // De eerste drie controles bepalen samen compliancePct/nietCompleet
+      // (ontbrekende kerngegevens); de overige zijn aanvullende
+      // review-controles en tellen daar bewust niet in mee.
       checks: [
         { check: "Geen primaire diagnose", n: zonderDiagnose.length, sev: "hoog" },
         { check: "Geen zorgvraagtypering", n: zonderZorgtypering.length, sev: "middel" },
         { check: "Geen verwijzer geregistreerd", n: zonderVerwijzer.length, sev: "middel" },
+        {
+          check: "Administratief onvolledig (geen vestiging, RB én behandelaar)",
+          n: adminOnvolledig.length,
+          sev: "hoog",
+        },
+        { check: "Typering wijkt af van HoNOS-advies", n: afwijkendeTypering.length, sev: "middel" },
+        { check: "COV-check ontbreekt of polis verlopen", n: covRisico, sev: "hoog" },
+        { check: "Verwijzer zonder AGB-code", n: agbOntbreekt, sev: "middel" },
+        { check: "Afgesloten zonder primaire diagnose", n: afgeslotenZonderDiagnose, sev: "middel" },
       ],
     },
   };

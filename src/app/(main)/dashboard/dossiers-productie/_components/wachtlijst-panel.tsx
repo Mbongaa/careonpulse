@@ -87,7 +87,9 @@ export function WachtlijstPanel({ className }: Readonly<{ className?: string }>)
         live ? (
           <span>
             Wachtduur gemeten sinds episodestart of verwijsdatum;{" "}
-            {drukste ? `${drukste.label} draagt de meeste wachtenden` : "nog geen wachtenden"} — zie{" "}
+            {/* Ook met 0 wachtenden bevat perLocatie de locatierij — check het aantal. */}
+            {drukste && drukste.aantal > 0 ? `${drukste.label} draagt de meeste wachtenden` : "nog geen wachtenden"} —
+            zie{" "}
             <Link prefetch={false} href={CAREON_ROUTES.signaleringen} className="underline underline-offset-2">
               Signaleringen
             </Link>
@@ -134,6 +136,26 @@ export function WachtlijstPanel({ className }: Readonly<{ className?: string }>)
             }))}
           />
         </div>
+        {/* Fase- en taalverdeling komen uit de wachtlijstlabels van de export —
+            alleen in productie beschikbaar (demo kent deze detaildata niet). */}
+        {live && live.fases.length > 0 && (
+          <div>
+            <p className="mb-3 font-medium text-muted-foreground text-xs uppercase tracking-wide">Per fase</p>
+            <CareonBarList
+              items={live.fases.map((fase) => ({
+                label: fase.label,
+                value: fase.aantal,
+                tone: fase.label === "Behandeling" ? "accent" : "default",
+              }))}
+            />
+          </div>
+        )}
+        {live && live.talen.length > 0 && (
+          <p className="text-muted-foreground text-xs">
+            Taal geregistreerd: {live.talen.map((taal) => `${taal.label} ${taal.aantal}`).join(" · ")} — relevant voor
+            de inzet van anderstalige behandelaren.
+          </p>
+        )}
       </div>
     </CareonChartCard>
   );

@@ -60,7 +60,7 @@ export function DossiercontroleContent() {
         title={CAREON_PAGE_META.dossiers.title}
         sub={
           production
-            ? "Drie controles zijn berekend uit de cliëntendata-export; de overige negen volgen zodra dossieritem-data beschikbaar is."
+            ? `${production.dossiercontrole.checks.length} controles zijn berekend uit de cliëntendata-export; aanvullende controles volgen zodra dossieritem-data beschikbaar is.`
             : "Twaalf automatische controles draaien elke nacht op alle actieve dossiers."
         }
       />

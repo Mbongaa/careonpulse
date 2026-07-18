@@ -895,7 +895,7 @@ const SOURCE_MODE_BODY: Record<CareonSource["mode"], string> = {
   csv: "Cockpit-KPI's zijn overschreven door de laatste CSV-import; herstel demo-data zet ze terug.",
   api: "De API-koppeling is actief (sandbox). Herstel demo-data verbreekt de verbinding.",
   productie:
-    "Productie-modus is actief: cliëntgebonden KPI's komen uit de geïmporteerde EPD-export; widgets zonder EPD-bron zijn als demo gemarkeerd.",
+    "Productie-modus is actief: de live AI-assistent analyseert de geïmporteerde EPD-export (geaggregeerde cijfers, geen cliëntgegevens). Zonder live AI vallen antwoorden terug op de demo-referentie — dat staat er dan bij.",
 };
 
 function buildDatabronStatus(query: string, ctx: AssistantContext): AssistantResponse {

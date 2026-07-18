@@ -45,8 +45,20 @@ filters (vestiging) ─▶ compute-snapshot.ts ──▶ ProductionSnapshot ─�
 
 ## Herkomst per widget
 
-- **Live** — direct uit de export berekend (instroom, caseload, wachtlijst,
-  populatie, dossiercontroles diagnose/typering/verwijzer, …).
+- **Live** — direct uit de export berekend (instroom incl.
+  verwijzingen-vraagkant, caseload, wachtlijst incl. fase- en taalverdeling,
+  wachttijd-trend per startmaand, populatie, zorgvraagtypering-verdeling,
+  behandelduur incl. kwartaaltrend en uitvalsignalen, comorbiditeit, acht
+  dossiercontroles waaronder COV-/AGB-declaratierisico's, verwijzers
+  gegroepeerd op AGB-code, netto groei + doorstroom, datakwaliteit-scorecard
+  op Databron, …). Productie-exclusieve panelen (geen demo-tegenhanger; demo
+  blijft pixel-identiek): Zorgvraagtypering, Behandelduur, Wachttijd-trend,
+  Datakwaliteit.
+- **Demo→productie-vervangingen** met een eerlijker label: ">30/60 dgn geen
+  contact" → ">30/60 dgn geen registratie" (ondergrens-proxy),
+  "Crisiscliënten" → "Hoog-risico (ZT05/ZT08)", "Zorgvorm" →
+  setting-verdeling S03/S04, "Productie-uren" → cumulatief geregistreerde
+  uren, kwaliteit-"Dossierkwaliteit" → registratie-compleetheid op 10.
 - **Afgeleid (proxy)** — gedocumenteerde benadering, toelichting in de tooltip:
   outreach = ZPM-setting S04 (bevestiging klant gevraagd); urgent = >60 dagen
   wachtend; dossiers-niet-compleet = alleen de drie ondersteunde controles.
@@ -55,6 +67,19 @@ filters (vestiging) ─▶ compute-snapshot.ts ──▶ ProductionSnapshot ─�
   **urenregistratie** (productiviteit), **HR** (verzuim, BIG), ROM/MIC
   (Kwaliteit). Zodra een export beschikbaar is: tabel + aggregatie toevoegen
   en de betreffende widgets in `provenance.ts` omzetten naar `live`.
+
+## AI-assistent in productie-modus
+
+Met een geconfigureerde `OPENAI_API_KEY` analyseert de live AI-assistent de
+**echte EPD-import**: de vragen gaan met een geaggregeerd feitenblad
+(`src/lib/careon-production/assistant-facts.ts`) naar de AI-dienst — kern-KPI's,
+trends, wachtlijst, populatie, controles en datakwaliteit, inclusief de
+proxy-definities zodat het model ze correct benoemt. **Privacy**: uitsluitend
+aggregaten; cliënt-ID's, dossierlinks en de risicolijst gaan nóóit mee
+(bewaakt door `verify:production`). Behandelaar-/verwijzernamen (medewerker-
+en praktijkgegevens) zitten er wél in — nodig voor caseloadvragen. Zonder
+live AI valt de assistent terug op de deterministische demo-referentie en
+zegt dat er eerlijk bij ("Analyse: demo-dataset").
 
 ## Supabase (optioneel, aanbevolen voor gedeeld gebruik)
 
@@ -113,6 +138,12 @@ gedeelde werkplekken ("Herstel demo-data" of uitloggen + opslag wissen).
    volledig synthetisch.
 
 ## Verificatie
+
+> **E2e is geïsoleerd van Supabase**: `playwright.config.ts` leegt de
+> Supabase-variabelen voor de testserver, zodat de sync-route in tests 501
+> geeft. Zonder die isolatie pushen de productie-tests fixture-runs naar de
+> échte centrale opslag (verdringt de echte import als "nieuwste") en
+> hydrateren demo-tests productie-data — beide zijn in de praktijk gebeurd.
 
 - `npm run verify:production` — 120+ assertions: parser-gedrag op de fixture
   én op inline randgevallen (meerregelige quoted cellen, dubbele kolomkoppen,

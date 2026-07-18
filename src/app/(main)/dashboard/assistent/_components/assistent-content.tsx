@@ -34,6 +34,8 @@ import {
 import { COCKPIT_KPIS } from "@/data/careon/careon-kpis";
 import { CAREON_MONTHLY } from "@/data/careon/careon-shared-charts";
 import type { CareonFilters, CareonKpi, CareonSource } from "@/data/careon/careon-types";
+import { buildProductionAssistantFacts } from "@/lib/careon-production/assistant-facts";
+import type { ProductionSnapshot } from "@/lib/careon-production/types";
 import { cn } from "@/lib/utils";
 
 import { AssistantArtifactCanvas } from "./assistant-canvas";
@@ -53,6 +55,8 @@ const STREAM_CHUNK = 6;
 const STREAM_FRAME_MS = 16;
 const CITE = "Bron: geauditeerde Careon Pulse demo-dataset · deterministisch antwoord zonder live AI-model";
 const LIVE_CITE = "Live AI-antwoord · cijfers uitsluitend uit de geauditeerde Careon Pulse demo-dataset";
+const liveProductionCite = (fileName: string) =>
+  `Live AI-antwoord · cijfers uit de EPD-export ${fileName} (geaggregeerd, geen cliëntgegevens)`;
 
 const THREAD_LIST_LABELS: ThreadListLabels = {
   archive: "Archiveren",
@@ -117,13 +121,16 @@ function runResult(text: string, custom: Record<string, unknown>, complete?: boo
   };
 }
 
-// Compact grounding payload for the live AI route: the deterministic artifact
-// (claims/sources), current filters and cockpit KPIs. The model is instructed
-// to use only these numbers.
+// Compact grounding payload for the live AI route. In production mode the
+// grounding is the REAL fact sheet from the EPD snapshot (aggregates only);
+// the demo grounding (deterministic artifact + demo KPIs) is used otherwise.
 function buildGrounding(
   response: AssistantResponse,
-  ctx: { kpis: CareonKpi[]; filters: CareonFilters; source: CareonSource },
+  ctx: { kpis: CareonKpi[]; filters: CareonFilters; source: CareonSource; production: ProductionSnapshot | null },
 ): string {
+  if (ctx.production) {
+    return buildProductionAssistantFacts(ctx.production, ctx.filters);
+  }
   const { artifact } = response;
   return JSON.stringify({
     filters: ctx.filters,
@@ -152,7 +159,7 @@ function historyFromMessages(messages: ChatModelRunOptions["messages"]) {
 }
 
 export function AssistentContent() {
-  const { kpis, filters, source } = useCareon();
+  const { kpis, filters, source, production } = useCareon();
 
   const [reasoningStyle, setReasoningStyle] = useState<ReasoningStyle>("standaard");
   const reasoningRef = useRef<ReasoningStyle>("standaard");
@@ -219,8 +226,8 @@ export function AssistentContent() {
 
   // Everything the turn generator needs, via a ref so the adapter identity
   // stays stable while filters/source/kpis change between turns.
-  const turnContextRef = useRef({ kpis, filters, source });
-  turnContextRef.current = { kpis, filters, source };
+  const turnContextRef = useRef({ kpis, filters, source, production });
+  turnContextRef.current = { kpis, filters, source, production };
 
   const runTurn = useCallback(async function* run(options: ChatModelRunOptions): AsyncGenerator<ChatModelRunResult> {
     const { text, intentHint } = latestUserTurn(options.messages);
@@ -277,7 +284,13 @@ export function AssistentContent() {
               commitCanvas();
               yield runResult(
                 streamed,
-                { artifact: response.artifact, artifactKey: messageKey, cite: LIVE_CITE },
+                {
+                  artifact: response.artifact,
+                  artifactKey: messageKey,
+                  cite: turnContextRef.current.production
+                    ? liveProductionCite(turnContextRef.current.production.meta.fileName)
+                    : LIVE_CITE,
+                },
                 true,
               );
               return;
@@ -493,11 +506,17 @@ function AssistantSourceFootnote({ aiLive, className }: Readonly<{ aiLive: boole
         />
         {aiLive ? "Live AI actief · via beveiligde server" : "Lokale preview · geen live AI"}
       </div>
-      {source.mode === "productie" && (
-        <p className="text-amber-700 dark:text-amber-400">
-          Let op: de assistent analyseert nog de demo-dataset; koppeling met de productie-import volgt.
-        </p>
-      )}
+      {source.mode === "productie" &&
+        (aiLive ? (
+          <p>
+            De AI-analyse gebruikt de geïmporteerde EPD-export: uitsluitend geaggregeerde cijfers, geen cliëntgegevens.
+          </p>
+        ) : (
+          <p className="text-amber-700 dark:text-amber-400">
+            Zonder live AI vallen antwoorden terug op de demo-referentie; activeer de AI-koppeling voor analyse van de
+            EPD-export.
+          </p>
+        ))}
     </div>
   );
 }
@@ -524,9 +543,9 @@ function AssistantSourceMeta({ aiLive }: Readonly<{ aiLive: boolean }>) {
             source.mode === "api" ? "animate-pulse bg-emerald-500" : "bg-amber-500",
           )}
         />
-        {/* De assistent rekent (nog) op de demo-dataset — toon dat eerlijk,
-            ook wanneer elders productie-modus actief is. */}
-        {source.mode === "productie" ? "Analyse: demo-dataset" : source.label}
+        {/* Eerlijk per pad: live AI analyseert de EPD-export; het
+            deterministische terugvalpad rekent op de demo-dataset. */}
+        {source.mode === "productie" ? (aiLive ? "Analyse: EPD-export" : "Analyse: demo-dataset") : source.label}
       </Badge>
       <Badge variant="outline" className="font-normal tabular-nums">
         {COCKPIT_KPIS.length} KPI&apos;s

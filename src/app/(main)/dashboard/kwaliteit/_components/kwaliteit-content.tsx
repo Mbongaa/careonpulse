@@ -1,8 +1,11 @@
+"use client";
+
 import { CareonBar } from "@/app/(main)/dashboard/_components/careon/careon-bar-list";
 import { CareonChartCard } from "@/app/(main)/dashboard/_components/careon/careon-chart-card";
 import { CareonKpiCard } from "@/app/(main)/dashboard/_components/careon/careon-kpi-card";
 import { CareonLiveBanner } from "@/app/(main)/dashboard/_components/careon/careon-live-banner";
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
+import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
 import { CareonRing } from "@/app/(main)/dashboard/_components/careon/careon-ring";
 import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import {
@@ -15,9 +18,20 @@ import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 
 const nlDec1 = new Intl.NumberFormat("nl-NL", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
-const dossierkwaliteit = KWALITEIT_COUNTERS.find((counter) => counter.label === "Dossierkwaliteit");
+const demoDossierkwaliteit = KWALITEIT_COUNTERS.find((counter) => counter.label === "Dossierkwaliteit");
 
 export function KwaliteitContent() {
+  const { production } = useCareon();
+
+  // Productie: "Dossierkwaliteit" is de registratie-compleetheid uit de
+  // EPD-export (zelfde score als dossiercontrole, op 10); de overige
+  // kwaliteitsdata wacht op de ROM/MIC-exports en blijft demo-gemarkeerd.
+  const liveScore = production ? production.kwaliteitDossierscore : null;
+  const ringWaarde = liveScore ? liveScore.value : (demoDossierkwaliteit?.value ?? 0);
+  const counters = KWALITEIT_COUNTERS.map((counter) =>
+    counter.label === "Dossierkwaliteit" && liveScore ? liveScore : counter,
+  );
+
   return (
     <div className="@container/main flex flex-col gap-4 md:gap-6">
       <CareonPageHeader title={CAREON_PAGE_META.kwaliteit.title} sub={CAREON_PAGE_META.kwaliteit.sub} />
@@ -47,21 +61,25 @@ export function KwaliteitContent() {
           </div>
         </CareonChartCard>
 
-        <CareonChartCard title="Dossierkwaliteit" sub="Nachtelijke audit-score" className="lg:col-span-4">
+        <CareonChartCard
+          title="Dossierkwaliteit"
+          sub={liveScore ? "Registratie-compleetheid (EPD-export)" : "Nachtelijke audit-score"}
+          className="lg:col-span-4"
+          titleBadge={<CareonSourceBadge page="kwaliteit" widget="Dossierkwaliteit" />}
+        >
           <div className="flex h-full flex-col items-center justify-center gap-2 py-4">
-            <CareonRing
-              pct={(dossierkwaliteit?.value ?? 0) * 10}
-              value={nlDec1.format(dossierkwaliteit?.value ?? 0)}
-              label="van 10"
-              size={140}
-            />
-            <p className="text-muted-foreground text-xs">vorige maand {nlDec1.format(dossierkwaliteit?.prev ?? 0)}</p>
+            <CareonRing pct={ringWaarde * 10} value={nlDec1.format(ringWaarde)} label="van 10" size={140} />
+            <p className="text-muted-foreground text-xs">
+              {liveScore
+                ? "zelfde compleetheidsscore als Dossiercontrole"
+                : `vorige maand ${nlDec1.format(demoDossierkwaliteit?.prev ?? 0)}`}
+            </p>
           </div>
         </CareonChartCard>
       </div>
 
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        {KWALITEIT_COUNTERS.map((counter) => (
+        {counters.map((counter) => (
           <CareonKpiCard
             key={counter.label}
             metric={counter}

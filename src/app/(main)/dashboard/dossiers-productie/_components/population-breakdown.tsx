@@ -35,6 +35,7 @@ export function DiagnosesPanel({ className }: Readonly<{ className?: string }>) 
   const { production } = useCareon();
   const groepen = production ? production.dossiersProductie.diagnoseGroepen : DIAGNOSE_GROEPEN;
   const basis = production ? production.meta.activeClients : ACTIEVE_CLIENTEN;
+  const comorbiditeit = production ? production.dossiersProductie.comorbiditeit : null;
 
   return (
     <CareonChartCard
@@ -42,7 +43,11 @@ export function DiagnosesPanel({ className }: Readonly<{ className?: string }>) 
       sub={`Actieve cliënten per diagnosegroep · totaal ${nl.format(basis)}`}
       className={className}
       titleBadge={badge("Diagnoses")}
-      footer="Gebaseerd op de primaire diagnose per actief dossier."
+      footer={
+        comorbiditeit
+          ? `Gebaseerd op de primaire diagnose per actief dossier. Comorbiditeit: ${nl.format(comorbiditeit.aantal)} cliënten (${comorbiditeit.pct}%) hebben ook een secundaire diagnose.`
+          : "Gebaseerd op de primaire diagnose per actief dossier."
+      }
     >
       <CareonBarList items={toBarItems(groepen, basis)} />
     </CareonChartCard>

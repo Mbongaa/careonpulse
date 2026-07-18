@@ -45,9 +45,10 @@ function systemPrompt(style: "standaard" | "diep", context: string): string {
     "Gebruik ALLEEN de cijfers uit de meegeleverde context; verzin of extrapoleer nooit getallen.",
     "Als de vraag buiten de context valt, zeg dat eerlijk en verwijs naar de relevante dashboardpagina.",
     "Naast dit antwoord toont het dashboard automatisch een artefact met de bijbehorende visualisaties; verwijs daar kort naar waar relevant.",
+    "Respecteer de 'toelichting'-regels in de context (proxy-definities): benoem waar relevant dat een cijfer een proxy of ondergrens is.",
     depth,
     "",
-    "CONTEXT (JSON, geauditeerde demo-dataset met actieve filters):",
+    "CONTEXT (JSON, met actieve filters — het veld 'databron' beschrijft welke dataset dit is):",
     context,
   ].join("\n");
 }

@@ -24,6 +24,18 @@ export const PROXY_NOTES: Record<string, string> = {
   "Wachtduur wachtlijst": "Wachtduur gemeten sinds episodestart (interne wachtlijst) of sinds verwijsdatum.",
   "Wachttijden vs. Treeknorm":
     "Intake = gerealiseerde wachttijd verwijzing→start; behandeling = wachtduur van huidige wachtenden.",
+  ">30 dgn geen registratie":
+    "Ondergrens-proxy: niet-wachtende dossiers >30 dagen open zonder één minuut geregistreerde tijd (contactdata vereist de afsprakenexport).",
+  ">60 dgn geen registratie":
+    "Ondergrens-proxy: niet-wachtende dossiers >60 dagen open zonder één minuut geregistreerde tijd (contactdata vereist de afsprakenexport).",
+  "Hoog-risico (ZT05/ZT08)":
+    "Proxy voor crisisrisico: zorgvraagtypen ZT05 (zeer ernstig) en ZT08 (zeer risicovol/chaotisch); echte crisisdata vereist de afspraken-/verrichtingenexport.",
+  Zorgvorm:
+    "ZPM-setting (S03 ambulant / S04 outreachend); het ZPM-label is voor deze instelling 100% SGGZ. S04 = outreachend wacht op bevestiging.",
+  "Productie-uren":
+    "Cumulatief geregistreerde tijd over de looptijd van actieve dossiers — geen maandproductie (daarvoor is de urenregistratie-export nodig).",
+  Dossierkwaliteit:
+    "Registratie-compleetheid uit de cliëntenexport (zelfde score als Dossiercontrole, op 10) — geen inhoudelijke audit.",
 };
 
 export const CAREON_PROVENANCE: Record<string, PageProvenance> = {
@@ -80,11 +92,17 @@ export const CAREON_PROVENANCE: Record<string, PageProvenance> = {
       "Wachtlijst behandeling": "live",
       "Zonder behandelaar": "live",
       "Zonder vervolgafspraak": "demo",
+      // Demo-labels blijven geregistreerd (demo-modus toont ze); in productie
+      // vervangen de proxy-varianten hieronder ze onder een eerlijker label.
       ">30 dgn geen contact": "demo",
       ">60 dgn geen contact": "demo",
       Crisiscliënten: "demo",
+      ">30 dgn geen registratie": "proxy",
+      ">60 dgn geen registratie": "proxy",
+      "Hoog-risico (ZT05/ZT08)": "proxy",
       "Wachttijden vs. Treeknorm": "proxy",
-      Zorgvorm: "demo",
+      "Wachttijd-trend": "live",
+      Zorgvorm: "proxy",
       "Vraagt aandacht": "live",
     },
   },
@@ -121,12 +139,14 @@ export const CAREON_PROVENANCE: Record<string, PageProvenance> = {
     widgets: {
       "Actieve cliënten": "live",
       Afsluitingen: "live",
-      "Productie-uren": "demo",
+      "Productie-uren": "proxy",
       Productiviteit: "demo",
       "Wachtlijst totaal": "live",
       "Urgent op wachtlijst": "proxy",
       "Productie per medewerker": "live",
       Diagnoses: "live",
+      Zorgvraagtypering: "live",
+      Behandelduur: "live",
       Geslacht: "live",
       Leeftijd: "live",
       Verwijzers: "live",
@@ -145,7 +165,7 @@ export const CAREON_PROVENANCE: Record<string, PageProvenance> = {
       "Zorgplannen compleet": "demo",
       Medicatiecontroles: "demo",
       Suïcidaliteitsscreening: "demo",
-      Dossierkwaliteit: "demo",
+      Dossierkwaliteit: "proxy",
       "Incidenten (MIC)": "demo",
       Klachten: "demo",
       Cliënttevredenheid: "demo",

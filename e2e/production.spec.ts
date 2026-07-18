@@ -108,4 +108,44 @@ test.describe("productie-modus", () => {
     await expect(page.getByText("Geen primaire diagnose").first()).toBeVisible();
     await expect(page.getByText("Wacht op data — voorbeeldregels (demo)")).toBeVisible();
   });
+
+  test("productie-exclusieve analyses: zorgvraagtypering, behandelduur, wachtlijstfases, extra controles", async ({
+    page,
+  }) => {
+    await importFixture(page);
+
+    await page.goto("/dashboard/dossiers-productie");
+    // Deze panelen bestaan niet in demo (geen demo-constanten) en verschijnen
+    // alleen met een actieve EPD-import. Kaarttitels dragen de Live-badge als
+    // kind in hetzelfde element (tekstinhoud "ZorgvraagtyperingLive", zonder
+    // spatie) — dus substring-match, geen exact.
+    await expect(page.getByText("Zorgvraagtypering")).toBeVisible();
+    await expect(page.getByText("ZT03 · matige problematiek")).toBeVisible();
+    await expect(page.getByText("Behandelduur")).toBeVisible();
+    await expect(page.getByText("Per fase")).toBeVisible();
+    await expect(page.getByText("secundaire diagnose", { exact: false })).toBeVisible();
+
+    await page.goto("/dashboard/dossiercontrole");
+    await expect(page.getByText("Typering wijkt af van HoNOS-advies")).toBeVisible();
+    await expect(page.getByText("COV-check ontbreekt of polis verlopen")).toBeVisible();
+  });
+
+  test("trends en demo-vervangingen: wachttijd-trend, zorgvorm, hoog-risico, datakwaliteit, kwaliteitsscore", async ({
+    page,
+  }) => {
+    await importFixture(page);
+
+    await page.goto("/dashboard/patienten");
+    await expect(page.getByText("Wachttijd-trend")).toBeVisible();
+    await expect(page.getByText(">30 dgn geen registratie")).toBeVisible();
+    await expect(page.getByText("Hoog-risico (ZT05/ZT08)")).toBeVisible();
+    // Zorgvorm toont in productie de setting-verdeling i.p.v. de demo-mix.
+    await expect(page.getByText("Ambulant (S03)")).toBeVisible();
+
+    await page.goto("/dashboard/databron");
+    await expect(page.getByText("Datakwaliteit van de export")).toBeVisible();
+
+    await page.goto("/dashboard/kwaliteit");
+    await expect(page.getByText("Registratie-compleetheid (EPD-export)")).toBeVisible();
+  });
 });

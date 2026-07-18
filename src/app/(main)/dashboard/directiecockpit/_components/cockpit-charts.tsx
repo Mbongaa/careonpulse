@@ -20,12 +20,20 @@ const instroomConfig = {
   uitstroom: { label: "Uitstroom", color: "var(--chart-2)" },
 } satisfies ChartConfig;
 
+// Productie toont ook de vraagkant (binnengekomen verwijzingen) — demo kent
+// die reeks niet en houdt de geauditeerde twee lijnen.
+const instroomProductieConfig = {
+  ...instroomConfig,
+  verwijzingen: { label: "Verwijzingen", color: "var(--chart-4)" },
+} satisfies ChartConfig;
+
 // Gemeenschappelijke vorm van demo- en productiemaandpunten voor de charts.
 interface MaandPunt {
   m: string;
   aanmeldingen: number;
   uitstroom: number;
   caseload: number;
+  verwijzingen?: number;
 }
 
 export function InstroomUitstroomChart({ className }: Readonly<{ className?: string }>) {
@@ -34,11 +42,19 @@ export function InstroomUitstroomChart({ className }: Readonly<{ className?: str
   return (
     <CareonChartCard
       title="Instroom & uitstroom"
-      sub="Laatste 12 maanden"
+      sub={production ? "Laatste 12 maanden · incl. binnengekomen verwijzingen" : "Laatste 12 maanden"}
       className={className}
       titleBadge={<CareonSourceBadge page="cockpit" widget="Instroom & uitstroom" />}
+      footer={
+        production
+          ? "Verwijzingen = vraagkant (verwijsdatum); recente maanden kunnen onvolledig zijn door invoervertraging in het EPD."
+          : undefined
+      }
     >
-      <ChartContainer config={instroomConfig} className="aspect-auto h-72 w-full">
+      <ChartContainer
+        config={production ? instroomProductieConfig : instroomConfig}
+        className="aspect-auto h-72 w-full"
+      >
         <LineChart data={data} margin={{ top: 0, left: 0 }}>
           <CartesianGrid vertical={false} strokeOpacity={0.5} />
           <XAxis dataKey="m" tickLine={false} axisLine={false} tickMargin={8} />
@@ -54,6 +70,16 @@ export function InstroomUitstroomChart({ className }: Readonly<{ className?: str
             strokeDasharray="6 4"
             dot={false}
           />
+          {production && (
+            <Line
+              dataKey="verwijzingen"
+              type="monotone"
+              stroke="var(--color-verwijzingen)"
+              strokeWidth={2}
+              strokeDasharray="2 3"
+              dot={false}
+            />
+          )}
         </LineChart>
       </ChartContainer>
     </CareonChartCard>

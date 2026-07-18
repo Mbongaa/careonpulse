@@ -20,6 +20,7 @@ import { COCKPIT_KPIS } from "../data/careon/careon-kpis";
 import { KWALITEIT_COUNTERS } from "../data/careon/careon-kwaliteit";
 import { PATIENTEN_METRICS } from "../data/careon/careon-patienten";
 import { PLANNING_METRICS } from "../data/careon/careon-planning";
+import { buildProductionAssistantFacts } from "../lib/careon-production/assistant-facts";
 import { computeProductionSnapshot } from "../lib/careon-production/compute-snapshot";
 import { diagnoseGroepVanCode, parseClientExport, parseDutchDate } from "../lib/careon-production/parse-export";
 import { CAREON_PROVENANCE, pageLiveCounts, widgetSource } from "../lib/careon-production/provenance";
@@ -159,6 +160,34 @@ check(
   isProductionState({ fileName: "x.csv", importedAt: "2026-07-14T09:00:00.000Z", records: multiline.records }),
   true,
 );
+
+// Legacy-compat: records uit een oudere opgeslagen state (localStorage/Supabase
+// van vóór de schema-uitbreiding) missen de vijf later toegevoegde optionele
+// velden — de guard moet ze accepteren en de aggregaties moeten er kalm mee
+// omgaan (comorbiditeit 0, geen crash).
+const legacyRecord: Record<string, unknown> = { ...multiline.records[0] };
+delete legacyRecord.diagnoseOmschrijving;
+delete legacyRecord.heeftSecundaireDiagnose;
+delete legacyRecord.zorgvraagtypeOmschrijving;
+delete legacyRecord.voorgesteldZorgvraagtype;
+delete legacyRecord.verwijzerAgb;
+const legacyState = { fileName: "legacy.csv", importedAt: "2026-07-14T09:00:00.000Z", records: [legacyRecord] };
+check("isProductionState accepteert legacy-record zonder nieuwe velden", isProductionState(legacyState), true);
+const legacySnap = computeProductionSnapshot(
+  legacyState as unknown as Parameters<typeof computeProductionSnapshot>[0],
+  { locatie: "Alle locaties" },
+  REFERENCE,
+);
+check("legacy-record: comorbiditeit 0", legacySnap.dossiersProductie.comorbiditeit, { aantal: 0, pct: 0 });
+check("legacy-record: afwijkende typering telt niet", legacySnap.dossiercontrole.checks[4].n, 0);
+
+// Hangend scheidingsrestje in het zorgvraagtype ("ZT05 -") wordt gestript.
+const hangend = parseClientExport(
+  "zt.csv",
+  `${EDGE_HEADER};Geselecteerde ZorgVraagType\n1;Man;30;TGC Tilburg;15-01-2026;;;Nee;;;ZT05 -`,
+);
+check("zorgvraagtype zonder omschrijving: code gestript", hangend.records[0]?.zorgvraagtype, "ZT05");
+check("zorgvraagtype zonder omschrijving: omschrijving null", hangend.records[0]?.zorgvraagtypeOmschrijving, null);
 
 // ---- Fixture parse ----
 const fixturePath = path.join(__dirname, "fixtures/zsg-clienten-fixture.csv");
@@ -308,6 +337,164 @@ check(
   snap.dossiersProductie.wachtlijst.totaal,
 );
 
+// ---- Nieuwe extracties (zorgvraagtypering, behandelduur, comorbiditeit, e.d.) ----
+check("zorgvraagtypes verdeling (code · omschrijvingsstaart)", snap.dossiersProductie.zorgvraagtypes, [
+  { label: "ZT03 · matige problematiek", aantal: 2 },
+  { label: "ZT07 · aanhoudend en/of zeer beperkend", aantal: 2 },
+  { label: "ZT04 · ernstige problematiek", aantal: 1 },
+  { label: "ZT05 · zeer ernstige problematiek", aantal: 1 },
+  { label: "ZT02 · lichte problematiek met grotere zorgvraag", aantal: 1 },
+  { label: "Geen typering geregistreerd", aantal: 1 },
+]);
+check("behandelduur afgesloten", snap.dossiersProductie.behandelduur.afgesloten, 2);
+check("behandelduur gemiddeld (23+99)/2", snap.dossiersProductie.behandelduur.gemDagen, 61);
+check("behandelduur mediaan", snap.dossiersProductie.behandelduur.mediaanDagen, 61);
+check(
+  "behandelduur buckets",
+  snap.dossiersProductie.behandelduur.buckets.map((bucket) => bucket.aantal),
+  [1, 0, 0, 1, 0],
+);
+check("comorbiditeit aantal (cliënt 5)", snap.dossiersProductie.comorbiditeit, { aantal: 1, pct: 13 });
+
+// ---- Groep 1: trends ----
+check(
+  "verwijzingen per maand (vraagkant)",
+  snap.monthly.map((punt) => punt.verwijzingen),
+  [0, 0, 0, 0, 0, 0, 2, 1, 1, 0, 5, 3],
+);
+check(
+  "wachttijd-trend per startmaand [n, mediaan]",
+  snap.wachttijdTrend.map((maand) => [maand.n, maand.mediaanDagen]),
+  [
+    [0, null],
+    [0, null],
+    [0, null],
+    [0, null],
+    [0, null],
+    [0, null],
+    [1, 14],
+    [1, 14],
+    [1, 28],
+    [1, 28],
+    [1, 14],
+    [5, 28],
+  ],
+);
+check("behandelduur per kwartaal (4 volledige kwartalen)", snap.dossiersProductie.behandelduur.perKwartaal, [
+  { label: "Q3 '25", n: 0, mediaanDagen: null },
+  { label: "Q4 '25", n: 0, mediaanDagen: null },
+  { label: "Q1 '26", n: 0, mediaanDagen: null },
+  { label: "Q2 '26", n: 2, mediaanDagen: 61 },
+]);
+check(
+  "behandelduur uitvalsignalen",
+  [snap.dossiersProductie.behandelduur.zonderRegistratie, snap.dossiersProductie.behandelduur.churn14],
+  [0, 0],
+);
+check(
+  "cockpitSummary bevat netto groei",
+  snap.cockpitSummary.find((item) => item.label.startsWith("Netto groei"))?.value,
+  "+4",
+);
+check(
+  "capaciteits-insight (netto + doorstroom)",
+  snap.cockpitInsights[3].includes("Netto groei in juni: +4") && snap.cockpitInsights[3].includes("12,5%"),
+  true,
+);
+
+// ---- Groep 2: demo→live vervangingen ----
+check(
+  "zorgvorm = setting-verdeling",
+  snap.zorgvorm.map((item) => [item.name, item.value]),
+  [
+    ["Ambulant (S03)", 6],
+    ["Outreachend (S04)", 2],
+  ],
+);
+check("geen-registratie-proxy >30 (gesleuteld op demo-label)", snap.patientenMetrics[">30 dgn geen contact"], {
+  label: ">30 dgn geen registratie",
+  value: 0,
+  prev: null,
+  f: "int",
+  betterLow: true,
+});
+check("hoog-risico vervangt Crisiscliënten", snap.patientenMetrics.Crisiscliënten, {
+  label: "Hoog-risico (ZT05/ZT08)",
+  value: 1,
+  prev: null,
+  f: "int",
+  betterLow: true,
+});
+check("productie-uren cumulatief", snap.dossiersProductie.metrics["Productie-uren"].value, 101);
+check("productie-uren venster-label", snap.dossiersProductie.metrics["Productie-uren"].windowLabel, "cumulatief");
+check("kwaliteit dossierscore = compliance/10", snap.kwaliteitDossierscore.value, 8.8);
+// Elke productie-weergavenaam heeft een expliciete provenance-entry (badge mag
+// nooit stil op de demo-fallback terugvallen).
+check(
+  "productie-labels patiënten zijn geregistreerd",
+  Object.values(snap.patientenMetrics)
+    .map((metric) => metric.label)
+    .filter((label) => !(label in CAREON_PROVENANCE.patienten.widgets)),
+  [],
+);
+
+// ---- Groep 3: extra controles + datakwaliteit ----
+check(
+  "controles 6-8 (COV, AGB, afgesloten zonder diagnose)",
+  snap.dossiercontrole.checks.slice(5).map((row) => [row.check, row.n]),
+  [
+    ["COV-check ontbreekt of polis verlopen", 8],
+    ["Verwijzer zonder AGB-code", 7],
+    ["Afgesloten zonder primaire diagnose", 1],
+  ],
+);
+check(
+  "datakwaliteit vulgraad (vestiging, diagnose)",
+  snap.datakwaliteit
+    .filter((rij) => rij.veld === "Vestiging" || rij.veld === "Primaire diagnose")
+    .map((rij) => [rij.veld, rij.gevuld, rij.totaal]),
+  [
+    ["Vestiging", 11, 12],
+    ["Primaire diagnose", 8, 12],
+  ],
+);
+check("wachtlijst fases (meest gevorderde fase per wachtende)", snap.dossiersProductie.wachtlijst.fases, [
+  { label: "Behandeling", aantal: 1 },
+  { label: "Intake", aantal: 1 },
+  { label: "Screening", aantal: 1 },
+]);
+check("wachtlijst talen (fixture heeft geen taaltags)", snap.dossiersProductie.wachtlijst.talen, []);
+check(
+  "dossiercontrole nieuwe checks (admin onvolledig 0, afwijkende typering 1)",
+  snap.dossiercontrole.checks.slice(3, 5).map((row) => [row.check, row.n]),
+  [
+    ["Administratief onvolledig (geen vestiging, RB én behandelaar)", 0],
+    ["Typering wijkt af van HoNOS-advies", 1],
+  ],
+);
+check(
+  "insight noemt meest gestelde specifieke diagnose",
+  snap.dossiersProductie.insights[0].includes('meest gesteld: "Depressieve stoornis: eenmalige episode - matig"'),
+  true,
+);
+check("compliance ongewijzigd door nieuwe checks", snap.dossiercontrole.compliancePct, 87.5);
+
+// AGB-groepering: zelfde AGB-code met verschillende praktijknaam-spellingen is
+// één verwijzer; de meest voorkomende naam wint als label.
+const agbParse = parseClientExport(
+  "agb.csv",
+  `${EDGE_HEADER};AGB code verwijzer\n1;Man;30;TGC Tilburg;15-01-2026;;01-06-2026;Nee;A. Arts (Praktijk Alfa);;01000001\n2;Vrouw;40;TGC Breda;10-02-2026;;05-06-2026;Nee;A. Arts (Praktijk Alpha);;01000001\n3;Man;50;TGC Tilburg;12-03-2026;;01-06-2026;Nee;A. Arts (Praktijk Alfa);;01000001\n4;Vrouw;60;TGC Tilburg;12-03-2026;;01-06-2026;Nee;B. Arts (Praktijk Beta);;01000002`,
+);
+const agbSnap = computeProductionSnapshot(
+  { fileName: "agb.csv", importedAt: "2026-07-14T09:00:00.000Z", records: agbParse.records },
+  { locatie: "Alle locaties" },
+  REFERENCE,
+);
+check("AGB-groepering: naamvarianten samengevoegd, modale naam wint", agbSnap.dossiersProductie.verwijzers, [
+  { label: "Praktijk Alfa", aantal: 3 },
+  { label: "Praktijk Beta", aantal: 1 },
+]);
+
 check("signaleringen aantal", snap.signaleringen.length, 4);
 check(
   "signalering titels",
@@ -319,6 +506,27 @@ check("kritieke signaleringen", snap.signaleringen.filter((alert) => alert.sev =
 check("dossiercontrole gecontroleerd", snap.dossiercontrole.gecontroleerd, 8);
 check("dossiercontrole niet compleet", snap.dossiercontrole.nietCompleet, 1);
 check("dossiercontrole compliance", snap.dossiercontrole.compliancePct, 87.5);
+
+// ---- AI-assistent feitenblad (productie-grounding) ----
+const factsRaw = buildProductionAssistantFacts(snap, { periode: "12m", locatie: "Alle locaties", team: "Alle teams" });
+const facts = JSON.parse(factsRaw) as Record<string, unknown> & {
+  kernKpis: { patienten: { label: string; waarde: number }[] };
+  wachttijdTrend: unknown[];
+  databron: string;
+};
+check("feitenblad noemt de databron", facts.databron.includes("fixture.csv"), true);
+check(
+  "feitenblad bevat actieve patiënten",
+  facts.kernKpis.patienten.find((m) => m.label === "Actieve patiënten")?.waarde,
+  8,
+);
+check("feitenblad bevat 12 maanden wachttijdtrend", facts.wachttijdTrend.length, 12);
+// Privacy: uitsluitend aggregaten naar de AI-dienst — geen cliëntniveau-rijen,
+// dossierlinks of cliëntlabels uit de risicolijst.
+check("feitenblad zonder risicolijst", factsRaw.includes("risicoLijst"), false);
+check("feitenblad zonder dossierlinks", factsRaw.includes("dossierUrl"), false);
+check("feitenblad zonder cliëntlabels", factsRaw.includes("Cliënt "), false);
+check("feitenblad past binnen het context-budget van de route", factsRaw.length < 24000, true);
 
 // ---- Locatiefilter: echt filteren, niet schalen ----
 const snapTilburg = computeProductionSnapshot(state, { locatie: "Tilburg" }, REFERENCE);
@@ -463,6 +671,103 @@ if (fs.existsSync(realPath)) {
   // maar één keer in de risicolijst (geen dubbele React-keys).
   const realRisicoIds = realSnap.risicoLijst.map((rij) => rij.id);
   check("echt: risicolijst zonder dubbele rijen", new Set(realRisicoIds).size, realRisicoIds.length);
+
+  // Nieuwe extracties — verwachtingen onafhankelijk berekend uit de ruwe CSV.
+  check(
+    "echt: zorgvraagtypes top-3",
+    realSnap.dossiersProductie.zorgvraagtypes.slice(0, 3).map((groep) => groep.aantal),
+    [112, 111, 111],
+  );
+  check("echt: behandelduur n", realSnap.dossiersProductie.behandelduur.afgesloten, 184);
+  check("echt: behandelduur gemiddeld", realSnap.dossiersProductie.behandelduur.gemDagen, 73);
+  check("echt: behandelduur mediaan", realSnap.dossiersProductie.behandelduur.mediaanDagen, 54);
+  check("echt: comorbiditeit", realSnap.dossiersProductie.comorbiditeit, { aantal: 253, pct: 33 });
+  check(
+    "echt: nieuwe dossiercontroles (admin 27, afwijking 48)",
+    realSnap.dossiercontrole.checks.slice(3, 5).map((row) => row.n),
+    [27, 48],
+  );
+  check("echt: taal-tags wachtenden", realSnap.dossiersProductie.wachtlijst.talen, [
+    { label: "Pools", aantal: 13 },
+    { label: "Nederlands", aantal: 7 },
+    { label: "Engels", aantal: 5 },
+    { label: "Turks", aantal: 2 },
+  ]);
+  check(
+    "echt: wachtlijst fases tellen op tot totaal",
+    realSnap.dossiersProductie.wachtlijst.fases.reduce((sum, fase) => sum + fase.aantal, 0),
+    72,
+  );
+  check("echt: AGB-groepering grootste verwijzer", realSnap.dossiersProductie.verwijzers[0].aantal, 37);
+
+  // Groep 1: trends (onafhankelijk berekend uit de ruwe CSV).
+  check(
+    "echt: verwijzingen per maand",
+    realSnap.monthly.map((punt) => punt.verwijzingen),
+    [4, 17, 34, 67, 126, 117, 122, 137, 143, 82, 40, 26],
+  );
+  check(
+    "echt: wachttijd-trend laatste 6 maanden (mediaan)",
+    realSnap.wachttijdTrend.slice(6).map((maand) => maand.mediaanDagen),
+    [15, 24, 38, 55, 60, 42],
+  );
+  check(
+    "echt: wachttijd-trend Treeknorm-overschrijders (12 mnd)",
+    realSnap.wachttijdTrend.reduce((sum, maand) => sum + maand.overTreek, 0),
+    2,
+  );
+  check("echt: behandelduur per kwartaal", realSnap.dossiersProductie.behandelduur.perKwartaal, [
+    { label: "Q3 '25", n: 2, mediaanDagen: 17 },
+    { label: "Q4 '25", n: 24, mediaanDagen: 20 },
+    { label: "Q1 '26", n: 75, mediaanDagen: 51 },
+    { label: "Q2 '26", n: 81, mediaanDagen: 92 },
+  ]);
+  check(
+    "echt: uitvalsignalen (zonder registratie, churn ≤14 dgn)",
+    [realSnap.dossiersProductie.behandelduur.zonderRegistratie, realSnap.dossiersProductie.behandelduur.churn14],
+    [63, 27],
+  );
+
+  // Groep 2: demo→live vervangingen.
+  check(
+    "echt: zorgvorm setting-verdeling",
+    realSnap.zorgvorm.map((item) => item.value),
+    [651, 52, 64],
+  );
+  check("echt: >30 dgn geen registratie", realSnap.patientenMetrics[">30 dgn geen contact"].value, 65);
+  check("echt: >60 dgn geen registratie", realSnap.patientenMetrics[">60 dgn geen contact"].value, 39);
+  check("echt: hoog-risico ZT05/ZT08", realSnap.patientenMetrics.Crisiscliënten.value, 43);
+  check("echt: productie-uren cumulatief", realSnap.dossiersProductie.metrics["Productie-uren"].value, 11645);
+  check("echt: kwaliteit dossierscore", realSnap.kwaliteitDossierscore.value, 4.1);
+
+  // Groep 3: extra controles + datakwaliteit.
+  check(
+    "echt: controles 6-8",
+    realSnap.dossiercontrole.checks.slice(5).map((row) => row.n),
+    [30, 75, 142],
+  );
+  check(
+    "echt: datakwaliteit AGB en diagnose",
+    realSnap.datakwaliteit
+      .filter((rij) => rij.veld === "AGB-code verwijzer" || rij.veld === "Primaire diagnose")
+      .map((rij) => rij.gevuld),
+    [831, 371],
+  );
+
+  // AI-feitenblad over de echte snapshot: compleet, privacy-schoon en binnen budget.
+  const realFactsRaw = buildProductionAssistantFacts(realSnap, {
+    periode: "12m",
+    locatie: "Alle locaties",
+    team: "Alle teams",
+  });
+  const realFacts = JSON.parse(realFactsRaw) as { kernKpis: { cockpit: { id: string; waarde: number }[] } };
+  check(
+    "echt: feitenblad bevat actief 767",
+    realFacts.kernKpis.cockpit.find((kpi) => kpi.id === "actief")?.waarde,
+    767,
+  );
+  check("echt: feitenblad zonder cliëntlabels", realFactsRaw.includes("Cliënt "), false);
+  check("echt: feitenblad binnen context-budget", realFactsRaw.length < 24000, true);
 } else {
   console.log("(echte export niet aanwezig — sanity-pass overgeslagen)");
 }

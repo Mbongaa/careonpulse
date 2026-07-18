@@ -10,6 +10,7 @@ import { PATIENTEN_METRICS } from "@/data/careon/careon-patienten";
 
 import { TreeknormPanel } from "./treeknorm-panel";
 import { VraagtAandachtPanel } from "./vraagt-aandacht";
+import { WachttijdTrendPanel } from "./wachttijd-trend-panel";
 import { ZorgvormPanel } from "./zorgvorm-panel";
 
 export function PatientenContent() {
@@ -36,6 +37,8 @@ export function PatientenContent() {
         <TreeknormPanel className="lg:col-span-5" />
         <ZorgvormPanel className="lg:col-span-3" />
         <VraagtAandachtPanel className="lg:col-span-4" />
+        {/* Productie-exclusief (geen demo-tegenhanger): rendert null in demo. */}
+        <WachttijdTrendPanel className="lg:col-span-12" />
       </div>
     </div>
   );

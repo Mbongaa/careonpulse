@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 
 import { ApiKoppelingCard } from "./api-koppeling-card";
 import { CsvImportCard } from "./csv-import-card";
+import { DatakwaliteitCard } from "./datakwaliteit-card";
 import { ProductieImportCard } from "./productie-import-card";
 
 const SOURCE_BADGE = {
@@ -54,6 +55,9 @@ export function DatabronContent() {
       </Card>
 
       <ProductieImportCard />
+
+      {/* Productie-exclusief: rendert null in demo (pixel-identieke demo-pagina). */}
+      <DatakwaliteitCard />
 
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
         <CsvImportCard />
