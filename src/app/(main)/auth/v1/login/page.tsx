@@ -15,13 +15,9 @@ export default function LoginV1() {
     <div className="careon-login-shell flex min-h-dvh items-center justify-center overflow-hidden p-5 lg:justify-end lg:p-12">
       <div className="careon-login-card w-full max-w-md space-y-8 rounded-3xl p-7 text-center md:p-10 lg:mr-[7vw]">
         <div className="space-y-5">
-          <CareonLogo className="justify-center" />
+          <CareonLogo variant="hero" />
           <div className="space-y-2">
-            {/* The logo already carries the tagline; showing it twice is only
-                worth the space on the roomy desktop card. */}
-            <p className="hidden text-[10px] text-muted-foreground uppercase tracking-[0.36em] lg:block">
-              {CAREON_ORG.tagline}
-            </p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-[0.36em]">{CAREON_ORG.tagline}</p>
             <h1 className="font-semibold text-4xl tracking-tight">Welkom terug</h1>
             <p className="mx-auto max-w-xs text-muted-foreground">Log in op het zorgdashboard van TGC Groep.</p>
           </div>

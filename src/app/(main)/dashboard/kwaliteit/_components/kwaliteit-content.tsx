@@ -8,6 +8,7 @@ import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/care
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
 import { CareonRing } from "@/app/(main)/dashboard/_components/careon/careon-ring";
 import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
+import { careonDetailHref } from "@/data/careon/careon-kpi-details";
 import {
   complianceTone,
   KWALITEIT_COMPLIANCE,
@@ -29,7 +30,7 @@ export function KwaliteitContent() {
   const liveScore = production ? production.kwaliteitDossierscore : null;
   const ringWaarde = liveScore ? liveScore.value : (demoDossierkwaliteit?.value ?? 0);
   const counters = KWALITEIT_COUNTERS.map((counter) =>
-    counter.label === "Dossierkwaliteit" && liveScore ? liveScore : counter,
+    counter.label === "Dossierkwaliteit" && liveScore ? { ...liveScore, detailId: counter.detailId } : counter,
   );
 
   return (
@@ -83,6 +84,7 @@ export function KwaliteitContent() {
           <CareonKpiCard
             key={counter.label}
             metric={counter}
+            href={counter.detailId ? careonDetailHref(counter.detailId) : undefined}
             sourceBadge={<CareonSourceBadge page="kwaliteit" widget={counter.label} />}
           />
         ))}

@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { Database, MoonStar } from "lucide-react";
 
 import { CareonBar } from "@/app/(main)/dashboard/_components/careon/careon-bar-list";
@@ -12,6 +14,7 @@ import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/car
 import { Card, CardContent, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DOSSIER_CHECKS, DOSSIER_SUMMARY } from "@/data/careon/careon-dossiercontrole";
+import { careonDetailHref } from "@/data/careon/careon-kpi-details";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 
 const nl = new Intl.NumberFormat("nl-NL");
@@ -24,30 +27,36 @@ export function DossiercontroleContent() {
 
   // Eén tegel-definitie voor beide modi: alleen waarde en subtekst wisselen.
   const controle = production ? production.dossiercontrole : null;
+  // Elke tegel opent zijn KPI-drilldown (handoff 08); de tegel-opmaak zelf
+  // blijft het geauditeerde origineel.
   const summaryTiles = [
     {
       label: "Dossier-compliance",
       value: `${nlDec1.format(controle ? controle.compliancePct : DOSSIER_SUMMARY.compliancePct)}%`,
       sub: controle ? "compleet (EPD-controles)" : "compleet",
       widget: "Dossier-compliance",
+      detailId: "dossier-compliance",
     },
     {
       label: "Gecontroleerde dossiers",
       value: nl.format(controle ? controle.gecontroleerd : DOSSIER_SUMMARY.gecontroleerd),
       sub: "actieve dossiers",
       widget: "Gecontroleerde dossiers",
+      detailId: "actief",
     },
     {
       label: "Niet compleet",
       value: nl.format(controle ? controle.nietCompleet : DOSSIER_SUMMARY.nietCompleet),
       sub: controle ? "mist diagnose, typering of verwijzer" : "kritieke items",
       widget: "Niet compleet",
+      detailId: "dossiersnc",
     },
     {
       label: "Dossierkwaliteit (audit)",
       value: nlDec1.format(DOSSIER_SUMMARY.auditScore),
       sub: "van 10",
       widget: "Dossierkwaliteit",
+      detailId: "dossierkwaliteit",
     },
   ];
 
@@ -69,16 +78,24 @@ export function DossiercontroleContent() {
 
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         {summaryTiles.map((tile) => (
-          <Card key={tile.label} className="py-4">
-            <CardContent className="flex flex-col gap-1 px-4">
-              <CardDescription className="flex items-center gap-1.5 text-xs">
-                {tile.label}
-                <CareonSourceBadge page="dossiers" widget={tile.widget} />
-              </CardDescription>
-              <span className="font-medium text-2xl tabular-nums leading-none tracking-tight">{tile.value}</span>
-              <span className="text-muted-foreground text-xs">{tile.sub}</span>
-            </CardContent>
-          </Card>
+          <Link
+            key={tile.label}
+            prefetch={false}
+            href={careonDetailHref(tile.detailId)}
+            aria-label={tile.label}
+            className="block h-full rounded-xl outline-none"
+          >
+            <Card className="h-full py-4 transition-shadow hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring">
+              <CardContent className="flex flex-col gap-1 px-4">
+                <CardDescription className="flex items-center gap-1.5 text-xs">
+                  {tile.label}
+                  <CareonSourceBadge page="dossiers" widget={tile.widget} />
+                </CardDescription>
+                <span className="font-medium text-2xl tabular-nums leading-none tracking-tight">{tile.value}</span>
+                <span className="text-muted-foreground text-xs">{tile.sub}</span>
+              </CardContent>
+            </Card>
+          </Link>
         ))}
       </div>
 

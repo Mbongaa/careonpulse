@@ -132,6 +132,8 @@ export interface ProductionSnapshot {
     /** Actieve cliënten zonder (bekende) vestiging — vallen buiten elk locatiefilter. */
     zonderVestiging: number;
   };
+  /** De (op vestiging gefilterde) records — bron voor de KPI-drilldown-tabellen. */
+  records: ClientRecord[];
   monthly: ProductionMonthPoint[];
   /** Per cockpit-KPI-id (alleen live/proxy ids aanwezig). */
   cockpitKpis: Record<string, { value: number; prev: number | null; spark: number[]; windowLabel?: string }>;

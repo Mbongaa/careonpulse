@@ -9,6 +9,8 @@ export interface CareonMetric {
   f: CareonKpiFormat;
   betterLow?: boolean;
   neutralDown?: boolean;
+  /** Koppelt de KPI-kaart aan zijn drill-down (/dashboard/details/<id>). */
+  detailId?: string;
 }
 
 // Weergavevariant voor productie-modus: prev === null betekent dat er nog geen

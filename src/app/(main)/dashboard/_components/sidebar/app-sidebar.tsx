@@ -11,7 +11,6 @@ import {
   SidebarFooter,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { APP_CONFIG } from "@/config/app-config";
@@ -78,12 +77,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild>
-              <Link prefetch={false} href="/dashboard/directiecockpit">
-                <CareonLogo compact={false} />
-                <span className="sr-only">{APP_CONFIG.name}</span>
-              </Link>
-            </SidebarMenuButton>
+            {/* Bewust geen SidebarMenuButton: die dwingt h-8 en [&_svg]:size-4 af
+                en verplettert het merkteken — het logo-lockup bepaalt zelf zijn maat. */}
+            <Link
+              prefetch={false}
+              href="/dashboard/directiecockpit"
+              className="ring-sidebar-ring flex items-center rounded-md px-2 py-2 outline-hidden focus-visible:ring-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-1"
+            >
+              <CareonLogo compact={false} />
+              <span className="sr-only">{APP_CONFIG.name}</span>
+            </Link>
           </SidebarMenuItem>
           <SidebarMenuItem className="careon-client-chip mx-2 px-2 py-2 group-data-[collapsible=icon]:hidden">
             <span className="text-muted-foreground text-xs">{CAREON_ORG.customerChip}</span>

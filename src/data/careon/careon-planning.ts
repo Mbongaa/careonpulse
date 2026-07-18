@@ -1,15 +1,15 @@
 import type { CareonMetric } from "./careon-types";
 
 export const PLANNING_METRICS: CareonMetric[] = [
-  { label: "Afspraken deze maand", value: 1842, prev: 1789, f: "int" },
-  { label: "No-shows", value: 63, prev: 74, f: "int", betterLow: true },
-  { label: "Geannuleerd", value: 118, prev: 131, f: "int", betterLow: true },
-  { label: "Agenda-bezetting", value: 87, prev: 84, f: "pct0" },
-  { label: "Beschikbare uren", value: 4520, prev: 4480, f: "int" },
-  { label: "Productieve uren", value: 3610, prev: 3495, f: "int" },
-  { label: "Behandeluren", value: 2930, prev: 2860, f: "int" },
-  { label: "Indirecte uren", value: 680, prev: 635, f: "int", betterLow: true },
-  { label: "Gem. wachttijd (wkn)", value: 5.2, prev: 6, f: "dec1", betterLow: true },
+  { label: "Afspraken deze maand", value: 1842, prev: 1789, f: "int", detailId: "afspraken" },
+  { label: "No-shows", value: 63, prev: 74, f: "int", betterLow: true, detailId: "noshow" },
+  { label: "Geannuleerd", value: 118, prev: 131, f: "int", betterLow: true, detailId: "geannuleerd" },
+  { label: "Agenda-bezetting", value: 87, prev: 84, f: "pct0", detailId: "bezetting" },
+  { label: "Beschikbare uren", value: 4520, prev: 4480, f: "int", detailId: "uren-beschikbaar" },
+  { label: "Productieve uren", value: 3610, prev: 3495, f: "int", detailId: "uren-productief" },
+  { label: "Behandeluren", value: 2930, prev: 2860, f: "int", detailId: "uren-behandel" },
+  { label: "Indirecte uren", value: 680, prev: 635, f: "int", betterLow: true, detailId: "uren-indirect" },
+  { label: "Gem. wachttijd (wkn)", value: 5.2, prev: 6, f: "dec1", betterLow: true, detailId: "wachttijd" },
 ];
 
 export const NOSHOW_PER_WEEKDAG = [

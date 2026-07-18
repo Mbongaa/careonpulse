@@ -16,12 +16,18 @@ import { parseKpiCsv } from "../data/careon/careon-databron";
 import { DOSSIERS_PRODUCTIE_METRICS, REGIE_NORM } from "../data/careon/careon-dossiers-productie";
 import { FINANCIEEL_METRICS } from "../data/careon/careon-financieel";
 import { HR_METRICS } from "../data/careon/careon-hr";
+import { KPI_DETAIL_BY_ID } from "../data/careon/careon-kpi-details";
 import { COCKPIT_KPIS } from "../data/careon/careon-kpis";
 import { KWALITEIT_COUNTERS } from "../data/careon/careon-kwaliteit";
 import { PATIENTEN_METRICS } from "../data/careon/careon-patienten";
 import { PLANNING_METRICS } from "../data/careon/careon-planning";
 import { buildProductionAssistantFacts } from "../lib/careon-production/assistant-facts";
 import { computeProductionSnapshot } from "../lib/careon-production/compute-snapshot";
+import {
+  PRODUCTION_DETAIL_ROWS,
+  productionDetailMetric,
+  productionDetailTrend,
+} from "../lib/careon-production/detail-rows";
 import { diagnoseGroepVanCode, parseClientExport, parseDutchDate } from "../lib/careon-production/parse-export";
 import { CAREON_PROVENANCE, pageLiveCounts, widgetSource } from "../lib/careon-production/provenance";
 import { isProductionState } from "../lib/careon-production/types";
@@ -632,6 +638,65 @@ check(
   [],
 );
 
+// ---- KPI-drilldowns (handoff 08): productie-afleidingen over de fixture ----
+// De detailpagina's tonen in productie de individuele records achter elk getal;
+// hun tellingen moeten exact matchen met de snapshot-aggregaties die de kaart toont.
+check(
+  "drill: elke productie-afleiding heeft een registry-entry",
+  Object.keys(PRODUCTION_DETAIL_ROWS).filter((id) => !KPI_DETAIL_BY_ID.has(id)),
+  [],
+);
+check(
+  "drill: elke afleiding heeft een live kopmetric",
+  Object.keys(PRODUCTION_DETAIL_ROWS).filter((id) => productionDetailMetric(snap, id) === null),
+  [],
+);
+const drillCounts: [string, number][] = [
+  ["actief", 8],
+  ["aanmeldingen", 5],
+  ["gesloten", 1],
+  ["outreach", 2],
+  ["dossiersnc", 1],
+  ["wachtlijst-intake", 2],
+  ["wachtlijst-behandeling", 1],
+  ["wachtlijst-totaal", 3],
+  ["wachtlijst-urgent", 1],
+  ["zonder-behandelaar", 1],
+  ["contact30", 0],
+  ["contact60", 0],
+  ["crisis", 1],
+  ["wachttijd", 7],
+  ["dossier-compliance", 8],
+];
+for (const [id, expected] of drillCounts) {
+  check(`drill rows ${id}`, PRODUCTION_DETAIL_ROWS[id](snap).length, expected);
+}
+check("drill actief telt als activeClients", PRODUCTION_DETAIL_ROWS.actief(snap).length, snap.meta.activeClients);
+check(
+  "drill-rijen pseudoniem + https-deeplink",
+  PRODUCTION_DETAIL_ROWS.actief(snap).every(
+    (row) => String(row.naam).startsWith("Cliënt ") && String(row.dossierUrl).startsWith("https://"),
+  ),
+  true,
+);
+const wachtKeys = PRODUCTION_DETAIL_ROWS["wachtlijst-totaal"](snap).map((row) => row.key);
+check("drill-rijen unieke keys", new Set(wachtKeys).size, wachtKeys.length);
+check(
+  "drill productie-uren per behandelaar (uren desc, afsluitingen juni)",
+  PRODUCTION_DETAIL_ROWS["productie-uren"](snap).map((row) => [row.naam, row.uren, row.afsluitingen]),
+  [
+    ["Anna Jansen", 61, 0],
+    ["Carla Prak", 25, 0],
+    ["Bea Smit", 16, 1],
+  ],
+);
+check(
+  "drill trend actief = caseload-reeks",
+  productionDetailTrend(snap, "actief")?.values,
+  snap.monthly.map((point) => point.caseload),
+);
+check("drill trend afwezig zonder historie (wachtlijst)", productionDetailTrend(snap, "wachtlijst-totaal"), null);
+
 // ---- Optionele sanity-pass op de echte export (lokaal, gitignored) ----
 const realPath = path.join(__dirname, "../../cli_ntendata_export--6-.csv");
 if (fs.existsSync(realPath)) {
@@ -768,6 +833,16 @@ if (fs.existsSync(realPath)) {
   );
   check("echt: feitenblad zonder cliëntlabels", realFactsRaw.includes("Cliënt "), false);
   check("echt: feitenblad binnen context-budget", realFactsRaw.length < 24000, true);
+
+  // KPI-drilldowns over de echte export: tellingen matchen de kaartwaarden.
+  check("echt: drill actief rows", PRODUCTION_DETAIL_ROWS.actief(realSnap).length, 767);
+  check("echt: drill wachtlijst rows", PRODUCTION_DETAIL_ROWS["wachtlijst-totaal"](realSnap).length, 72);
+  check("echt: drill aanmeldingen rows", PRODUCTION_DETAIL_ROWS.aanmeldingen(realSnap).length, 104);
+  check(
+    "echt: drill zonder-behandelaar rows",
+    PRODUCTION_DETAIL_ROWS["zonder-behandelaar"](realSnap).length,
+    realSnap.patientenMetrics["Zonder behandelaar"].value,
+  );
 } else {
   console.log("(echte export niet aanwezig — sanity-pass overgeslagen)");
 }

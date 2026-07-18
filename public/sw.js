@@ -2,7 +2,7 @@
 // Strategy: network-first for page navigations (offline.html as fallback),
 // cache-first for hashed build assets, stale-while-revalidate for other
 // same-origin static files. Bump VERSION to invalidate all runtime caches.
-const VERSION = "careon-pwa-v1";
+const VERSION = "careon-pwa-v2"; // v2: nieuwe brand-iconen ("C · Open Beat")
 const STATIC_CACHE = `${VERSION}-static`;
 const PAGE_CACHE = `${VERSION}-pages`;
 const OFFLINE_URL = "/offline.html";

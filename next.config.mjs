@@ -10,6 +10,10 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // Aparte build-map instelbaar via env: Windows-dev en WSL-builds delen deze
+  // map via /mnt/c en corrumperen anders elkaars .next-cache/lockfile.
+  // WSL-kant: NEXT_DIST_DIR=.next-wsl npm run dev/build.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // Expliciete workspace-root: voorkomt dat Turbopack de bovenliggende
   // projectmap als root kiest (en die hele boom gaat watchen) wanneer daar
   // per ongeluk een lockfile belandt.

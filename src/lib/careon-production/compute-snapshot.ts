@@ -56,13 +56,15 @@ function lastDayOfMonth(year: number, month0: number): number {
   return new Date(year, month0 + 1, 0).getDate();
 }
 
-function daysBetween(fromIso: string, toIso: string): number {
+// Kernpredicaten zijn geëxporteerd zodat de KPI-drilldowns (detail-rows.ts)
+// exact dezelfde definities gebruiken als de snapshot-aggregaties.
+export function daysBetween(fromIso: string, toIso: string): number {
   const from = Date.UTC(Number(fromIso.slice(0, 4)), Number(fromIso.slice(5, 7)) - 1, Number(fromIso.slice(8, 10)));
   const to = Date.UTC(Number(toIso.slice(0, 4)), Number(toIso.slice(5, 7)) - 1, Number(toIso.slice(8, 10)));
   return Math.round((to - from) / 86_400_000);
 }
 
-function activeAt(record: ClientRecord, iso: string): boolean {
+export function activeAt(record: ClientRecord, iso: string): boolean {
   return (
     record.episodeStart !== null &&
     record.episodeStart <= iso &&
@@ -70,7 +72,7 @@ function activeAt(record: ClientRecord, iso: string): boolean {
   );
 }
 
-interface MonthRef {
+export interface MonthRef {
   year: number;
   month0: number;
   key: string;
@@ -79,7 +81,7 @@ interface MonthRef {
 }
 
 /** De 12 laatste vólledige maanden, oplopend (oudste eerst). */
-function lastFullMonths(referenceIso: string, count: number): MonthRef[] {
+export function lastFullMonths(referenceIso: string, count: number): MonthRef[] {
   const year = Number(referenceIso.slice(0, 4));
   const month0 = Number(referenceIso.slice(5, 7)) - 1;
   const months: MonthRef[] = [];
@@ -98,11 +100,11 @@ function lastFullMonths(referenceIso: string, count: number): MonthRef[] {
   return months;
 }
 
-function monthKeyOf(iso: string | null): string | null {
+export function monthKeyOf(iso: string | null): string | null {
   return iso ? iso.slice(0, 7) : null;
 }
 
-function isBehandelingsfase(labels: string[]): boolean {
+export function isBehandelingsfase(labels: string[]): boolean {
   return labels.some((label) => {
     const lower = label.toLowerCase();
     return (
@@ -141,12 +143,12 @@ function mediaan(sortedValues: number[]): number | null {
   return Math.round((sortedValues[n / 2 - 1] + sortedValues[n / 2]) / 2);
 }
 
-function isWachtend(record: ClientRecord): boolean {
+export function isWachtend(record: ClientRecord): boolean {
   return record.wachtlijst || record.preWachtlijst;
 }
 
 /** Wachtduur tot nu: sinds episodestart (interne wachtlijst) of sinds verwijzing. */
-function wachtduurDagen(record: ClientRecord, referenceIso: string): number {
+export function wachtduurDagen(record: ClientRecord, referenceIso: string): number {
   if (record.episodeStart && record.episodeStart <= referenceIso) {
     return daysBetween(record.episodeStart, referenceIso);
   }
@@ -996,6 +998,8 @@ export function computeProductionSnapshot(
       activeClients: actiefNu,
       zonderVestiging,
     },
+    // De (op vestiging gefilterde) records zelf: bron voor de KPI-drilldowns.
+    records,
     monthly,
     cockpitKpis,
     cockpitSummary,

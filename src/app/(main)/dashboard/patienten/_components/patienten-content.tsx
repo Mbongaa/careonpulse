@@ -5,6 +5,7 @@ import { CareonLiveBanner } from "@/app/(main)/dashboard/_components/careon/care
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
 import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
+import { careonDetailHref } from "@/data/careon/careon-kpi-details";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 import { PATIENTEN_METRICS } from "@/data/careon/careon-patienten";
 
@@ -17,8 +18,12 @@ export function PatientenContent() {
   const { production } = useCareon();
 
   // Productie: live metrics (op label) vervangen de demo-constanten; KPI's
-  // zonder EPD-bron behouden demo-waarden en dragen een demo-badge.
-  const metrics = PATIENTEN_METRICS.map((metric) => production?.patientenMetrics[metric.label] ?? metric);
+  // zonder EPD-bron behouden demo-waarden en dragen een demo-badge. De
+  // detailId reist expliciet mee zodat de drill-down in beide modi werkt.
+  const metrics = PATIENTEN_METRICS.map((metric) => {
+    const live = production?.patientenMetrics[metric.label];
+    return live ? { ...live, detailId: metric.detailId } : metric;
+  });
 
   return (
     <div className="@container/main flex flex-col gap-4 md:gap-6">
@@ -29,6 +34,7 @@ export function PatientenContent() {
           <CareonKpiCard
             key={metric.label}
             metric={metric}
+            href={metric.detailId ? careonDetailHref(metric.detailId) : undefined}
             sourceBadge={<CareonSourceBadge page="patienten" widget={metric.label} />}
           />
         ))}

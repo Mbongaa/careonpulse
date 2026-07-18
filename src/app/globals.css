@@ -218,37 +218,6 @@ html[data-theme-mode="careon"] .careon-brand {
   color: #ffffff;
 }
 
-html[data-theme-mode="careon"] .careon-logo-mark {
-  position: relative;
-  color: #ffffff;
-  background: linear-gradient(135deg, #169bff 0%, #7c4dff 52%, #bf1dff 100%);
-  box-shadow:
-    0 12px 28px -14px rgb(22 155 255 / 95%),
-    0 0 0 1px rgb(255 255 255 / 16%) inset;
-}
-
-html[data-theme-mode="careon"] .careon-logo-mark::after {
-  position: absolute;
-  inset: 2px;
-  border-radius: inherit;
-  background: linear-gradient(135deg, rgb(255 255 255 / 20%), transparent 42%);
-  content: "";
-  pointer-events: none;
-}
-
-html[data-theme-mode="careon"] .careon-logo-mark svg {
-  position: relative;
-  z-index: 1;
-  filter: drop-shadow(0 0 7px rgb(255 255 255 / 42%));
-}
-
-html[data-theme-mode="careon"] .careon-wordmark {
-  background: linear-gradient(90deg, #169bff 0%, #7c4dff 55%, #bf1dff 100%);
-  background-clip: text;
-  color: transparent;
-  text-shadow: 0 0 18px rgb(22 155 255 / 22%);
-}
-
 html[data-theme-mode="careon"] .careon-tagline {
   color: #93a4d6;
 }
@@ -800,6 +769,106 @@ html[data-theme-mode="careon"] [data-slot="sidebar-inset"] > div:has(> [data-car
 @media (max-width: 767px) {
   [data-careon-assistant] {
     padding-bottom: calc(max(0.85rem, env(safe-area-inset-bottom)) + 4.6rem);
+  }
+}
+
+/* Careon brand: "C · Open Beat" merk (Claude Design handoff "Careon Pulse
+   Logo Final"). Merkcyclus van 4,6s, één keer bij paginalading: boog tekent in
+   (0–30%), hartslag tekent in (15–42%) en klopt (52–74%: 1 → 1.17 → 0.99 →
+   1.08 → 1), woordmerk stijgt op (8–32%), daarna blijft de getekende eindstand
+   staan. Paden hebben pathLength=1. */
+.careon-wordmark {
+  background: linear-gradient(100deg, #1e88ff, #a020f0 55%);
+  background-clip: text;
+  color: transparent;
+}
+
+.careon-mark-arc,
+.careon-mark-beat {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+
+.careon-mark-beat {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes careon-arc-cycle {
+  0% {
+    stroke-dashoffset: 1;
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  30%,
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes careon-beat-draw-pulse {
+  0%,
+  15% {
+    stroke-dashoffset: 1;
+    transform: scale(1);
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  42% {
+    stroke-dashoffset: 0;
+    transform: scale(1);
+  }
+
+  52% {
+    transform: scale(1);
+    animation-timing-function: cubic-bezier(0.3, 0, 0.15, 1);
+  }
+
+  57% {
+    transform: scale(1.17);
+  }
+
+  63% {
+    transform: scale(0.99);
+  }
+
+  68% {
+    transform: scale(1.08);
+  }
+
+  74%,
+  100% {
+    stroke-dashoffset: 0;
+    transform: scale(1);
+  }
+}
+
+@keyframes careon-word-cycle {
+  0%,
+  8% {
+    opacity: 0;
+    transform: translateY(16px);
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  32%,
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .careon-mark-arc {
+    animation: careon-arc-cycle 4.6s linear both;
+  }
+
+  .careon-mark-beat {
+    animation: careon-beat-draw-pulse 4.6s linear both;
+  }
+
+  .careon-brand-rise {
+    animation: careon-word-cycle 4.6s linear both;
   }
 }
 

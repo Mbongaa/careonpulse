@@ -7,8 +7,8 @@ import { CareonOmzetChart } from "@/app/(main)/dashboard/_components/careon/care
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
 import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
+import { careonDetailHref } from "@/data/careon/careon-kpi-details";
 import { COCKPIT_INSIGHTS } from "@/data/careon/careon-kpis";
-import { CAREON_ROUTES } from "@/data/careon/careon-pages";
 
 import { CaseloadChart, InstroomUitstroomChart, NoShowChart } from "./cockpit-charts";
 import { DossiersProductieSummary } from "./dossiers-productie-summary";
@@ -44,11 +44,13 @@ export function DirectiecockpitContent() {
         badge={<CareonSourceBadge page="cockpit" widget="Careon Insights" />}
       />
       <div className="careon-kpi-grid grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+        {/* Kaarten openen sinds handoff 08 hun KPI-drilldown; de detailpagina
+            linkt zelf door naar de betreffende domeinpagina. */}
         {displayKpis.map((kpi) => (
           <CareonKpiCard
             key={kpi.id}
             metric={kpi}
-            href={CAREON_ROUTES[kpi.page]}
+            href={careonDetailHref(kpi.id)}
             sourceBadge={<CareonSourceBadge page="cockpit" widget={kpi.label} />}
           />
         ))}

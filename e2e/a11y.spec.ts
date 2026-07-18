@@ -15,6 +15,9 @@ const ROUTES = [
   "/dashboard/financieel",
   "/dashboard/hr",
   "/dashboard/databron",
+  // KPI-drilldowns (handoff 08): één cliëntrecord-variant en één event-variant.
+  "/dashboard/details/actief",
+  "/dashboard/details/noshow",
 ];
 
 async function auditRoute(page: Page, route: string, theme: "light" | "dark" | "careon") {

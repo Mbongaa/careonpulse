@@ -38,6 +38,15 @@ export const PROXY_NOTES: Record<string, string> = {
     "Registratie-compleetheid uit de cliëntenexport (zelfde score als Dossiercontrole, op 10) — geen inhoudelijke audit.",
 };
 
+// Voetnoot op KPI-detailpagina's in productie-modus wanneer de records nog
+// demo zijn: benoemt expliciet op welke aanvullende export het domein wacht.
+export const DETAIL_WAIT_NOTES: Record<string, string> = {
+  planning: "Demo-records — echte afspraakregels vereisen de agenda-export uit het EPD.",
+  financieel: "Demo-records — echte declaratieregels vereisen de declaratie-export (Vecozo/Infomedics).",
+  hr: "Demo-records — echte personeelsgegevens vereisen de HR-export.",
+  kwaliteit: "Demo-records — echte metingen vereisen de ROM/MIC-export.",
+};
+
 export const CAREON_PROVENANCE: Record<string, PageProvenance> = {
   cockpit: {
     widgets: {

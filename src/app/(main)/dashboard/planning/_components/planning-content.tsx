@@ -5,6 +5,7 @@ import { CareonLiveBanner } from "@/app/(main)/dashboard/_components/careon/care
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
 import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
+import { careonDetailHref } from "@/data/careon/careon-kpi-details";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 import { PLANNING_METRICS } from "@/data/careon/careon-planning";
 
@@ -18,7 +19,9 @@ export function PlanningContent() {
   // Alleen "Gem. wachttijd (wkn)" is uit de cliëntendata-export berekenbaar;
   // de overige planning-KPI's wachten op de agenda- en urenexports.
   const metrics = PLANNING_METRICS.map((metric) =>
-    production && metric.label === "Gem. wachttijd (wkn)" ? production.gemWachttijdWkn : metric,
+    production && metric.label === "Gem. wachttijd (wkn)"
+      ? { ...production.gemWachttijdWkn, detailId: metric.detailId }
+      : metric,
   );
 
   return (
@@ -30,6 +33,7 @@ export function PlanningContent() {
           <CareonKpiCard
             key={metric.label}
             metric={metric}
+            href={metric.detailId ? careonDetailHref(metric.detailId) : undefined}
             sourceBadge={<CareonSourceBadge page="planning" widget={metric.label} />}
           />
         ))}

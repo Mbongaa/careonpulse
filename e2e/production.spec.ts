@@ -130,6 +130,28 @@ test.describe("productie-modus", () => {
     await expect(page.getByText("COV-check ontbreekt of polis verlopen")).toBeVisible();
   });
 
+  test("KPI-drilldown toont echte records met deeplink; domein zonder export blijft demo", async ({ page }) => {
+    await importFixture(page);
+
+    // Live drill-down: cockpit "Actieve patiënten" → 8 pseudonieme cliëntrijen
+    // uit de fixture, met EPD-deeplink-kolom.
+    await page.goto("/dashboard/directiecockpit");
+    await page.getByRole("link", { name: "Actieve patiënten", exact: true }).click();
+    await page.waitForURL("**/dashboard/details/actief");
+    await expect(page.getByRole("heading", { name: "Actieve patiënten" })).toBeVisible();
+    await expect(page.getByText("8 records · Alle locaties")).toBeVisible();
+    // Role query targets the visible desktop table; the hidden mobile card
+    // list also carries the same client text.
+    await expect(page.getByRole("cell", { name: /Cliënt 1\b/ }).first()).toBeVisible();
+    await expect(page.locator("table").getByRole("link", { name: "Dossier" }).first()).toBeVisible();
+
+    // Domein zonder gekoppelde export: demo-records + demo-badge + wachtnoot.
+    await page.goto("/dashboard/details/omzetverz");
+    await expect(page.getByRole("heading", { name: "Omzet verzekeraars" })).toBeVisible();
+    await expect(page.getByText("Demo", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("vereisen de declaratie-export", { exact: false })).toBeVisible();
+  });
+
   test("trends en demo-vervangingen: wachttijd-trend, zorgvorm, hoog-risico, datakwaliteit, kwaliteitsscore", async ({
     page,
   }) => {

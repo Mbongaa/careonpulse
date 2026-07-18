@@ -85,8 +85,14 @@ test.describe("cockpit + filters", () => {
     await expect(page.getByText("275", { exact: true }).first()).toBeVisible();
   });
 
-  test("KPI cards route to their domain pages", async ({ page }) => {
+  test("KPI cards open their drill-down; detail page links onward to the domain page", async ({ page }) => {
     await page.getByRole("link", { name: "No-show", exact: true }).click();
+    await page.waitForURL("**/dashboard/details/noshow");
+    await expect(page.getByRole("heading", { name: "No-show" })).toBeVisible();
+    // Kop toont de geauditeerde kaartwaarde; de tabel telt de records erachter.
+    await expect(page.getByText("3,4%", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("63 records · Alle locaties")).toBeVisible();
+    await page.getByRole("link", { name: "Open Planning" }).click();
     await page.waitForURL("**/dashboard/planning");
     await expect(page.getByRole("heading", { name: "Planning" })).toBeVisible();
   });
@@ -95,6 +101,43 @@ test.describe("cockpit + filters", () => {
     await page.getByRole("link", { name: /Signaleringen \(3 kritiek\)/ }).click();
     await page.waitForURL("**/dashboard/signaleringen");
     await expect(page.getByRole("heading", { name: "Signaleringen" })).toBeVisible();
+  });
+});
+
+test.describe("kpi drill-down", () => {
+  test("domain KPI card drills down and reconciles with the audited breakdown", async ({ page }) => {
+    await loginViaSession(page);
+    await page.goto("/dashboard/patienten");
+    await page.getByRole("link", { name: "Wachtlijst intake", exact: true }).click();
+    await page.waitForURL("**/dashboard/details/wachtlijst-intake");
+    await expect(page.getByRole("heading", { name: "Wachtlijst intake" })).toBeVisible();
+    await expect(page.getByText("43", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("43 records · Alle locaties")).toBeVisible();
+    // Locatiefilter filtert de records; Roermond draagt 19 intake-wachtenden
+    // (geauditeerde wachtlijstverdeling, Treeknorm-verhaal).
+    await page.getByLabel("Locatie").click();
+    await page.getByRole("option", { name: "Roermond" }).click();
+    await expect(page.getByText("19 records · Roermond")).toBeVisible();
+  });
+
+  test("dossiercontrole summary tiles open their drill-down", async ({ page }) => {
+    await loginViaSession(page);
+    await page.goto("/dashboard/dossiercontrole");
+    await page.getByRole("link", { name: "Niet compleet", exact: true }).click();
+    await page.waitForURL("**/dashboard/details/dossiersnc");
+    await expect(page.getByRole("heading", { name: "Dossiers niet compleet" })).toBeVisible();
+    await expect(page.getByText("18", { exact: true }).first()).toBeVisible();
+  });
+
+  test("unknown detail id shows the 404 page", async ({ page }) => {
+    await loginViaSession(page);
+    // Statuscode is hier 200: de dashboard-layout leest cookies() en streamt,
+    // dus de headers zijn al verstuurd vóór notFound() de boundary rendert
+    // (zelfde beperking als destijds bij de template-catch-all). Ongematchte
+    // routes buiten een segment geven wél een echte 404 — zie de bestaande
+    // "unknown dashboard route returns 404 page"-test.
+    await page.goto("/dashboard/details/bestaat-niet");
+    await expect(page.getByText("Pagina niet gevonden")).toBeVisible();
   });
 });
 

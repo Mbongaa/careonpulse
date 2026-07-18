@@ -16,12 +16,12 @@ export const ACTIEVE_CLIENTEN = 1248;
 // ---- KPI strip ----
 
 export const DOSSIERS_PRODUCTIE_METRICS: CareonMetric[] = [
-  { label: "Actieve cliënten", value: 1248, prev: 1215, f: "int" },
-  { label: "Afsluitingen", value: 74, prev: 82, f: "int", neutralDown: true },
-  { label: "Productie-uren", value: 1329, prev: 1287, f: "int" },
-  { label: "Productiviteit", value: 85, prev: 84, f: "pct0" },
-  { label: "Wachtlijst totaal", value: 70, prev: 82, f: "int", betterLow: true },
-  { label: "Urgent op wachtlijst", value: 6, prev: 8, f: "int", betterLow: true },
+  { label: "Actieve cliënten", value: 1248, prev: 1215, f: "int", detailId: "actief" },
+  { label: "Afsluitingen", value: 74, prev: 82, f: "int", neutralDown: true, detailId: "gesloten" },
+  { label: "Productie-uren", value: 1329, prev: 1287, f: "int", detailId: "productie-uren" },
+  { label: "Productiviteit", value: 85, prev: 84, f: "pct0", detailId: "productiviteit" },
+  { label: "Wachtlijst totaal", value: 70, prev: 82, f: "int", betterLow: true, detailId: "wachtlijst-totaal" },
+  { label: "Urgent op wachtlijst", value: 6, prev: 8, f: "int", betterLow: true, detailId: "wachtlijst-urgent" },
 ];
 
 // ---- Dossiers, afsluitingen en productie per medewerker ----

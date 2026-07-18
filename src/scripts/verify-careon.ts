@@ -12,6 +12,7 @@
 import { CAREON_ALERTS, CRITICAL_ALERT_COUNT } from "../data/careon/careon-alerts";
 import { caseloadTone, ncTone, noshowTone } from "../data/careon/careon-behandelaren";
 import { parseKpiCsv, SAMPLE_CSV_CONTENT } from "../data/careon/careon-databron";
+import { buildDetailRowsFresh, DETAIL_LOCS, demoDetailRows } from "../data/careon/careon-detail-records";
 import {
   ACTIEVE_CLIENTEN,
   DIAGNOSE_GROEPEN,
@@ -30,6 +31,7 @@ import {
 import { CAREON_LOCATION_SCALE } from "../data/careon/careon-filters";
 import { FINANCIEEL_METRICS } from "../data/careon/careon-financieel";
 import { HR_METRICS } from "../data/careon/careon-hr";
+import { careonDetailHref, KPI_DETAIL_BY_ID, KPI_DETAILS } from "../data/careon/careon-kpi-details";
 import { COCKPIT_KPIS } from "../data/careon/careon-kpis";
 import { complianceTone, KWALITEIT_COUNTERS } from "../data/careon/careon-kwaliteit";
 import { CAREON_ROUTES } from "../data/careon/careon-pages";
@@ -37,6 +39,7 @@ import { PATIENTEN_METRICS } from "../data/careon/careon-patienten";
 import { PLANNING_METRICS } from "../data/careon/careon-planning";
 import type { CareonMetric } from "../data/careon/careon-types";
 import { formatCareonDelta, formatCareonValue } from "../lib/careon-format";
+import { CAREON_PROVENANCE } from "../lib/careon-production/provenance";
 
 let failures = 0;
 let passes = 0;
@@ -210,7 +213,27 @@ for (const [titel, route] of expectedAlertRoutes) {
 }
 
 // ---- Cockpit KPI click targets ----
+// Sinds de KPI-drilldown (client-goedgekeurd, handoff 08) opent elke
+// cockpitkaart zijn detailpagina; de detailpagina linkt door naar de
+// oorspronkelijke domeinpagina (die doorlink staat hieronder geborgd).
 const expectedKpiRoutes: Record<string, string> = {
+  actief: "/dashboard/details/actief",
+  aanmeldingen: "/dashboard/details/aanmeldingen",
+  gesloten: "/dashboard/details/gesloten",
+  noshow: "/dashboard/details/noshow",
+  zondervervolg: "/dashboard/details/zondervervolg",
+  dossiersnc: "/dashboard/details/dossiersnc",
+  omzetverz: "/dashboard/details/omzetverz",
+  omzetinfo: "/dashboard/details/omzetinfo",
+  outreach: "/dashboard/details/outreach",
+  tevredenheid: "/dashboard/details/tevredenheid",
+};
+for (const kpi of COCKPIT_KPIS) {
+  check(`kpi route ${kpi.id}`, careonDetailHref(kpi.id), expectedKpiRoutes[kpi.id]);
+}
+// De geauditeerde kaart→domein-koppeling blijft bestaan als doorlink op de
+// detailpagina (entry.page → CAREON_ROUTES).
+const expectedOnwardRoutes: Record<string, string> = {
   actief: "/dashboard/patienten",
   aanmeldingen: "/dashboard/patienten",
   gesloten: "/dashboard/patienten",
@@ -223,7 +246,8 @@ const expectedKpiRoutes: Record<string, string> = {
   tevredenheid: "/dashboard/kwaliteit",
 };
 for (const kpi of COCKPIT_KPIS) {
-  check(`kpi route ${kpi.id}`, CAREON_ROUTES[kpi.page], expectedKpiRoutes[kpi.id]);
+  const entry = KPI_DETAIL_BY_ID.get(kpi.id);
+  check(`kpi doorlink ${kpi.id}`, entry ? CAREON_ROUTES[entry.page] : null, expectedOnwardRoutes[kpi.id]);
 }
 
 // ---- Behandelaren color thresholds (audited rules) ----
@@ -288,6 +312,191 @@ check("dp regie tone 236 bad", regieTone(236), "bad");
 check("dp regie tone 214 warn", regieTone(214), "warn");
 check("dp regie tone 168 none", regieTone(168), "none");
 check("dp route", CAREON_ROUTES.dossiersProductie, "/dashboard/dossiers-productie");
+
+// ---- KPI-drilldown register (client-feature, handoff 08): reconciliation ----
+// Elke KPI-kaart linkt naar /dashboard/details/<id>; de demo-records achter
+// elke detailpagina moeten exact reconciliëren met de geauditeerde waarden.
+
+const CARD_SOURCES: [string, CareonMetric[]][] = [
+  ["patienten", PATIENTEN_METRICS],
+  ["planning", PLANNING_METRICS],
+  ["financieel", FINANCIEEL_METRICS],
+  ["hr", HR_METRICS],
+  ["kwaliteit", KWALITEIT_COUNTERS],
+  ["dossiersProductie", DOSSIERS_PRODUCTIE_METRICS],
+];
+
+// Registerdekking: unieke ids, elke kaart heeft een entry, cockpit gedekt.
+check("detail ids uniek", KPI_DETAILS.length, new Set(KPI_DETAILS.map((d) => d.id)).size);
+for (const kpi of COCKPIT_KPIS) {
+  check(`detail entry cockpit ${kpi.id}`, KPI_DETAIL_BY_ID.has(kpi.id), true);
+}
+for (const [pageName, metrics] of CARD_SOURCES) {
+  for (const m of metrics) {
+    const entry = m.detailId ? KPI_DETAIL_BY_ID.get(m.detailId) : undefined;
+    check(`detail entry ${pageName} ${m.label}`, Boolean(entry), true);
+    if (!entry) {
+      continue;
+    }
+    if (entry.f === m.f) {
+      // Waarde/formaat van de detailkop = waarde/formaat van de kaart.
+      check(`detail waarde ${entry.id} (${pageName})`, [entry.value, entry.f], [m.value, m.f]);
+    } else {
+      // Gedeelde pagina met andere weergavevorm (planning "No-shows" 63 ↔
+      // cockpit "No-show" 3,4%): de tel-reconciliatie dekt dan de kaartwaarde.
+      check(
+        `detail telling dekt kaart ${pageName} ${m.label}`,
+        entry.reconcile.kind === "count" ? (entry.reconcile.expected ?? entry.value) : null,
+        m.value,
+      );
+    }
+  }
+}
+
+// Herkomst-sleutels bestaan (typo-bewaking) en trends hebben 12 punten.
+for (const entry of KPI_DETAILS) {
+  check(
+    `detail provenance ${entry.id}`,
+    Boolean(CAREON_PROVENANCE[entry.provenance.page]?.widgets[entry.provenance.widget]),
+    true,
+  );
+  check(`detail trend lengte ${entry.id}`, entry.trend.length, 12);
+  const spark = COCKPIT_KPIS.find((k) => k.id === entry.id)?.spark;
+  if (spark) {
+    check(`detail trend = cockpit spark ${entry.id}`, entry.trend, spark);
+  } else {
+    // Gegenereerde reeksen eindigen exact op [vorige, huidige] (eurK in duizenden).
+    const inK = entry.f === "eurK" ? 1000 : 1;
+    check(`detail trend eindigt op waarde ${entry.id}`, entry.trend[11], Math.round((entry.value / inK) * 10) / 10);
+  }
+}
+
+// Reconciliatie: tellingen, sommen en gewogen gemiddelden.
+for (const entry of KPI_DETAILS) {
+  const rows = demoDetailRows(entry.id);
+  const rec = entry.reconcile;
+  if (rec.kind === "count") {
+    check(`detail count ${entry.id}`, rows.length, rec.expected ?? entry.value);
+  } else if (rec.kind === "sum") {
+    check(
+      `detail som ${entry.id}`,
+      rows.reduce((sum, r) => sum + Number(r[rec.field] ?? 0), 0),
+      entry.value,
+    );
+  } else if (rec.kind === "weightedMean") {
+    const n = rows.reduce((sum, r) => sum + Number(r[rec.nField] ?? 0), 0);
+    const gewogen = rows.reduce((sum, r) => sum + Number(r[rec.nField] ?? 0) * Number(r[rec.vField] ?? 0), 0) / n;
+    check(
+      `detail gewogen gemiddelde ${entry.id}`,
+      formatCareonValue(gewogen, entry.f),
+      formatCareonValue(entry.value, entry.f),
+    );
+  } else if (rec.kind === "mean") {
+    const mean = rows.reduce((sum, r) => sum + Number(r[rec.field] ?? 0), 0) / rows.length;
+    check(`detail gemiddelde ${entry.id}`, formatCareonValue(mean, entry.f), formatCareonValue(entry.value, entry.f));
+  }
+}
+
+// Locatieverdeling van schaalbare tel-KPI's: gefilterde tabel = geschaalde kaart.
+// Als de drie afrondingen niet op het totaal sommeren (zondervervolg: 32 ≠ 31)
+// is één locatie ±1 — de largest-remainder-som blijft altijd exact het totaal.
+const scalableCountIds = KPI_DETAILS.filter((d) => d.scale && d.f === "int").map((d) => d.id);
+check("detail schaalbare tel-KPI's", scalableCountIds, [
+  "actief",
+  "aanmeldingen",
+  "gesloten",
+  "zondervervolg",
+  "dossiersnc",
+  "outreach",
+]);
+for (const id of scalableCountIds) {
+  const entry = KPI_DETAIL_BY_ID.get(id);
+  if (!entry) {
+    continue;
+  }
+  const rows = demoDetailRows(id);
+  const rounds = DETAIL_LOCS.map((loc) => Math.round(entry.value * CAREON_LOCATION_SCALE[loc]));
+  const counts = DETAIL_LOCS.map((loc) => rows.filter((r) => r.loc === loc).length);
+  check(
+    `detail locatiesom ${id}`,
+    counts.reduce((a, b) => a + b, 0),
+    entry.value,
+  );
+  const roundsSluiten = rounds.reduce((a, b) => a + b, 0) === entry.value;
+  if (roundsSluiten) {
+    check(`detail locatieverdeling ${id}`, counts, rounds);
+  } else {
+    check(
+      `detail locatieverdeling ±1 ${id}`,
+      counts.every((c, i) => Math.abs(c - rounds[i]) <= 1),
+      true,
+    );
+  }
+}
+// Euro-KPI's met schaalvlag: som per locatie exact waarde × factor.
+for (const id of ["omzetverz", "omzetinfo"]) {
+  const entry = KPI_DETAIL_BY_ID.get(id);
+  if (!entry) {
+    continue;
+  }
+  const rows = demoDetailRows(id);
+  check(
+    `detail locatiesommen ${id}`,
+    DETAIL_LOCS.map((loc) => rows.filter((r) => r.loc === loc).reduce((sum, r) => sum + Number(r.bedrag ?? 0), 0)),
+    DETAIL_LOCS.map((loc) => entry.value * CAREON_LOCATION_SCALE[loc]),
+  );
+}
+
+// Wachtlijst: één consistente set — locatieverdeling en duur-buckets geauditeerd.
+const wachtRows = demoDetailRows("wachtlijst-totaal");
+check(
+  "detail wachtlijst per locatie",
+  WACHTLIJST_PER_LOCATIE.map((l) => wachtRows.filter((r) => r.loc === l.label).length),
+  WACHTLIJST_PER_LOCATIE.map((l) => l.aantal),
+);
+check(
+  "detail wachtlijst buckets",
+  [
+    wachtRows.filter((r) => Number(r.dagen) <= 14).length,
+    wachtRows.filter((r) => Number(r.dagen) >= 15 && Number(r.dagen) <= 30).length,
+    wachtRows.filter((r) => Number(r.dagen) >= 31 && Number(r.dagen) <= 60).length,
+    wachtRows.filter((r) => Number(r.dagen) >= 61).length,
+  ],
+  WACHTLIJST_BUCKETS.map((b) => b.aantal),
+);
+check(
+  "detail wachtlijst fase-split",
+  [wachtRows.filter((r) => r.fase === "Intake").length, wachtRows.filter((r) => r.fase === "Behandeling").length],
+  [43, 27],
+);
+check("detail wachtlijst urgent", wachtRows.filter((r) => r.urgentie === "Urgent").length, 6);
+
+// Afspraken: statuspool bevat exact de no-shows (63) en annuleringen (118).
+const afspraakRows = demoDetailRows("afspraken");
+check("detail afspraken no-shows", afspraakRows.filter((r) => r.status === "No-show").length, 63);
+check("detail afspraken geannuleerd", afspraakRows.filter((r) => r.status === "Geannuleerd").length, 118);
+
+// Continuïteit: de geauditeerde "Vraagt aandacht"-cliënten staan in hun tabel.
+check(
+  "detail risico-rijen contact60",
+  ["P-4817", "P-4522"].every((id) => demoDetailRows("contact60").some((r) => r.key === id)),
+  true,
+);
+check(
+  "detail risico-rijen zondervervolg",
+  ["P-4930", "P-5121"].every((id) => demoDetailRows("zondervervolg").some((r) => r.key === id)),
+  true,
+);
+check(
+  "detail risico-rij zonder-behandelaar",
+  demoDetailRows("zonder-behandelaar").some((r) => r.key === "P-5104"),
+  true,
+);
+
+// Determinisme: twee verse builds geven identieke rijen (SSR = client).
+for (const id of ["actief", "omzetverz", "wachttijd", "afspraken"]) {
+  check(`detail determinisme ${id}`, buildDetailRowsFresh(id), buildDetailRowsFresh(id));
+}
 
 console.log(`\nverify-careon: ${passes} passed, ${failures} failed`);
 if (failures > 0) {

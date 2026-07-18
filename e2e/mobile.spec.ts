@@ -18,6 +18,8 @@ const ROUTES = [
   "/dashboard/hr",
   "/dashboard/databron",
   "/dashboard/assistent",
+  // KPI-drilldown (handoff 08): breedste detailtabel als mobile-gate.
+  "/dashboard/details/actief",
 ];
 
 async function loginViaSession(page: Page) {

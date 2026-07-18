@@ -11,6 +11,7 @@ import {
   DOSSIERS_PRODUCTIE_METRICS,
   MEDEWERKER_PRODUCTIE,
 } from "@/data/careon/careon-dossiers-productie";
+import { careonDetailHref } from "@/data/careon/careon-kpi-details";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 
 import { MedewerkerProductieLiveTable } from "./medewerker-productie-live-table";
@@ -39,9 +40,14 @@ export function DossiersProductieContent() {
   );
   const medewerkerCount = production ? production.dossiersProductie.medewerkers.length : demoRows.length;
 
-  const metrics = DOSSIERS_PRODUCTIE_METRICS.map((metric) =>
-    production ? (production.dossiersProductie.metrics[metric.label] ?? metric) : metric,
-  );
+  const metrics = DOSSIERS_PRODUCTIE_METRICS.map((metric) => {
+    if (!production) {
+      return metric;
+    }
+    // De detailId reist expliciet mee zodat de drill-down in beide modi werkt.
+    const live = production.dossiersProductie.metrics[metric.label] ?? metric;
+    return { ...live, detailId: metric.detailId };
+  });
 
   return (
     <div className="@container/main flex flex-col gap-4 md:gap-6">
@@ -59,6 +65,7 @@ export function DossiersProductieContent() {
           <CareonKpiCard
             key={metric.label}
             metric={metric}
+            href={metric.detailId ? careonDetailHref(metric.detailId) : undefined}
             sourceBadge={<CareonSourceBadge page="dossiersProductie" widget={metric.label} />}
           />
         ))}

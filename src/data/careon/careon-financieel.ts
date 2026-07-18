@@ -1,14 +1,14 @@
 import type { CareonMetric } from "./careon-types";
 
 export const FINANCIEEL_METRICS: CareonMetric[] = [
-  { label: "Omzet verzekeraars", value: 425000, prev: 401000, f: "eurK" },
-  { label: "Omzet Infomedics", value: 68000, prev: 59000, f: "eurK" },
-  { label: "Onderhanden werk", value: 182000, prev: 174000, f: "eurK", neutralDown: true },
-  { label: "Openstaande declaraties", value: 96400, prev: 104800, f: "eurK", betterLow: true },
-  { label: "Afgekeurde declaraties", value: 12300, prev: 15100, f: "eurK", betterLow: true },
-  { label: "Gem. omzet / cliënt", value: 2140, prev: 2075, f: "eur" },
-  { label: "Gem. omzet / traject", value: 3680, prev: 3590, f: "eur" },
-  { label: "Declaraties >90 dgn", value: 21300, prev: 26800, f: "eurK", betterLow: true },
+  { label: "Omzet verzekeraars", value: 425000, prev: 401000, f: "eurK", detailId: "omzetverz" },
+  { label: "Omzet Infomedics", value: 68000, prev: 59000, f: "eurK", detailId: "omzetinfo" },
+  { label: "Onderhanden werk", value: 182000, prev: 174000, f: "eurK", neutralDown: true, detailId: "ohw" },
+  { label: "Openstaande declaraties", value: 96400, prev: 104800, f: "eurK", betterLow: true, detailId: "openstaand" },
+  { label: "Afgekeurde declaraties", value: 12300, prev: 15100, f: "eurK", betterLow: true, detailId: "afgekeurd" },
+  { label: "Gem. omzet / cliënt", value: 2140, prev: 2075, f: "eur", detailId: "omzet-client" },
+  { label: "Gem. omzet / traject", value: 3680, prev: 3590, f: "eur", detailId: "omzet-traject" },
+  { label: "Declaraties >90 dgn", value: 21300, prev: 26800, f: "eurK", betterLow: true, detailId: "declaraties90" },
 ];
 
 export const OMZET_PER_VERZEKERAAR = [

@@ -3,6 +3,7 @@ import { CareonLiveBanner } from "@/app/(main)/dashboard/_components/careon/care
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
 import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import { HR_METRICS } from "@/data/careon/careon-hr";
+import { careonDetailHref } from "@/data/careon/careon-kpi-details";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 
 import { BigRegistratiesPanel } from "./big-registraties";
@@ -20,6 +21,7 @@ export function HrContent() {
           <CareonKpiCard
             key={metric.label}
             metric={metric}
+            href={metric.detailId ? careonDetailHref(metric.detailId) : undefined}
             sourceBadge={<CareonSourceBadge page="hr" widget={metric.label} />}
           />
         ))}

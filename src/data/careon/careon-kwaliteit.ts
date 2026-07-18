@@ -10,10 +10,10 @@ export const KWALITEIT_COMPLIANCE = [
 ];
 
 export const KWALITEIT_COUNTERS: CareonMetric[] = [
-  { label: "Incidenten (MIC)", value: 6, prev: 9, f: "int", betterLow: true },
-  { label: "Klachten", value: 2, prev: 3, f: "int", betterLow: true },
-  { label: "Dossierkwaliteit", value: 8.1, prev: 7.8, f: "dec1" },
-  { label: "Cliënttevredenheid", value: 8.4, prev: 8.2, f: "dec1" },
+  { label: "Incidenten (MIC)", value: 6, prev: 9, f: "int", betterLow: true, detailId: "incidenten" },
+  { label: "Klachten", value: 2, prev: 3, f: "int", betterLow: true, detailId: "klachten" },
+  { label: "Dossierkwaliteit", value: 8.1, prev: 7.8, f: "dec1", detailId: "dossierkwaliteit" },
+  { label: "Cliënttevredenheid", value: 8.4, prev: 8.2, f: "dec1", detailId: "tevredenheid" },
 ];
 
 export const KWALITEIT_NOTE =

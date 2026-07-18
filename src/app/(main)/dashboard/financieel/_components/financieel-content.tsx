@@ -13,6 +13,7 @@ import {
   OMZET_PER_VERZEKERAAR,
   OPENSTAAND_TOTAAL,
 } from "@/data/careon/careon-financieel";
+import { careonDetailHref } from "@/data/careon/careon-kpi-details";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 
 const nl = new Intl.NumberFormat("nl-NL");
@@ -29,6 +30,7 @@ export function FinancieelContent() {
           <CareonKpiCard
             key={metric.label}
             metric={metric}
+            href={metric.detailId ? careonDetailHref(metric.detailId) : undefined}
             sourceBadge={<CareonSourceBadge page="financieel" widget={metric.label} />}
           />
         ))}
