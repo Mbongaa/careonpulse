@@ -3,6 +3,8 @@
 import { CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from "recharts";
 
 import { CareonChartCard } from "@/app/(main)/dashboard/_components/careon/careon-chart-card";
+import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
+import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import {
   type ChartConfig,
   ChartContainer,
@@ -18,11 +20,26 @@ const instroomConfig = {
   uitstroom: { label: "Uitstroom", color: "var(--chart-2)" },
 } satisfies ChartConfig;
 
+// Gemeenschappelijke vorm van demo- en productiemaandpunten voor de charts.
+interface MaandPunt {
+  m: string;
+  aanmeldingen: number;
+  uitstroom: number;
+  caseload: number;
+}
+
 export function InstroomUitstroomChart({ className }: Readonly<{ className?: string }>) {
+  const { production } = useCareon();
+  const data: MaandPunt[] = production ? production.monthly : CAREON_MONTHLY;
   return (
-    <CareonChartCard title="Instroom & uitstroom" sub="Laatste 12 maanden" className={className}>
+    <CareonChartCard
+      title="Instroom & uitstroom"
+      sub="Laatste 12 maanden"
+      className={className}
+      titleBadge={<CareonSourceBadge page="cockpit" widget="Instroom & uitstroom" />}
+    >
       <ChartContainer config={instroomConfig} className="aspect-auto h-72 w-full">
-        <LineChart data={CAREON_MONTHLY} margin={{ top: 0, left: 0 }}>
+        <LineChart data={data} margin={{ top: 0, left: 0 }}>
           <CartesianGrid vertical={false} strokeOpacity={0.5} />
           <XAxis dataKey="m" tickLine={false} axisLine={false} tickMargin={8} />
           <YAxis tickLine={false} axisLine={false} width="auto" />
@@ -49,7 +66,12 @@ const noshowConfig = {
 
 export function NoShowChart({ className }: Readonly<{ className?: string }>) {
   return (
-    <CareonChartCard title="No-show" sub="Grens 5%" className={className}>
+    <CareonChartCard
+      title="No-show"
+      sub="Grens 5%"
+      className={className}
+      titleBadge={<CareonSourceBadge page="cockpit" widget="No-show trend" />}
+    >
       <ChartContainer config={noshowConfig} className="aspect-auto h-56 w-full">
         <LineChart data={CAREON_MONTHLY} margin={{ top: 8, left: 0 }}>
           <CartesianGrid vertical={false} strokeOpacity={0.5} />
@@ -80,10 +102,17 @@ const caseloadConfig = {
 } satisfies ChartConfig;
 
 export function CaseloadChart({ className }: Readonly<{ className?: string }>) {
+  const { production } = useCareon();
+  const data: MaandPunt[] = production ? production.monthly : CAREON_MONTHLY;
   return (
-    <CareonChartCard title="Caseload" sub="Actieve trajecten totaal" className={className}>
+    <CareonChartCard
+      title="Caseload"
+      sub="Actieve trajecten totaal"
+      className={className}
+      titleBadge={<CareonSourceBadge page="cockpit" widget="Caseload" />}
+    >
       <ChartContainer config={caseloadConfig} className="aspect-auto h-56 w-full">
-        <LineChart data={CAREON_MONTHLY} margin={{ top: 8, left: 0 }}>
+        <LineChart data={data} margin={{ top: 8, left: 0 }}>
           <CartesianGrid vertical={false} strokeOpacity={0.5} />
           <XAxis dataKey="m" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} />
           <YAxis tickLine={false} axisLine={false} width="auto" domain={["dataMin - 20", "dataMax + 20"]} />

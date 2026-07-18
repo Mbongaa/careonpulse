@@ -324,11 +324,9 @@ export function AssistentContent() {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <AssistantCanvasContext.Provider value={canvasValue}>
-        <div
-          data-content-padding="false"
-          data-careon-assistant
-          className="assistant-workspace flex h-[calc(100dvh-var(--dashboard-header-height,3rem))] min-h-0"
-        >
+        {/* The frame is viewport-locked via globals.css (body:has locks the
+            document); this node just fills the flex column under the header. */}
+        <div data-content-padding="false" data-careon-assistant className="assistant-workspace flex min-h-0 flex-1">
           <aside
             className={cn(
               "hidden w-60 shrink-0 flex-col gap-3 overflow-y-auto border-e p-3 md:flex",
@@ -486,10 +484,20 @@ export function AssistentContent() {
 }
 
 function AssistantSourceFootnote({ aiLive, className }: Readonly<{ aiLive: boolean; className?: string }>) {
+  const { source } = useCareon();
   return (
-    <div className={cn("mt-auto flex items-center gap-2 border-t pt-3 text-muted-foreground text-xs", className)}>
-      <span className={cn("size-2 shrink-0 rounded-full", aiLive ? "animate-pulse bg-emerald-500" : "bg-amber-500")} />
-      {aiLive ? "Live AI actief · via beveiligde server" : "Lokale preview · geen live AI"}
+    <div className={cn("mt-auto flex flex-col gap-1.5 border-t pt-3 text-muted-foreground text-xs", className)}>
+      <div className="flex items-center gap-2">
+        <span
+          className={cn("size-2 shrink-0 rounded-full", aiLive ? "animate-pulse bg-emerald-500" : "bg-amber-500")}
+        />
+        {aiLive ? "Live AI actief · via beveiligde server" : "Lokale preview · geen live AI"}
+      </div>
+      {source.mode === "productie" && (
+        <p className="text-amber-700 dark:text-amber-400">
+          Let op: de assistent analyseert nog de demo-dataset; koppeling met de productie-import volgt.
+        </p>
+      )}
     </div>
   );
 }
@@ -502,7 +510,9 @@ function AssistantSourceMeta({ aiLive }: Readonly<{ aiLive: boolean }>) {
   ].filter(Boolean);
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+    // Hidden on phones: the footer must stay compact there and the same
+    // status lives in the top bar and the thread-list footnote.
+    <div className="flex flex-wrap items-center gap-1.5 text-xs max-sm:hidden">
       <Badge variant="outline" className="gap-1.5 font-normal">
         <span className={cn("size-1.5 rounded-full", aiLive ? "animate-pulse bg-emerald-500" : "bg-amber-500")} />
         {aiLive ? "Live AI" : "Demo-AI"}
@@ -514,7 +524,9 @@ function AssistantSourceMeta({ aiLive }: Readonly<{ aiLive: boolean }>) {
             source.mode === "api" ? "animate-pulse bg-emerald-500" : "bg-amber-500",
           )}
         />
-        {source.label}
+        {/* De assistent rekent (nog) op de demo-dataset — toon dat eerlijk,
+            ook wanneer elders productie-modus actief is. */}
+        {source.mode === "productie" ? "Analyse: demo-dataset" : source.label}
       </Badge>
       <Badge variant="outline" className="font-normal tabular-nums">
         {COCKPIT_KPIS.length} KPI&apos;s
@@ -573,10 +585,18 @@ function AssistantCanvasDock({ onOpen }: Readonly<{ onOpen: () => void }>) {
 function AssistantQuickPrompts() {
   const threadRuntime = useThreadRuntime();
   const isRunning = useAuiState((s) => s.thread.isRunning);
+  const isEmpty = useAuiState((s) => s.thread.isEmpty);
 
   return (
     // One horizontally scrollable row on phones; wraps normally from sm up.
-    <div className="flex gap-1.5 overflow-x-auto pb-1 max-sm:-mx-4 max-sm:px-4 sm:flex-wrap sm:overflow-visible sm:pb-0">
+    // Once the conversation runs, phones drop the row to keep the composer
+    // footer short (the prompts stay available from sm up).
+    <div
+      className={cn(
+        "flex gap-1.5 overflow-x-auto pb-1 max-sm:-mx-4 max-sm:px-4 sm:flex-wrap sm:overflow-visible sm:pb-0",
+        !isEmpty && "max-sm:hidden",
+      )}
+    >
       {ASSISTANT_QUICK_PROMPTS.map((prompt) => (
         <Button
           key={prompt.id}

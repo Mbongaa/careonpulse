@@ -1,7 +1,7 @@
 import { Minus, TrendingDown, TrendingUp } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import type { CareonMetric } from "@/data/careon/careon-types";
+import type { CareonMetricLike } from "@/data/careon/careon-types";
 import { formatCareonDelta } from "@/lib/careon-format";
 import { cn } from "@/lib/utils";
 
@@ -9,10 +9,14 @@ export function CareonDeltaBadge({
   metric,
   className,
 }: Readonly<{
-  metric: Pick<CareonMetric, "value" | "prev" | "f" | "betterLow" | "neutralDown">;
+  metric: Pick<CareonMetricLike, "value" | "prev" | "f" | "betterLow" | "neutralDown">;
   className?: string;
 }>) {
-  const delta = formatCareonDelta(metric);
+  // Productie-snapshotvelden zonder historie hebben geen delta.
+  if (metric.prev === null) {
+    return null;
+  }
+  const delta = formatCareonDelta({ ...metric, prev: metric.prev });
   let Icon = Minus;
   if (metric.value !== metric.prev) {
     Icon = delta.up ? TrendingUp : TrendingDown;

@@ -143,6 +143,24 @@ test.describe("assistant api", () => {
   });
 });
 
+test.describe("assistant layout", () => {
+  test("page is viewport-contained with the canvas open (no document scroll)", async ({ page }) => {
+    await loginViaSession(page);
+    await page.goto("/dashboard/assistent");
+    await page.getByRole("button", { name: "Samenvatting van vandaag" }).click();
+    await expect(page.getByText("Geselecteerd artefact")).toBeVisible({ timeout: 20_000 });
+
+    const overflow = await page.evaluate(() => ({
+      scrollW: document.documentElement.scrollWidth,
+      innerW: window.innerWidth,
+      scrollH: document.documentElement.scrollHeight,
+      innerH: window.innerHeight,
+    }));
+    expect(overflow.scrollW).toBeLessThanOrEqual(overflow.innerW + 1);
+    expect(overflow.scrollH).toBeLessThanOrEqual(overflow.innerH + 1);
+  });
+});
+
 test.describe("dossiers & productie", () => {
   test("page shows reconciled KPIs and population sections", async ({ page }) => {
     await loginViaSession(page);
@@ -210,7 +228,8 @@ test.describe("databron", () => {
 
   test("CSV import updates cockpit KPIs and source; invalid CSV shows audited error", async ({ page }) => {
     const csv = "kpi;huidig;vorige_maand\nactief;1300;1248\nnoshow;2,9;3,4";
-    await page.locator('input[type="file"]').setInputFiles({
+    // Scoped op de CSV-kaart: Databron heeft ook een productie-importkaart met file-input.
+    await page.locator('[data-slot="card"]:has-text("CSV-import uit uw EPD") input[type="file"]').setInputFiles({
       name: "maandexport.csv",
       mimeType: "text/csv",
       buffer: Buffer.from(csv, "utf-8"),
@@ -223,7 +242,7 @@ test.describe("databron", () => {
     await expect(page.getByText("1.300", { exact: true }).first()).toBeVisible();
 
     await page.getByRole("link", { name: "Databron", exact: true }).first().click();
-    await page.locator('input[type="file"]').setInputFiles({
+    await page.locator('[data-slot="card"]:has-text("CSV-import uit uw EPD") input[type="file"]').setInputFiles({
       name: "fout.csv",
       mimeType: "text/csv",
       buffer: Buffer.from("foo;1;2", "utf-8"),

@@ -76,13 +76,17 @@ test("mobile: assistant canvas opens in a full-height drawer @mobile", async ({ 
   await expect(dock).toBeVisible({ timeout: 20_000 });
 
   // The chat keeps the full viewport: the inline canvas pane stays hidden on
-  // mobile and nothing overflows horizontally while a canvas exists.
+  // mobile and the page is fully contained (no document scroll in either
+  // axis) while a canvas exists — only the thread scrolls.
   await expect(page.locator('section[aria-label="Artefact-canvas"]')).toBeHidden();
   const overflow = await page.evaluate(() => ({
-    scroll: document.documentElement.scrollWidth,
-    inner: window.innerWidth,
+    scrollW: document.documentElement.scrollWidth,
+    innerW: window.innerWidth,
+    scrollH: document.documentElement.scrollHeight,
+    innerH: window.innerHeight,
   }));
-  expect(overflow.scroll).toBeLessThanOrEqual(overflow.inner + 1);
+  expect(overflow.scrollW).toBeLessThanOrEqual(overflow.innerW + 1);
+  expect(overflow.scrollH).toBeLessThanOrEqual(overflow.innerH + 1);
 
   // Dock opens the drawer with the artifact canvas inside.
   await dock.click();
@@ -91,8 +95,13 @@ test("mobile: assistant canvas opens in a full-height drawer @mobile", async ({ 
   await expect(drawer.getByText("Geselecteerd artefact")).toBeVisible();
 
   // Close, then reopen via the artifact chip under the assistant message.
+  // Scroll the thread to its end first (the user's "scroll to bottom" path)
+  // so the chip sits above the sticky composer footer.
   await page.getByRole("button", { name: "Canvas sluiten" }).click();
   await expect(drawer).toBeHidden();
+  await page.locator('[data-slot="aui_thread-viewport"]').evaluate((el) => {
+    el.scrollTo({ top: el.scrollHeight, behavior: "instant" });
+  });
   await page.locator('ul[aria-label="Artefacten bij dit antwoord"] button').first().click();
   await expect(page.locator('[data-slot="drawer-content"]')).toBeVisible();
 });

@@ -1,3 +1,6 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 /** @type {import('next').NextConfig} */
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -7,6 +10,12 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // Expliciete workspace-root: voorkomt dat Turbopack de bovenliggende
+  // projectmap als root kiest (en die hele boom gaat watchen) wanneer daar
+  // per ongeluk een lockfile belandt.
+  turbopack: {
+    root: path.dirname(fileURLToPath(import.meta.url)),
+  },
   reactCompiler: true,
   compiler: {
     removeConsole: process.env.NODE_ENV === "production",

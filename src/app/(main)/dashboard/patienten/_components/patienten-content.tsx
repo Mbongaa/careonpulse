@@ -1,5 +1,10 @@
+"use client";
+
 import { CareonKpiCard } from "@/app/(main)/dashboard/_components/careon/careon-kpi-card";
+import { CareonLiveBanner } from "@/app/(main)/dashboard/_components/careon/careon-live-banner";
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
+import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
+import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 import { PATIENTEN_METRICS } from "@/data/careon/careon-patienten";
 
@@ -8,12 +13,23 @@ import { VraagtAandachtPanel } from "./vraagt-aandacht";
 import { ZorgvormPanel } from "./zorgvorm-panel";
 
 export function PatientenContent() {
+  const { production } = useCareon();
+
+  // Productie: live metrics (op label) vervangen de demo-constanten; KPI's
+  // zonder EPD-bron behouden demo-waarden en dragen een demo-badge.
+  const metrics = PATIENTEN_METRICS.map((metric) => production?.patientenMetrics[metric.label] ?? metric);
+
   return (
     <div className="@container/main flex flex-col gap-4 md:gap-6">
       <CareonPageHeader title={CAREON_PAGE_META.patienten.title} sub={CAREON_PAGE_META.patienten.sub} />
+      <CareonLiveBanner page="patienten" />
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
-        {PATIENTEN_METRICS.map((metric) => (
-          <CareonKpiCard key={metric.label} metric={metric} />
+        {metrics.map((metric) => (
+          <CareonKpiCard
+            key={metric.label}
+            metric={metric}
+            sourceBadge={<CareonSourceBadge page="patienten" widget={metric.label} />}
+          />
         ))}
       </div>
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-12">

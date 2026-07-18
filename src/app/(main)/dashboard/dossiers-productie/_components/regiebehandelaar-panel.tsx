@@ -1,5 +1,9 @@
+"use client";
+
 import { CareonBar } from "@/app/(main)/dashboard/_components/careon/careon-bar-list";
 import { CareonChartCard } from "@/app/(main)/dashboard/_components/careon/careon-chart-card";
+import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
+import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import { Badge } from "@/components/ui/badge";
 import { REGIE_NORM, REGIEBEHANDELAREN, type RegieTone, regieTone } from "@/data/careon/careon-dossiers-productie";
 import { cn } from "@/lib/utils";
@@ -18,18 +22,28 @@ const TONE_BAR: Record<RegieTone, "bad" | "warn" | "default"> = {
   none: "default",
 };
 
+interface RegieRij {
+  naam: string;
+  team?: string;
+  loc: string;
+  clienten: number;
+}
+
 export function RegiebehandelaarPanel({ className }: Readonly<{ className?: string }>) {
-  const max = Math.max(...REGIEBEHANDELAREN.map((row) => row.clienten));
+  const { production } = useCareon();
+  const rows: RegieRij[] = production ? production.regiebehandelaren : REGIEBEHANDELAREN;
+  const max = Math.max(1, ...rows.map((row) => row.clienten));
 
   return (
     <CareonChartCard
       title="Regiebehandelaar"
       sub={`Actieve cliënten per regiebehandelaar · norm ${REGIE_NORM}`}
       className={className}
+      titleBadge={<CareonSourceBadge page="dossiersProductie" widget="Regiebehandelaren" />}
       footer="Boven de norm verschijnt de regiebehandelaar automatisch in Signaleringen."
     >
       <div className="space-y-4">
-        {REGIEBEHANDELAREN.map((row) => {
+        {rows.map((row) => {
           const tone = regieTone(row.clienten);
           return (
             <div key={row.naam} className="space-y-1.5">
@@ -38,7 +52,8 @@ export function RegiebehandelaarPanel({ className }: Readonly<{ className?: stri
                   {row.naam}
                   <span className="text-muted-foreground text-xs">
                     {" "}
-                    · {row.team} · {row.loc}
+                    · {row.team ? `${row.team} · ` : ""}
+                    {row.loc}
                   </span>
                 </span>
                 <span className="flex shrink-0 items-center gap-2">

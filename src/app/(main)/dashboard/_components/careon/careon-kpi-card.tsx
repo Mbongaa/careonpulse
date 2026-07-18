@@ -1,22 +1,39 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 import Link from "next/link";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { CareonKpi, CareonMetric } from "@/data/careon/careon-types";
+import type { CareonKpi, CareonMetricLike } from "@/data/careon/careon-types";
 import { formatCareonValue } from "@/lib/careon-format";
 import { cn } from "@/lib/utils";
 
 import { CareonDeltaBadge } from "./careon-delta-badge";
 import { CareonSparkline } from "./careon-sparkline";
 
-type KpiCardMetric = CareonMetric & Partial<Pick<CareonKpi, "icon" | "spark">>;
+type KpiCardMetric = CareonMetricLike & Partial<Pick<CareonKpi, "icon" | "spark">>;
+
+// Subtekst: demo-metrics geven altijd "vorige maand X"; productie-metrics
+// kunnen een venster ("juni · …"), een afwijkend vergelijkingslabel ("vorig
+// kwartaal") of een lege meting ("geen meting") meedragen.
+function subText(metric: KpiCardMetric): string {
+  if (metric.noData) {
+    return "geen meting in deze periode";
+  }
+  const prevText =
+    metric.prev === null
+      ? "eerste meting — nog geen historie"
+      : `${metric.prevLabel ?? "vorige maand"} ${formatCareonValue(metric.prev, metric.f)}`;
+  return metric.windowLabel ? `${metric.windowLabel} · ${prevText}` : prevText;
+}
 
 export function CareonKpiCard({
   metric,
   href,
   className,
-}: Readonly<{ metric: KpiCardMetric; href?: string; className?: string }>) {
+  sourceBadge,
+}: Readonly<{ metric: KpiCardMetric; href?: string; className?: string; sourceBadge?: ReactNode }>) {
   const Icon = metric.icon;
 
   const card = (
@@ -28,8 +45,11 @@ export function CareonKpiCard({
       )}
     >
       <CardHeader className="flex-row items-center justify-between gap-2 px-4">
-        <CardDescription className="truncate text-xs" title={metric.label}>
-          {metric.label}
+        <CardDescription className="flex min-w-0 items-center gap-1.5 text-xs">
+          <span className="truncate" title={metric.label}>
+            {metric.label}
+          </span>
+          {sourceBadge}
         </CardDescription>
         {Icon && (
           <CardTitle>
@@ -42,12 +62,12 @@ export function CareonKpiCard({
       <CardContent className="flex flex-col gap-1.5 px-4">
         <div className="flex flex-wrap items-center gap-2">
           <div className="font-medium text-2xl tabular-nums leading-none tracking-tight">
-            {formatCareonValue(metric.value, metric.f)}
+            {metric.noData ? "—" : formatCareonValue(metric.value, metric.f)}
           </div>
-          <CareonDeltaBadge metric={metric} />
+          {!metric.noData && <CareonDeltaBadge metric={metric} />}
         </div>
-        <p className="text-muted-foreground text-xs">vorige maand {formatCareonValue(metric.prev, metric.f)}</p>
-        {metric.spark && <CareonSparkline data={metric.spark} className="mt-1 h-8 w-full" />}
+        <p className="text-muted-foreground text-xs">{subText(metric)}</p>
+        {metric.spark && metric.spark.length > 0 && <CareonSparkline data={metric.spark} className="mt-1 h-8 w-full" />}
       </CardContent>
     </Card>
   );

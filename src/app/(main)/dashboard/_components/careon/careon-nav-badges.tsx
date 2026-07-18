@@ -9,6 +9,7 @@ const SOURCE_BADGE_LABEL: Record<CareonSourceMode, string> = {
   demo: "DEMO",
   csv: "CSV",
   api: "LIVE",
+  productie: "PROD",
 };
 
 // Red counter with the number of critical alerts (not the total).

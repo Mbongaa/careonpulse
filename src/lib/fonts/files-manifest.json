@@ -1,0 +1,98 @@
+[
+  {
+    "family": "Noto Sans",
+    "slug": "noto-sans",
+    "weight": "100 900",
+    "bytes": 35820
+  },
+  {
+    "family": "Roboto",
+    "slug": "roboto",
+    "weight": "100 900",
+    "bytes": 43136
+  },
+  {
+    "family": "Geist",
+    "slug": "geist",
+    "weight": "100 900",
+    "bytes": 29400
+  },
+  {
+    "family": "Outfit",
+    "slug": "outfit",
+    "weight": "100 900",
+    "bytes": 32292
+  },
+  {
+    "family": "Geist Mono",
+    "slug": "geist-mono",
+    "weight": "100 900",
+    "bytes": 23128
+  },
+  {
+    "family": "DM Sans",
+    "slug": "dm-sans",
+    "weight": "100 1000",
+    "bytes": 36932
+  },
+  {
+    "family": "Nunito Sans",
+    "slug": "nunito-sans",
+    "weight": "200 1000",
+    "bytes": 31076
+  },
+  {
+    "family": "Figtree",
+    "slug": "figtree",
+    "weight": "300 900",
+    "bytes": 20156
+  },
+  {
+    "family": "Raleway",
+    "slug": "raleway",
+    "weight": "100 900",
+    "bytes": 48264
+  },
+  {
+    "family": "Public Sans",
+    "slug": "public-sans",
+    "weight": "100 900",
+    "bytes": 26832
+  },
+  {
+    "family": "JetBrains Mono",
+    "slug": "jetbrains-mono",
+    "weight": "100 800",
+    "bytes": 40404
+  },
+  {
+    "family": "Noto Serif",
+    "slug": "noto-serif",
+    "weight": "100 900",
+    "bytes": 36756
+  },
+  {
+    "family": "Roboto Slab",
+    "slug": "roboto-slab",
+    "weight": "100 900",
+    "bytes": 34236
+  },
+  {
+    "family": "Merriweather",
+    "slug": "merriweather",
+    "weight": "300 900",
+    "bytes": 97548
+  },
+  {
+    "family": "Lora",
+    "slug": "lora",
+    "weight": "400 700",
+    "bytes": 37788
+  },
+  {
+    "family": "Playfair Display",
+    "slug": "playfair-display",
+    "weight": "400 900",
+    "bytes": 38404
+  }
+]

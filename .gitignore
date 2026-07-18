@@ -39,3 +39,7 @@ test-results/
 
 # local logs
 *.log
+
+# Real EPD exports — patient data, never commit
+cli_ntendata_export*.csv
+*export*.csv

@@ -1,8 +1,10 @@
 import { CareonBar } from "@/app/(main)/dashboard/_components/careon/careon-bar-list";
 import { CareonChartCard } from "@/app/(main)/dashboard/_components/careon/careon-chart-card";
 import { CareonKpiCard } from "@/app/(main)/dashboard/_components/careon/careon-kpi-card";
+import { CareonLiveBanner } from "@/app/(main)/dashboard/_components/careon/careon-live-banner";
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
 import { CareonRing } from "@/app/(main)/dashboard/_components/careon/careon-ring";
+import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import {
   complianceTone,
   KWALITEIT_COMPLIANCE,
@@ -19,6 +21,8 @@ export function KwaliteitContent() {
   return (
     <div className="@container/main flex flex-col gap-4 md:gap-6">
       <CareonPageHeader title={CAREON_PAGE_META.kwaliteit.title} sub={CAREON_PAGE_META.kwaliteit.sub} />
+
+      <CareonLiveBanner page="kwaliteit" />
 
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-12">
         <CareonChartCard
@@ -58,7 +62,11 @@ export function KwaliteitContent() {
 
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         {KWALITEIT_COUNTERS.map((counter) => (
-          <CareonKpiCard key={counter.label} metric={counter} />
+          <CareonKpiCard
+            key={counter.label}
+            metric={counter}
+            sourceBadge={<CareonSourceBadge page="kwaliteit" widget={counter.label} />}
+          />
         ))}
       </div>
     </div>

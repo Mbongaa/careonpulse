@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { Sparkles } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-export function CareonInsights({ messages }: Readonly<{ messages: string[] }>) {
+export function CareonInsights({ messages, badge }: Readonly<{ messages: string[]; badge?: ReactNode }>) {
   const [active, setActive] = useState(0);
 
   return (
@@ -17,7 +17,10 @@ export function CareonInsights({ messages }: Readonly<{ messages: string[] }>) {
           <Sparkles className="size-4" />
         </div>
         <div className="min-w-0 flex-1 space-y-1">
-          <p className="font-medium text-muted-foreground text-xs uppercase tracking-wide">Careon Insights</p>
+          <p className="flex items-center gap-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wide">
+            Careon Insights
+            {badge}
+          </p>
           <p className="text-sm">{messages[active]}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 self-center">

@@ -16,24 +16,34 @@ import { useCareon } from "./careon-provider";
 // Below lg, Periode and Team move into a compact filter popover so every
 // filter stays reachable on mobile.
 export function CareonFilterBar() {
-  const { filters, setFilter } = useCareon();
+  const { filters, setFilter, isProduction } = useCareon();
 
-  const hiddenFiltersActive = filters.periode !== "12m" || filters.team !== "Alle teams";
+  // In productie-modus is het teamfilter verborgen: de EPD-data van deze
+  // instelling kent maar één zorgvorm (SGGZ), dus filteren is betekenisloos.
+  // Het periodefilter is er ook verborgen: de productie-vensters liggen vast
+  // (12 volle maanden; maand-KPI's = laatste volle maand) — een keuze die
+  // niets verandert zou live cijfers ten onrechte "gefilterd" doen lijken.
+  const showTeamFilter = !isProduction;
+  const showPeriodeFilter = !isProduction;
+  const hiddenFiltersActive =
+    (showPeriodeFilter && filters.periode !== "12m") || (showTeamFilter && filters.team !== "Alle teams");
 
   return (
     <div className="flex items-center gap-2">
-      <Select value={filters.periode} onValueChange={(value) => setFilter("periode", value as CareonPeriodId)}>
-        <SelectTrigger size="sm" className="hidden w-40 lg:flex" aria-label="Periode">
-          <SelectValue placeholder="Periode" />
-        </SelectTrigger>
-        <SelectContent>
-          {CAREON_PERIODS.map((period) => (
-            <SelectItem key={period.id} value={period.id}>
-              {period.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {showPeriodeFilter && (
+        <Select value={filters.periode} onValueChange={(value) => setFilter("periode", value as CareonPeriodId)}>
+          <SelectTrigger size="sm" className="hidden w-40 lg:flex" aria-label="Periode">
+            <SelectValue placeholder="Periode" />
+          </SelectTrigger>
+          <SelectContent>
+            {CAREON_PERIODS.map((period) => (
+              <SelectItem key={period.id} value={period.id}>
+                {period.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
       <Select value={filters.locatie} onValueChange={(value) => setFilter("locatie", value)}>
         <SelectTrigger size="sm" className="w-32 sm:w-36" aria-label="Locatie">
@@ -48,18 +58,20 @@ export function CareonFilterBar() {
         </SelectContent>
       </Select>
 
-      <Select value={filters.team} onValueChange={(value) => setFilter("team", value)}>
-        <SelectTrigger size="sm" className="hidden w-32 lg:flex" aria-label="Team">
-          <SelectValue placeholder="Team" />
-        </SelectTrigger>
-        <SelectContent>
-          {CAREON_TEAMS.map((team) => (
-            <SelectItem key={team} value={team}>
-              {team}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {showTeamFilter && (
+        <Select value={filters.team} onValueChange={(value) => setFilter("team", value)}>
+          <SelectTrigger size="sm" className="hidden w-32 lg:flex" aria-label="Team">
+            <SelectValue placeholder="Team" />
+          </SelectTrigger>
+          <SelectContent>
+            {CAREON_TEAMS.map((team) => (
+              <SelectItem key={team} value={team}>
+                {team}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
       <Popover>
         <PopoverTrigger asChild>
@@ -72,23 +84,25 @@ export function CareonFilterBar() {
         </PopoverTrigger>
         <PopoverContent align="end" className="w-64 space-y-3">
           <p className="font-medium text-sm">Filters</p>
-          <div className="space-y-1.5">
-            <Label htmlFor="careon-filter-periode" className="text-muted-foreground text-xs">
-              Periode
-            </Label>
-            <Select value={filters.periode} onValueChange={(value) => setFilter("periode", value as CareonPeriodId)}>
-              <SelectTrigger id="careon-filter-periode" size="sm" className="w-full">
-                <SelectValue placeholder="Periode" />
-              </SelectTrigger>
-              <SelectContent>
-                {CAREON_PERIODS.map((period) => (
-                  <SelectItem key={period.id} value={period.id}>
-                    {period.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {showPeriodeFilter && (
+            <div className="space-y-1.5">
+              <Label htmlFor="careon-filter-periode" className="text-muted-foreground text-xs">
+                Periode
+              </Label>
+              <Select value={filters.periode} onValueChange={(value) => setFilter("periode", value as CareonPeriodId)}>
+                <SelectTrigger id="careon-filter-periode" size="sm" className="w-full">
+                  <SelectValue placeholder="Periode" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CAREON_PERIODS.map((period) => (
+                    <SelectItem key={period.id} value={period.id}>
+                      {period.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="careon-filter-locatie" className="text-muted-foreground text-xs">
               Locatie
@@ -106,23 +120,25 @@ export function CareonFilterBar() {
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="careon-filter-team" className="text-muted-foreground text-xs">
-              Team
-            </Label>
-            <Select value={filters.team} onValueChange={(value) => setFilter("team", value)}>
-              <SelectTrigger id="careon-filter-team" size="sm" className="w-full">
-                <SelectValue placeholder="Team" />
-              </SelectTrigger>
-              <SelectContent>
-                {CAREON_TEAMS.map((team) => (
-                  <SelectItem key={team} value={team}>
-                    {team}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {showTeamFilter && (
+            <div className="space-y-1.5">
+              <Label htmlFor="careon-filter-team" className="text-muted-foreground text-xs">
+                Team
+              </Label>
+              <Select value={filters.team} onValueChange={(value) => setFilter("team", value)}>
+                <SelectTrigger id="careon-filter-team" size="sm" className="w-full">
+                  <SelectValue placeholder="Team" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CAREON_TEAMS.map((team) => (
+                    <SelectItem key={team} value={team}>
+                      {team}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </PopoverContent>
       </Popover>
     </div>

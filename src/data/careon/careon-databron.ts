@@ -27,6 +27,19 @@ export interface CsvParseResult {
 // Parser behavior mirrors the audited bundle: ";" or "," separators, decimal
 // commas, and only KPI ids from the Directiecockpit set are recognized.
 export function parseKpiCsv(fileName: string, text: string): CsvParseResult {
+  // Herkenbare cliëntendata-export in de verkeerde kaart: verwijs naar de
+  // productie-kaart i.p.v. het generieke "geen herkenbare KPI's"-advies.
+  // (Aanvulling op het geauditeerde gedrag: het origineel kende dit bestandstype niet.)
+  const firstLine = text.split(/\r?\n/).find((line) => line.trim() !== "") ?? "";
+  if (firstLine.toLowerCase().includes("cliënt id")) {
+    return {
+      matched: 0,
+      overrides: {},
+      ok: false,
+      message: `${fileName} is een cliëntendata-export — gebruik hiervoor de kaart "Productie-modus: volledige EPD-export".`,
+    };
+  }
+
   const knownIds = new Set(COCKPIT_KPIS.map((k) => k.id));
   const overrides: Record<string, { value: number; prev: number }> = {};
 

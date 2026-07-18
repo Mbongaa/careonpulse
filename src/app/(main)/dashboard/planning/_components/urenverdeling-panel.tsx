@@ -2,6 +2,7 @@
 
 import { CareonChartCard } from "@/app/(main)/dashboard/_components/careon/careon-chart-card";
 import { CareonDonut, CareonDonutLegend } from "@/app/(main)/dashboard/_components/careon/careon-donut";
+import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import { URENVERDELING } from "@/data/careon/careon-planning";
 
 const totaal = URENVERDELING.reduce((sum, item) => sum + item.value, 0);
@@ -12,6 +13,7 @@ export function UrenverdelingPanel({ className }: Readonly<{ className?: string 
       title="Urenverdeling"
       sub={`${totaal.toLocaleString("nl-NL")} geplande uren`}
       className={className}
+      titleBadge={<CareonSourceBadge page="planning" widget="Urenverdeling" />}
     >
       <div className="flex flex-col gap-4">
         <CareonDonut data={URENVERDELING} suffix=" uur" height={160} />

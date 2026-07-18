@@ -3,6 +3,7 @@
 import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
 
 import { CareonChartCard } from "@/app/(main)/dashboard/_components/careon/careon-chart-card";
+import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { NOSHOW_PER_WEEKDAG, PLANNING_INSIGHT } from "@/data/careon/careon-planning";
 
@@ -16,6 +17,7 @@ export function NoShowWeekdagPanel({ className }: Readonly<{ className?: string 
       title="No-show per weekdag"
       sub="Vrijdag is de risicodag"
       className={className}
+      titleBadge={<CareonSourceBadge page="planning" widget="No-show per weekdag" />}
       footer={PLANNING_INSIGHT}
     >
       <ChartContainer config={chartConfig} className="aspect-auto h-52 w-full">

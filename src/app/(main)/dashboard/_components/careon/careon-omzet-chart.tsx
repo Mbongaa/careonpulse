@@ -13,6 +13,7 @@ import {
 import { CAREON_MONTHLY } from "@/data/careon/careon-shared-charts";
 
 import { CareonChartCard } from "./careon-chart-card";
+import { CareonSourceBadge } from "./careon-source-badge";
 
 const omzetConfig = {
   omzetVerz: { label: "Verzekeraars", color: "var(--chart-1)" },
@@ -20,9 +21,19 @@ const omzetConfig = {
 } satisfies ChartConfig;
 
 // Stacked monthly revenue chart, shared by Directiecockpit and Financieel.
-export function CareonOmzetChart({ className, height = "h-56" }: Readonly<{ className?: string; height?: string }>) {
+// Blijft demo tot de declaratie-export beschikbaar is (zie provenance).
+export function CareonOmzetChart({
+  className,
+  height = "h-56",
+  provenancePage = "financieel",
+}: Readonly<{ className?: string; height?: string; provenancePage?: string }>) {
   return (
-    <CareonChartCard title="Omzetontwikkeling" sub="Verzekeraars + Infomedics · x € 1.000" className={className}>
+    <CareonChartCard
+      title="Omzetontwikkeling"
+      sub="Verzekeraars + Infomedics · x € 1.000"
+      className={className}
+      titleBadge={<CareonSourceBadge page={provenancePage} widget="Omzetontwikkeling" />}
+    >
       <ChartContainer config={omzetConfig} className={`aspect-auto w-full ${height}`}>
         <BarChart data={CAREON_MONTHLY} margin={{ top: 0, left: 0 }}>
           <CartesianGrid vertical={false} strokeOpacity={0.5} />

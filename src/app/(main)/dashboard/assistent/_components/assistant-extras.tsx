@@ -35,17 +35,22 @@ export function AssistantMessageExtras() {
 
   return (
     <div className="mt-3 space-y-2">
-      <ul aria-label="Artefacten bij dit antwoord" className="flex flex-wrap gap-1.5">
+      {/* One swipeable row on phones (the footer leaves little height there);
+          wraps normally from sm up. */}
+      <ul
+        aria-label="Artefacten bij dit antwoord"
+        className="flex gap-1.5 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0"
+      >
         {items.map((item) => {
           const Icon = ITEM_ICON[item.kind];
           const active = canvas.messageKey === messageKey && canvas.selectedItemId === item.id;
           return (
-            <li key={item.id}>
+            <li key={item.id} className="shrink-0 sm:shrink">
               <button
                 type="button"
                 onClick={() => canvas.select(artifact, item.id, messageKey)}
                 className={cn(
-                  "group inline-flex min-h-10 max-w-80 items-center gap-2 rounded-xl border px-3 py-1.5 text-start transition-colors",
+                  "group inline-flex min-h-10 max-w-64 items-center gap-2 rounded-xl border px-3 py-1.5 text-start transition-colors sm:max-w-80",
                   active ? "border-primary/50 bg-primary/10" : "hover:bg-muted",
                 )}
               >

@@ -9,6 +9,7 @@ const DOT_CLASSES = {
   demo: "bg-amber-500",
   csv: "bg-blue-500",
   api: "bg-emerald-500",
+  productie: "bg-violet-500",
 };
 
 export function CareonSourceStatus({ className }: Readonly<{ className?: string }>) {

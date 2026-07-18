@@ -759,10 +759,41 @@ html {
   }
 }
 
-/* Assistant: the workspace manages its own height/scroll, so drop the extra
-   mobile-nav bottom padding on its wrapper and re-add the clearance inside
-   the workspace itself (nav offset + nav height). */
+/* Assistant: contained app frame (ChatGPT-style). While the assistant is
+   mounted the document never scrolls — the sidebar frame is locked to the
+   dynamic viewport and every level below is a min-height:0 flex column, so
+   only the thread and the canvas scroll internally. This also absorbs the
+   inset-variant margins and mobile URL-bar viewport changes that used to
+   push the page past 100dvh. */
+body:has([data-careon-assistant]) {
+  overflow: hidden;
+}
+
+[data-slot="sidebar-wrapper"]:has([data-careon-assistant]) {
+  height: 100dvh;
+  max-height: 100dvh;
+}
+
+[data-slot="sidebar-inset"]:has([data-careon-assistant]) {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The content wrapper becomes the flex column the workspace fills; also drop
+   the extra mobile-nav bottom padding — the clearance is re-added inside the
+   workspace itself (nav offset + nav height). */
 [data-slot="sidebar-inset"] > div:has(> [data-careon-assistant]) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+/* The careon theme adds its own 5.5rem clearance to the content wrapper at
+   higher specificity; mirror it so the assistant page keeps a single
+   clearance (the workspace's own) instead of stacking both. */
+html[data-theme-mode="careon"] [data-slot="sidebar-inset"] > div:has(> [data-careon-assistant]) {
   padding-bottom: 0;
 }
 

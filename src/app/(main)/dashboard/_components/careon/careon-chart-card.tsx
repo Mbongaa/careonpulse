@@ -18,6 +18,7 @@ export function CareonChartCard({
   footer,
   children,
   className,
+  titleBadge,
 }: Readonly<{
   title: string;
   sub?: string;
@@ -25,11 +26,15 @@ export function CareonChartCard({
   footer?: ReactNode;
   children: ReactNode;
   className?: string;
+  titleBadge?: ReactNode;
 }>) {
   return (
     <Card className={cn("careon-chart-card @container/card", className)}>
       <CardHeader>
-        <CardTitle className="leading-none">{title}</CardTitle>
+        <CardTitle className="flex items-center gap-2 leading-none">
+          {title}
+          {titleBadge}
+        </CardTitle>
         {sub && <CardDescription>{sub}</CardDescription>}
         {action && <CardAction>{action}</CardAction>}
       </CardHeader>

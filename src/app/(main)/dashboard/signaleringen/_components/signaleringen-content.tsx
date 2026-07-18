@@ -1,24 +1,46 @@
+"use client";
+
 import { CareonAlertRow } from "@/app/(main)/dashboard/_components/careon/careon-alert-card";
+import { CareonLiveBanner } from "@/app/(main)/dashboard/_components/careon/careon-live-banner";
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
+import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
 import { CareonSeverityBadge } from "@/app/(main)/dashboard/_components/careon/careon-severity";
 import { Card, CardContent } from "@/components/ui/card";
 import { CAREON_ALERTS, CAREON_SEVERITY_META } from "@/data/careon/careon-alerts";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
-import type { CareonSeverity } from "@/data/careon/careon-types";
+import type { CareonAlert, CareonSeverity } from "@/data/careon/careon-types";
+import { widgetSource } from "@/lib/careon-production/provenance";
 
 const SEVERITIES: CareonSeverity[] = ["kritiek", "hoog", "middel"];
 
+// Demo-regels die in productie-modus nog geen EPD-bron hebben, afgeleid uit
+// het provenance-register (één bron van waarheid). Ze blijven zichtbaar in een
+// aparte sectie zodat de klant weet welke signaleringen er bijkomen zodra de
+// aanvullende exports (agenda, declaraties, HR, ROM) er zijn.
+const DEMO_ONLY_ALERTS = CAREON_ALERTS.filter((alert) => widgetSource("signaleringen", alert.titel) === "demo");
+
 export function SignaleringenContent() {
+  const { production } = useCareon();
+
+  const alerts: CareonAlert[] = production ? production.signaleringen : CAREON_ALERTS;
+  const wachtOpData = production ? DEMO_ONLY_ALERTS : [];
+
   return (
     <div className="@container/main flex flex-col gap-4 md:gap-6">
       <CareonPageHeader
         title={CAREON_PAGE_META.signaleringen.title}
-        sub="Careon Pulse controleert elke nacht dossiers, agenda's en declaraties en zet de aandachtspunten voor u klaar."
+        sub={
+          production
+            ? "Signaleringen berekend uit de geïmporteerde EPD-export; regels zonder databron staan onderaan als 'wacht op data'."
+            : "Careon Pulse controleert elke nacht dossiers, agenda's en declaraties en zet de aandachtspunten voor u klaar."
+        }
       />
+
+      <CareonLiveBanner page="signaleringen" />
 
       <div className="grid grid-cols-3 gap-4">
         {SEVERITIES.map((sev) => {
-          const count = CAREON_ALERTS.filter((alert) => alert.sev === sev).length;
+          const count = alerts.filter((alert) => alert.sev === sev).length;
           return (
             <Card key={sev} className="py-4">
               <CardContent className="flex flex-col items-start gap-2 px-4">
@@ -30,18 +52,41 @@ export function SignaleringenContent() {
         })}
       </div>
 
-      {SEVERITIES.map((sev) => (
-        <section key={sev} className="space-y-3">
+      {SEVERITIES.map((sev) => {
+        const group = alerts.filter((alert) => alert.sev === sev);
+        if (production && group.length === 0) {
+          return null;
+        }
+        return (
+          <section key={sev} className="space-y-3">
+            <h2 className="font-medium text-muted-foreground text-sm uppercase tracking-wide">
+              {CAREON_SEVERITY_META[sev].heading}
+            </h2>
+            <div className="flex flex-col gap-3">
+              {group.map((alert) => (
+                <CareonAlertRow key={alert.titel} alert={alert} />
+              ))}
+            </div>
+          </section>
+        );
+      })}
+
+      {wachtOpData.length > 0 && (
+        <section className="space-y-3">
           <h2 className="font-medium text-muted-foreground text-sm uppercase tracking-wide">
-            {CAREON_SEVERITY_META[sev].heading}
+            Wacht op data — voorbeeldregels (demo)
           </h2>
-          <div className="flex flex-col gap-3">
-            {CAREON_ALERTS.filter((alert) => alert.sev === sev).map((alert) => (
+          <p className="text-muted-foreground text-sm">
+            Deze signaleringsregels worden actief zodra de agenda-, declaratie-, HR- en ROM-exports gekoppeld zijn. De
+            getoonde aantallen zijn demo-waarden.
+          </p>
+          <div className="flex flex-col gap-3 opacity-75">
+            {wachtOpData.map((alert) => (
               <CareonAlertRow key={alert.titel} alert={alert} />
             ))}
           </div>
         </section>
-      ))}
+      )}
 
       <p className="text-center text-muted-foreground text-xs">
         Signaleringsregels zijn instelbaar per rol — directie, teamleiders en kwaliteitsmedewerkers zien elk hun eigen

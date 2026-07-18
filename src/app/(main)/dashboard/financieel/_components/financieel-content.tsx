@@ -1,8 +1,10 @@
 import { CareonBarList } from "@/app/(main)/dashboard/_components/careon/careon-bar-list";
 import { CareonChartCard } from "@/app/(main)/dashboard/_components/careon/careon-chart-card";
 import { CareonKpiCard } from "@/app/(main)/dashboard/_components/careon/careon-kpi-card";
+import { CareonLiveBanner } from "@/app/(main)/dashboard/_components/careon/careon-live-banner";
 import { CareonOmzetChart } from "@/app/(main)/dashboard/_components/careon/careon-omzet-chart";
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
+import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import {
   DECLARATIE_OUDERDOM,
   FINANCIEEL_METRICS,
@@ -20,9 +22,15 @@ export function FinancieelContent() {
     <div className="@container/main flex flex-col gap-4 md:gap-6">
       <CareonPageHeader title={CAREON_PAGE_META.financieel.title} sub={CAREON_PAGE_META.financieel.sub} />
 
+      <CareonLiveBanner page="financieel" />
+
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         {FINANCIEEL_METRICS.map((metric) => (
-          <CareonKpiCard key={metric.label} metric={metric} />
+          <CareonKpiCard
+            key={metric.label}
+            metric={metric}
+            sourceBadge={<CareonSourceBadge page="financieel" widget={metric.label} />}
+          />
         ))}
       </div>
 

@@ -883,12 +883,19 @@ function buildBehandelaarCoaching(query: string, _ctx: AssistantContext): Assist
   return { artifact, brief, deep };
 }
 
-const SOURCE_MODE_TONE: Record<CareonSource["mode"], AssistantTone> = { demo: "warn", csv: "accent", api: "good" };
+const SOURCE_MODE_TONE: Record<CareonSource["mode"], AssistantTone> = {
+  demo: "warn",
+  csv: "accent",
+  api: "good",
+  productie: "good",
+};
 
 const SOURCE_MODE_BODY: Record<CareonSource["mode"], string> = {
   demo: "Alle cijfers komen uit de vaste demo-dataset. Upload een CSV of activeer een EPD-koppeling op de databronpagina.",
   csv: "Cockpit-KPI's zijn overschreven door de laatste CSV-import; herstel demo-data zet ze terug.",
   api: "De API-koppeling is actief (sandbox). Herstel demo-data verbreekt de verbinding.",
+  productie:
+    "Productie-modus is actief: cliëntgebonden KPI's komen uit de geïmporteerde EPD-export; widgets zonder EPD-bron zijn als demo gemarkeerd.",
 };
 
 function buildDatabronStatus(query: string, ctx: AssistantContext): AssistantResponse {

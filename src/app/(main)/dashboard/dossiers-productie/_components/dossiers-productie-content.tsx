@@ -2,8 +2,10 @@
 
 import { CareonInsights } from "@/app/(main)/dashboard/_components/careon/careon-insights";
 import { CareonKpiCard } from "@/app/(main)/dashboard/_components/careon/careon-kpi-card";
+import { CareonLiveBanner } from "@/app/(main)/dashboard/_components/careon/careon-live-banner";
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
+import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import {
   DOSSIERS_PRODUCTIE_INSIGHTS,
   DOSSIERS_PRODUCTIE_METRICS,
@@ -11,6 +13,7 @@ import {
 } from "@/data/careon/careon-dossiers-productie";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 
+import { MedewerkerProductieLiveTable } from "./medewerker-productie-live-table";
 import { MedewerkerProductieTable } from "./medewerker-productie-table";
 import {
   DiagnosesPanel,
@@ -24,30 +27,51 @@ import { RegiebehandelaarPanel } from "./regiebehandelaar-panel";
 import { WachtlijstPanel } from "./wachtlijst-panel";
 
 export function DossiersProductieContent() {
-  const { filters } = useCareon();
+  const { filters, production } = useCareon();
 
-  const rows = MEDEWERKER_PRODUCTIE.filter(
+  // Demo: tabel volgt locatie- en teamfilter. Productie: de snapshot is al op
+  // vestiging gefilterd (teamfilter is verborgen — alle EPD-trajecten zijn SGGZ).
+  const demoRows = MEDEWERKER_PRODUCTIE.filter(
     (row) =>
       (filters.locatie === "Alle locaties" || row.loc === filters.locatie) &&
       (filters.team === "Alle teams" || row.team === filters.team),
+  );
+  const medewerkerCount = production ? production.dossiersProductie.medewerkers.length : demoRows.length;
+
+  const metrics = DOSSIERS_PRODUCTIE_METRICS.map((metric) =>
+    production ? (production.dossiersProductie.metrics[metric.label] ?? metric) : metric,
   );
 
   return (
     <div className="@container/main flex flex-col gap-4 md:gap-6">
       <CareonPageHeader title={CAREON_PAGE_META.dossiersProductie.title} sub={CAREON_PAGE_META.dossiersProductie.sub} />
 
-      <CareonInsights messages={DOSSIERS_PRODUCTIE_INSIGHTS} />
+      <CareonLiveBanner page="dossiersProductie" />
+
+      <CareonInsights
+        messages={production ? production.dossiersProductie.insights : DOSSIERS_PRODUCTIE_INSIGHTS}
+        badge={<CareonSourceBadge page="dossiersProductie" widget="Careon Insights" />}
+      />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-        {DOSSIERS_PRODUCTIE_METRICS.map((metric) => (
-          <CareonKpiCard key={metric.label} metric={metric} />
+        {metrics.map((metric) => (
+          <CareonKpiCard
+            key={metric.label}
+            metric={metric}
+            sourceBadge={<CareonSourceBadge page="dossiersProductie" widget={metric.label} />}
+          />
         ))}
       </div>
 
       <p className="text-muted-foreground text-sm">
-        {rows.length} medewerkers · {filters.locatie} · {filters.team}
+        {medewerkerCount} medewerkers · {filters.locatie}
+        {production ? "" : ` · ${filters.team}`}
       </p>
-      <MedewerkerProductieTable rows={rows} />
+      {production ? (
+        <MedewerkerProductieLiveTable rows={production.dossiersProductie.medewerkers} />
+      ) : (
+        <MedewerkerProductieTable rows={demoRows} />
+      )}
 
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-12">
         <DiagnosesPanel className="lg:col-span-6" />
@@ -61,8 +85,9 @@ export function DossiersProductieContent() {
       </div>
 
       <p className="text-center text-muted-foreground text-xs">
-        Populatiecijfers betreffen alle actieve cliënten; de medewerkerstabel volgt de locatie- en teamfilters. Deze
-        rapportage vervangt de maandelijkse Excel-berekening.
+        {production
+          ? `Populatiecijfers betreffen de actieve cliënten uit de EPD-export${filters.locatie === "Alle locaties" ? "" : ` (vestiging ${filters.locatie})`}; uren- en productiviteitskolommen volgen zodra de urenregistratie-export gekoppeld is.`
+          : "Populatiecijfers betreffen alle actieve cliënten; de medewerkerstabel volgt de locatie- en teamfilters. Deze rapportage vervangt de maandelijkse Excel-berekening."}
       </p>
     </div>
   );

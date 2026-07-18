@@ -11,6 +11,17 @@ export interface CareonMetric {
   neutralDown?: boolean;
 }
 
+// Weergavevariant voor productie-modus: prev === null betekent dat er nog geen
+// historische meting is (snapshot-veld); de UI verbergt dan de delta-badge.
+// windowLabel/prevLabel/noData sturen de subtekst (venster van de meting,
+// afwijkend vergelijkingsvenster, geen meetwaarde) — demo-metrics zetten ze nooit.
+export interface CareonMetricLike extends Omit<CareonMetric, "prev"> {
+  prev: number | null;
+  windowLabel?: string;
+  prevLabel?: string;
+  noData?: boolean;
+}
+
 export type CareonPageId =
   | "cockpit"
   | "signaleringen"
@@ -45,7 +56,7 @@ export interface CareonAlert {
 
 export type CareonPeriodId = "12m" | "kw" | "mnd";
 
-export type CareonSourceMode = "demo" | "csv" | "api";
+export type CareonSourceMode = "demo" | "csv" | "api" | "productie";
 
 export interface CareonSource {
   mode: CareonSourceMode;
