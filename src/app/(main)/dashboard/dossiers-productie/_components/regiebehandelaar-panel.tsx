@@ -5,8 +5,13 @@ import { CareonChartCard } from "@/app/(main)/dashboard/_components/careon/careo
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
 import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import { Badge } from "@/components/ui/badge";
-import { REGIE_NORM, REGIEBEHANDELAREN, type RegieTone, regieTone } from "@/data/careon/careon-dossiers-productie";
+import { REGIE_NORM, type RegieTone, regieTone } from "@/data/careon/careon-dossiers-productie";
 import { cn } from "@/lib/utils";
+
+// Productie-exclusief sinds de Claude Design-handoff "Dossiers en Productie":
+// in demo is dit paneel geschrapt (de regie-waarschuwing zit al in Careon
+// Insights en Signaleringen); met een actieve EPD-import toont het de echte
+// verdeling per regiebehandelaar.
 
 const nl = new Intl.NumberFormat("nl-NL");
 
@@ -22,16 +27,13 @@ const TONE_BAR: Record<RegieTone, "bad" | "warn" | "default"> = {
   none: "default",
 };
 
-interface RegieRij {
-  naam: string;
-  team?: string;
-  loc: string;
-  clienten: number;
-}
-
 export function RegiebehandelaarPanel({ className }: Readonly<{ className?: string }>) {
   const { production } = useCareon();
-  const rows: RegieRij[] = production ? production.regiebehandelaren : REGIEBEHANDELAREN;
+  if (!production) {
+    return null;
+  }
+
+  const rows = production.regiebehandelaren;
   const max = Math.max(1, ...rows.map((row) => row.clienten));
 
   return (
@@ -50,11 +52,7 @@ export function RegiebehandelaarPanel({ className }: Readonly<{ className?: stri
               <div className="flex items-center justify-between gap-2 text-sm">
                 <span className="min-w-0 truncate">
                   {row.naam}
-                  <span className="text-muted-foreground text-xs">
-                    {" "}
-                    · {row.team ? `${row.team} · ` : ""}
-                    {row.loc}
-                  </span>
+                  <span className="text-muted-foreground text-xs"> · {row.loc}</span>
                 </span>
                 <span className="flex shrink-0 items-center gap-2">
                   {tone === "bad" && (

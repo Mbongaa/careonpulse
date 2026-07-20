@@ -14,6 +14,7 @@ const ROUTES = [
   "/dashboard/kwaliteit",
   "/dashboard/financieel",
   "/dashboard/hr",
+  "/dashboard/middelen",
   "/dashboard/databron",
   // KPI-drilldowns (handoff 08): één cliëntrecord-variant en één event-variant.
   "/dashboard/details/actief",

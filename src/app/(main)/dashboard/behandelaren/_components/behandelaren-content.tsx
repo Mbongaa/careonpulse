@@ -8,6 +8,7 @@ import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 
 import { BehandelarenLiveTable } from "./behandelaren-live-table";
 import { BehandelarenTable } from "./behandelaren-table";
+import { FunctiemixPanel, TalenPanel, TeamBezettingPanel } from "./team-profiel-panels";
 
 export function BehandelarenContent() {
   const { filters, production } = useCareon();
@@ -36,6 +37,13 @@ export function BehandelarenContent() {
           ? `Caseload = actieve cliënten per behandelaar uit de EPD-export; rood boven de norm van ${CASELOAD_NORM}. Consulten, no-show, productiviteit, omzet, ROM en tevredenheid volgen zodra de agenda-, declaratie- en ROM-exports gekoppeld zijn.`
           : `NC = niet-complete dossiers. Rood wanneer caseload >${CASELOAD_NORM} of no-show >5%; deze gevallen verschijnen automatisch in Signaleringen.`}
       </p>
+
+      {/* Teamprofiel uit de handmatige registratie (Medewerkers & middelen). */}
+      <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">
+        <TalenPanel />
+        <FunctiemixPanel />
+        <TeamBezettingPanel />
+      </div>
     </div>
   );
 }

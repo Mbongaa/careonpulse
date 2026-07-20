@@ -11,6 +11,7 @@ export const CAREON_ROUTES: Record<CareonPageId, string> = {
   kwaliteit: "/dashboard/kwaliteit",
   financieel: "/dashboard/financieel",
   hr: "/dashboard/hr",
+  middelen: "/dashboard/middelen",
   databron: "/dashboard/databron",
 };
 
@@ -54,6 +55,10 @@ export const CAREON_PAGE_META: Record<CareonPageId, { title: string; sub: string
   hr: {
     title: "HR",
     sub: "Verzuim, verloop, opleidingen en BIG-registraties.",
+  },
+  middelen: {
+    title: "Medewerkers & middelen",
+    sub: "Functie, talen en uitgegeven middelen per medewerker — plus de inventaris per locatie; handmatig bijgehouden.",
   },
   databron: {
     title: "Databron",

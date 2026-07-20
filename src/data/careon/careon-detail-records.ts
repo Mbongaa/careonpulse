@@ -193,12 +193,14 @@ function mockNaam(rng: () => number): string {
   return `${VOORLETTERS[Math.floor(rng() * VOORLETTERS.length)]} ${ACHTERNAMEN[Math.floor(rng() * ACHTERNAMEN.length)]}`;
 }
 
-/** Cliënt-ids in het geauditeerde P-4xxx/P-5xxx-schema, uniek binnen één tabel. */
-function clientIdFactory(rng: () => number): () => string {
+/** Cliënt-ids in het geauditeerde P-4xxx/P-5xxx-schema, uniek binnen één tabel.
+    De trekkingslus vereist poolSize > aantal getrokken ids, anders raakt de
+    pool uitgeput en draait de lus oneindig. */
+function clientIdFactory(rng: () => number, poolSize = 1400): () => string {
   const used = new Set<string>(PATIENTEN_RISICO.map((r) => r.id));
   return () => {
     for (;;) {
-      const id = `P-${4100 + Math.floor(rng() * 1400)}`;
+      const id = `P-${4100 + Math.floor(rng() * poolSize)}`;
       if (!used.has(id)) {
         used.add(id);
         return id;
@@ -446,7 +448,9 @@ const AFSPRAAK_TYPE_WEIGHTS = [0.52, 0.12, 0.1, 0.16, 0.1];
 
 function buildAfspraakRows(): KpiDetailRow[] {
   const rng = createRng("afspraken");
-  const nextId = clientIdFactory(rng);
+  // 1.842 unieke ids passen niet in de standaardpool van 1.400 — gebruik de
+  // volle P-4100..P-5999-ruimte, binnen het geauditeerde P-4xxx/P-5xxx-schema.
+  const nextId = clientIdFactory(rng, 1900);
   const locCounts = allocateLargestRemainder(1842, LOC_WEIGHTS);
 
   // Statuspool met exacte aantallen, deterministisch geschud.

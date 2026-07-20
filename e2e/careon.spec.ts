@@ -165,8 +165,10 @@ test.describe("behandelaren", () => {
     await page.getByLabel("Team").click();
     await page.getByRole("option", { name: "FACT" }).click();
     await expect(page.getByText("2 behandelaren · Alle locaties · FACT")).toBeVisible();
-    // Role query targets the visible table; the hidden mobile card list also carries the name.
-    await expect(page.getByRole("cell", { name: /K\. Aydın/ })).toBeVisible();
+    // Role query targets the visible table; the hidden mobile card list also
+    // carries the name. First match = identiteitscel (daarna volgt sinds
+    // handoff 09 ook de "Middelen van …"-badgecel).
+    await expect(page.getByRole("cell", { name: /K\. Aydın/ }).first()).toBeVisible();
   });
 });
 
@@ -213,12 +215,14 @@ test.describe("dossiers & productie", () => {
     await expect(page.getByText("1.248", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Afsluitingen", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Wachtlijst totaal")).toBeVisible();
-    // Population sections.
+    // Population sections (Claude Design-handoff: 6/3/3 + 4/4/4 grid).
     await expect(page.getByText("Diagnoses binnen de instelling")).toBeVisible();
     await expect(page.getByText("Depressieve stoornissen", { exact: true })).toBeVisible();
+    await expect(page.getByText("Verwijzers").first()).toBeVisible();
     await expect(page.getByText("Verzekeringskoepel")).toBeVisible();
-    await expect(page.getByText("Regiebehandelaar", { exact: true })).toBeVisible();
-    await expect(page.getByText("boven norm")).toBeVisible();
+    // Regie- en wachtlijstpanelen zijn in demo geschrapt: hun kerncijfers
+    // zitten in de KPI-strip en insights; alleen productie toont de panelen.
+    await expect(page.getByText("Regiebehandelaar", { exact: true })).toHaveCount(0);
   });
 
   test("location filter narrows the medewerker table", async ({ page }) => {
@@ -242,6 +246,85 @@ test.describe("dossiers & productie", () => {
       .click();
     await page.waitForURL("**/dashboard/dossiers-productie");
     await expect(page.getByRole("heading", { name: "Dossiers & productie" })).toBeVisible();
+  });
+});
+
+test.describe("middelen & inventaris", () => {
+  test("page shows counters, registration and inventory (handmatig)", async ({ page }) => {
+    await loginViaSession(page);
+    await page.goto("/dashboard/middelen");
+    await expect(page.getByRole("heading", { name: "Medewerkers & middelen" })).toBeVisible();
+    // De negen door de klant gevraagde tellers.
+    await expect(page.getByText("Uitgegeven auto's")).toBeVisible();
+    await expect(page.getByText("Tankpassen")).toBeVisible();
+    await expect(page.getByText("Toegang gebouw")).toBeVisible();
+    // Tegel én inventaris-kolomkop dragen dezelfde tekst — first() volstaat.
+    await expect(page.getByText("Behandelkamers", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("Boeken inventaris")).toBeVisible();
+    await expect(page.getByText("Diagnostiekmateriaal", { exact: true }).first()).toBeVisible();
+    // Herkomst is expliciet handmatig, met de registratietabellen eronder.
+    await expect(page.getByText("Handmatig", { exact: true }).first()).toBeVisible();
+    // Role-query mijdt de verborgen mobiele kaartlijst (md:hidden).
+    await expect(page.getByRole("cell", { name: /Drs\. E\. van Dijk/ }).first()).toBeVisible();
+    await expect(page.getByRole("cell", { name: /P\. Hendriks/ }).first()).toBeVisible();
+    // Functie- en talenregistratie (seedwaarden) — row-scope mijdt de
+    // verborgen mobiele kaartlijst die dezelfde labels draagt.
+    await expect(
+      page.getByRole("row", { name: /Drs\. E\. van Dijk/ }).getByLabel("Functie — Drs. E. van Dijk"),
+    ).toHaveValue("GZ-psycholoog");
+    await expect(
+      page.getByRole("row", { name: /S\. Yılmaz/ }).getByRole("button", { name: "Talen — S. Yılmaz" }),
+    ).toContainText("Turks");
+    await expect(page.getByRole("button", { name: "Persoon toevoegen" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Locatie toevoegen" })).toBeVisible();
+    // Teamstructuur van de klant (teams per Vektis-locatie, beheerbaar).
+    await expect(page.getByText("Teams per locatie")).toBeVisible();
+    await expect(page.getByText("GGZ in beweging")).toBeVisible();
+    await expect(page.getByText("De Zorgpoort")).toBeVisible();
+  });
+
+  test("team tagging via the teams picker", async ({ page }) => {
+    await loginViaSession(page);
+    await page.goto("/dashboard/middelen");
+    const kiezer = page.getByRole("row", { name: /T\. Bakker/ }).getByRole("button", { name: "Teams — T. Bakker" });
+    await expect(kiezer).toContainText("—");
+    await kiezer.click();
+    await page.getByRole("button", { name: "SGGZ", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await expect(kiezer).toContainText("SGGZ");
+  });
+
+  test("toggling a middel persists across a reload", async ({ page }) => {
+    await loginViaSession(page);
+    await page.goto("/dashboard/middelen");
+    // Seed: T. Bakker heeft geen auto — aanzetten en na herladen nog aan.
+    const toggle = page.getByRole("button", { name: "Auto — T. Bakker" });
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Auto — T. Bakker" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("behandelaren shows functie, talen and team panels from the registration", async ({ page }) => {
+    await loginViaSession(page);
+    await page.goto("/dashboard/behandelaren");
+    // Functie in de identiteitsregel en talen als kolom (seedwaarden).
+    await expect(page.getByRole("cell", { name: /GZ-psycholoog · SGGZ · Tilburg/ }).first()).toBeVisible();
+    await expect(page.getByRole("cell", { name: "Nederlands, Turks" }).first()).toBeVisible();
+    // Teamprofiel-panelen uit de handmatige registratie.
+    await expect(page.getByText("Talen in het team")).toBeVisible();
+    await expect(page.getByText("Functiemix")).toBeVisible();
+    await expect(page.getByText("Turks", { exact: true }).first()).toBeVisible();
+    // Bezetting per team toont ook onbemande teams uit de structuur (0).
+    await expect(page.getByText("Bezetting per team")).toBeVisible();
+    await expect(page.getByText("GGZ in beweging")).toBeVisible();
+    // De middelen-badge linkt door naar de registratiepagina.
+    const badge = page.getByRole("link", { name: /Middelen van Drs\. E\. van Dijk/ });
+    await expect(badge).toBeVisible();
+    await badge.click();
+    await page.waitForURL("**/dashboard/middelen");
+    await expect(page.getByRole("heading", { name: "Medewerkers & middelen" })).toBeVisible();
   });
 });
 

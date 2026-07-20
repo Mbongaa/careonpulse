@@ -1,5 +1,10 @@
 import type { ReactNode } from "react";
 
+import {
+  CareonMedewerkerTalen,
+  CareonMiddelenBadges,
+  useMedewerkerFunctie,
+} from "@/app/(main)/dashboard/_components/careon/careon-middelen-badges";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -17,6 +22,8 @@ const TONE_TEXT: Record<CellTone, string> = {
 };
 
 function BehandelaarIdentity({ row }: Readonly<{ row: Behandelaar }>) {
+  // Handmatig geregistreerde functie (Medewerkers & middelen) vóór team · loc.
+  const functie = useMedewerkerFunctie(row.naam);
   return (
     <div className="flex items-center gap-2.5">
       <Avatar className="size-7">
@@ -25,6 +32,7 @@ function BehandelaarIdentity({ row }: Readonly<{ row: Behandelaar }>) {
       <div className="min-w-0">
         <p className="truncate font-medium leading-tight">{row.naam}</p>
         <p className="truncate text-muted-foreground text-xs">
+          {functie ? `${functie} · ` : ""}
           {row.team} · {row.loc}
         </p>
       </div>
@@ -64,6 +72,8 @@ export function BehandelarenTable({ rows }: Readonly<{ rows: Behandelaar[] }>) {
                 <MobileMetric label="ROM" value={nlDec1.format(row.rom)} />
                 <MobileMetric label="Dossiers NC" value={row.nc} className={TONE_TEXT[ncTone(row.nc)]} />
                 <MobileMetric label="Tevr." value={nlDec1.format(row.tevr)} />
+                <MobileMetric label="Talen" value={<CareonMedewerkerTalen naam={row.naam} />} />
+                <MobileMetric label="Middelen" value={<CareonMiddelenBadges naam={row.naam} />} />
               </dl>
             </li>
           ))}
@@ -82,7 +92,9 @@ export function BehandelarenTable({ rows }: Readonly<{ rows: Behandelaar[] }>) {
                 <TableHead className="text-right">Omzet</TableHead>
                 <TableHead className="text-right">ROM</TableHead>
                 <TableHead className="text-right">Dossiers NC</TableHead>
-                <TableHead className="pr-4 text-right">Tevredenheid</TableHead>
+                <TableHead className="text-right">Tevredenheid</TableHead>
+                <TableHead className="text-right">Talen</TableHead>
+                <TableHead className="pr-4 text-right">Middelen</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -105,7 +117,13 @@ export function BehandelarenTable({ rows }: Readonly<{ rows: Behandelaar[] }>) {
                   <TableCell className="text-right tabular-nums">€ {nl.format(row.omzet)}</TableCell>
                   <TableCell className="text-right tabular-nums">{nlDec1.format(row.rom)}</TableCell>
                   <TableCell className={cn("text-right tabular-nums", TONE_TEXT[ncTone(row.nc)])}>{row.nc}</TableCell>
-                  <TableCell className="pr-4 text-right tabular-nums">{nlDec1.format(row.tevr)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{nlDec1.format(row.tevr)}</TableCell>
+                  <TableCell className="max-w-36 truncate text-right">
+                    <CareonMedewerkerTalen naam={row.naam} />
+                  </TableCell>
+                  <TableCell className="pr-4 text-right">
+                    <CareonMiddelenBadges naam={row.naam} />
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

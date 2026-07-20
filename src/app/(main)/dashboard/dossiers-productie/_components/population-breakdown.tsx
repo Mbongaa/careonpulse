@@ -135,7 +135,6 @@ export function VerzekeraarsPanel({ className }: Readonly<{ className?: string }
       sub="Actieve cliënten per verzekeraar"
       className={className}
       titleBadge={badge("Verzekeringskoepel")}
-      footer="Zelfde koepels als de omzetverdeling op Financieel."
     >
       <CareonBarList items={toBarItems(groepen, basis)} />
     </CareonChartCard>

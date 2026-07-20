@@ -81,16 +81,20 @@ export function DossiersProductieContent() {
         <MedewerkerProductieTable rows={demoRows} />
       )}
 
+      {/* Populatiegrid volgens de Claude Design-handoff "Dossiers en Productie":
+          twee rijen — 6/3/3 en 4/4/4. De regie- en wachtlijstpanelen zijn uit
+          het demo-ontwerp geschrapt (hun kerncijfers zitten al in de KPI-strip,
+          insights en drill-downs) en renderen net als zorgvraagtypering en
+          behandelduur alleen nog bij een actieve EPD-import. */}
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-12">
         <DiagnosesPanel className="lg:col-span-6" />
         <GeslachtPanel className="lg:col-span-3" />
         <LeeftijdPanel className="lg:col-span-3" />
-        {/* Productie-exclusief (geen demo-tegenhanger): renderen null in demo. */}
-        <ZorgvraagtyperingPanel className="lg:col-span-6" />
-        <BehandelduurPanel className="lg:col-span-6" />
         <VerwijzersPanel className="lg:col-span-4" />
         <PlaatsPanel className="lg:col-span-4" />
         <VerzekeraarsPanel className="lg:col-span-4" />
+        <ZorgvraagtyperingPanel className="lg:col-span-6" />
+        <BehandelduurPanel className="lg:col-span-6" />
         <RegiebehandelaarPanel className="lg:col-span-6" />
         <WachtlijstPanel className="lg:col-span-6" />
       </div>

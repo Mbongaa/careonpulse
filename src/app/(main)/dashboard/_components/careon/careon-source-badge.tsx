@@ -50,3 +50,20 @@ export function CareonSourceBadge({
     </span>
   );
 }
+
+// Derde herkomst naast Live/Afgeleid/Demo: handmatig bijgehouden registraties
+// (middelen & inventaris). Rendert áltijd — ook in demo-modus — zodat nooit de
+// indruk ontstaat dat deze cijfers uit het EPD komen.
+export function CareonHandmatigBadge({ className }: Readonly<{ className?: string }>) {
+  return (
+    <span
+      title="Handmatig bijgehouden — deze gegevens komen niet uit het EPD."
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full border border-violet-600/40 px-1.5 py-px font-medium text-[10px] text-violet-700 leading-4 dark:text-violet-400",
+        className,
+      )}
+    >
+      Handmatig
+    </span>
+  );
+}

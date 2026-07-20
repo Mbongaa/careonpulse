@@ -35,6 +35,7 @@ export type CareonPageId =
   | "kwaliteit"
   | "financieel"
   | "hr"
+  | "middelen"
   | "databron";
 
 export interface CareonKpi extends CareonMetric {

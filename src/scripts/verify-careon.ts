@@ -10,7 +10,7 @@
  */
 
 import { CAREON_ALERTS, CRITICAL_ALERT_COUNT } from "../data/careon/careon-alerts";
-import { caseloadTone, ncTone, noshowTone } from "../data/careon/careon-behandelaren";
+import { BEHANDELAREN, caseloadTone, ncTone, noshowTone } from "../data/careon/careon-behandelaren";
 import { parseKpiCsv, SAMPLE_CSV_CONTENT } from "../data/careon/careon-databron";
 import { buildDetailRowsFresh, DETAIL_LOCS, demoDetailRows } from "../data/careon/careon-detail-records";
 import {
@@ -28,17 +28,19 @@ import {
   WACHTLIJST_PER_LOCATIE,
   WACHTLIJST_SUMMARY,
 } from "../data/careon/careon-dossiers-productie";
-import { CAREON_LOCATION_SCALE } from "../data/careon/careon-filters";
+import { CAREON_LOCATION_SCALE, CAREON_LOCATIONS } from "../data/careon/careon-filters";
 import { FINANCIEEL_METRICS } from "../data/careon/careon-financieel";
 import { HR_METRICS } from "../data/careon/careon-hr";
 import { careonDetailHref, KPI_DETAIL_BY_ID, KPI_DETAILS } from "../data/careon/careon-kpi-details";
 import { COCKPIT_KPIS } from "../data/careon/careon-kpis";
 import { complianceTone, KWALITEIT_COUNTERS } from "../data/careon/careon-kwaliteit";
+import { DEMO_MIDDELEN_STATE, FUNCTIE_OPTIES, TAAL_OPTIES, TEAM_SEED } from "../data/careon/careon-middelen";
 import { CAREON_ROUTES } from "../data/careon/careon-pages";
 import { PATIENTEN_METRICS } from "../data/careon/careon-patienten";
 import { PLANNING_METRICS } from "../data/careon/careon-planning";
 import type { CareonMetric } from "../data/careon/careon-types";
 import { formatCareonDelta, formatCareonValue } from "../lib/careon-format";
+import { isMiddelenState } from "../lib/careon-middelen/types";
 import { CAREON_PROVENANCE } from "../lib/careon-production/provenance";
 
 let failures = 0;
@@ -497,6 +499,55 @@ check(
 for (const id of ["actief", "omzetverz", "wachttijd", "afspraken"]) {
   check(`detail determinisme ${id}`, buildDetailRowsFresh(id), buildDetailRowsFresh(id));
 }
+
+// ---- Middelen & inventaris (handoff 09, handmatige registratie) ----
+
+const CAREON_LOCATION_KEUZES = CAREON_LOCATIONS.filter((locatie) => locatie !== "Alle locaties");
+
+check("middelen demo-seed is geldige state", isMiddelenState(DEMO_MIDDELEN_STATE), true);
+check(
+  "middelen seed: niet-handmatige personen zijn geauditeerde behandelaren",
+  DEMO_MIDDELEN_STATE.medewerkers
+    .filter((rij) => !rij.handmatig)
+    .every((rij) => BEHANDELAREN.some((behandelaar) => behandelaar.naam === rij.naam)),
+  true,
+);
+check(
+  "middelen seed: inventarislocaties = demo-locaties",
+  DEMO_MIDDELEN_STATE.inventaris.map((rij) => rij.locatie),
+  CAREON_LOCATION_KEUZES,
+);
+check(
+  "middelen seed: auto en tankpas paarsgewijs uitgegeven",
+  DEMO_MIDDELEN_STATE.medewerkers.filter((rij) => rij.middelen.includes("auto")).length,
+  DEMO_MIDDELEN_STATE.medewerkers.filter((rij) => rij.middelen.includes("tankpas")).length,
+);
+check(
+  "middelen seed: elke medewerker heeft een gecureerde functie",
+  DEMO_MIDDELEN_STATE.medewerkers.every((rij) => (FUNCTIE_OPTIES as readonly string[]).includes(rij.functie ?? "")),
+  true,
+);
+check(
+  "middelen seed: talen komen uit de gecureerde lijst en bevatten Nederlands",
+  DEMO_MIDDELEN_STATE.medewerkers.every(
+    (rij) =>
+      (rij.talen ?? []).includes("Nederlands") &&
+      (rij.talen ?? []).every((taal) => (TAAL_OPTIES as readonly string[]).includes(taal)),
+  ),
+  true,
+);
+
+// Teamstructuur = exact de klantopgave van 2026-07-20 (teams per Vektis-locatie).
+const teamsVan = (locatie: string) => TEAM_SEED.filter((team) => team.locatie === locatie).map((team) => team.naam);
+check("teams Tilburg", teamsVan("Tilburg"), ["SGGZ", "Outreachend", "GGZ in beweging", "RMA/RMO"]);
+check("teams Roermond", teamsVan("Roermond"), ["SGGZ", "Outreachend", "RMA/RMO"]);
+check("teams De Zorgpoort", teamsVan("De Zorgpoort"), ["SGGZ", "Outreachend", "RMA/RMO"]);
+check(
+  "teams uniek per locatie",
+  TEAM_SEED.length,
+  new Set(TEAM_SEED.map((team) => `${team.locatie}::${team.naam}`)).size,
+);
+check("demo-seed draagt de teamstructuur", DEMO_MIDDELEN_STATE.teams, TEAM_SEED);
 
 console.log(`\nverify-careon: ${passes} passed, ${failures} failed`);
 if (failures > 0) {

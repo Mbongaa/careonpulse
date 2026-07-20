@@ -90,7 +90,9 @@ gebruikers dezelfde data.
 
 1. Maak een Supabase-project in een **EU-regio** (AVG) en sluit een
    verwerkersovereenkomst af.
-2. Voer `supabase/migrations/0001_careon_production.sql` uit.
+2. Voer `supabase/migrations/0001_careon_production.sql` uit, en
+   `supabase/migrations/0002_careon_middelen.sql` voor de handmatige
+   middelen- & inventarisregistratie (handoff 09).
 3. Zet `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` én
    `NEXT_PUBLIC_CAREON_SYNC_TOKEN` in `.env.local` en herstart. Zonder
    sync-token blijft de route uitgeschakeld (501).

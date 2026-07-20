@@ -16,6 +16,7 @@ const ROUTES = [
   "/dashboard/kwaliteit",
   "/dashboard/financieel",
   "/dashboard/hr",
+  "/dashboard/middelen",
   "/dashboard/databron",
   "/dashboard/assistent",
   // KPI-drilldown (handoff 08): breedste detailtabel als mobile-gate.
