@@ -44,3 +44,5 @@ test-results/
 # Real EPD exports — patient data, never commit
 cli_ntendata_export*.csv
 *export*.csv
+declared_surcharges*.csv
+Exports EPD/

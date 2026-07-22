@@ -10,6 +10,16 @@ import { BehandelarenLiveTable } from "./behandelaren-live-table";
 import { BehandelarenTable } from "./behandelaren-table";
 import { FunctiemixPanel, TalenPanel, TeamBezettingPanel } from "./team-profiel-panels";
 
+function voetnoot(isProduction: boolean, metAgenda: boolean): string {
+  if (!isProduction) {
+    return `NC = niet-complete dossiers. Rood wanneer caseload >${CASELOAD_NORM} of no-show >5%; deze gevallen verschijnen automatisch in Signaleringen.`;
+  }
+  if (metAgenda) {
+    return `Caseload = actieve cliënten per behandelaar uit de EPD-export; rood boven de norm van ${CASELOAD_NORM}. Consulten, no-show, uren en omzet komen uit de agenda-export (laatste 12 maanden). ROM en tevredenheid volgen zodra de ROM-export gekoppeld is.`;
+  }
+  return `Caseload = actieve cliënten per behandelaar uit de EPD-export; rood boven de norm van ${CASELOAD_NORM}. Consulten, no-show, productiviteit, omzet, ROM en tevredenheid volgen zodra de agenda-, declaratie- en ROM-exports gekoppeld zijn.`;
+}
+
 export function BehandelarenContent() {
   const { filters, production } = useCareon();
 
@@ -31,12 +41,12 @@ export function BehandelarenContent() {
         {rowCount} behandelaren · {filters.locatie}
         {production ? "" : ` · ${filters.team}`}
       </p>
-      {production ? <BehandelarenLiveTable rows={production.behandelaren} /> : <BehandelarenTable rows={demoRows} />}
-      <p className="text-muted-foreground text-xs">
-        {production
-          ? `Caseload = actieve cliënten per behandelaar uit de EPD-export; rood boven de norm van ${CASELOAD_NORM}. Consulten, no-show, productiviteit, omzet, ROM en tevredenheid volgen zodra de agenda-, declaratie- en ROM-exports gekoppeld zijn.`
-          : `NC = niet-complete dossiers. Rood wanneer caseload >${CASELOAD_NORM} of no-show >5%; deze gevallen verschijnen automatisch in Signaleringen.`}
-      </p>
+      {production ? (
+        <BehandelarenLiveTable rows={production.behandelaren} agendaStats={production.agenda?.behandelaarStats} />
+      ) : (
+        <BehandelarenTable rows={demoRows} />
+      )}
+      <p className="text-muted-foreground text-xs">{voetnoot(production !== null, production?.agenda != null)}</p>
 
       {/* Teamprofiel uit de handmatige registratie (Medewerkers & middelen). */}
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">

@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 import { cn } from "@/lib/utils";
 
+import { AanvullendeExportsCard } from "./aanvullende-exports-card";
 import { ApiKoppelingCard } from "./api-koppeling-card";
 import { CsvImportCard } from "./csv-import-card";
 import { DatakwaliteitCard } from "./datakwaliteit-card";
@@ -55,6 +56,9 @@ export function DatabronContent() {
       </Card>
 
       <ProductieImportCard />
+
+      {/* Productie-flow: aanvullende exports bouwen voort op de cliëntendata. */}
+      <AanvullendeExportsCard />
 
       {/* Productie-exclusief: rendert null in demo (pixel-identieke demo-pagina). */}
       <DatakwaliteitCard />

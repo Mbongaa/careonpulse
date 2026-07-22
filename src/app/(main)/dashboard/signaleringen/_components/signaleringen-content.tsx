@@ -13,17 +13,23 @@ import { widgetSource } from "@/lib/careon-production/provenance";
 
 const SEVERITIES: CareonSeverity[] = ["kritiek", "hoog", "middel"];
 
-// Demo-regels die in productie-modus nog geen EPD-bron hebben, afgeleid uit
-// het provenance-register (één bron van waarheid). Ze blijven zichtbaar in een
-// aparte sectie zodat de klant weet welke signaleringen er bijkomen zodra de
-// aanvullende exports (agenda, declaraties, HR, ROM) er zijn.
-const DEMO_ONLY_ALERTS = CAREON_ALERTS.filter((alert) => widgetSource("signaleringen", alert.titel) === "demo");
-
 export function SignaleringenContent() {
   const { production } = useCareon();
 
   const alerts: CareonAlert[] = production ? production.signaleringen : CAREON_ALERTS;
-  const wachtOpData = production ? DEMO_ONLY_ALERTS : [];
+  // Demo-regels die in productie-modus nog geen EPD-bron hebben, afgeleid uit
+  // het provenance-register (één bron van waarheid) — mét de aanwezige
+  // aanvullende exports meegewogen: na een agenda-import verhuizen de
+  // agenda-regels van "wacht op data" naar de live secties.
+  const caps = {
+    agenda: production?.agenda != null,
+    agendaToekomst: production?.agenda?.vooruitblik != null,
+    verwijzers: production?.verwijzerNetwerk != null,
+    toeslagen: production?.toeslagen != null,
+  };
+  const wachtOpData = production
+    ? CAREON_ALERTS.filter((alert) => widgetSource("signaleringen", alert.titel, caps) === "demo")
+    : [];
 
   return (
     <div className="@container/main flex flex-col gap-4 md:gap-6">

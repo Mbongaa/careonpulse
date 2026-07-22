@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CAREON_LOCATIONS, CAREON_PERIODS, CAREON_TEAMS } from "@/data/careon/careon-filters";
+import { CAREON_PERIODS, CAREON_TEAMS } from "@/data/careon/careon-filters";
 import type { CareonPeriodId } from "@/data/careon/careon-types";
 
 import { useCareon } from "./careon-provider";
@@ -16,7 +16,7 @@ import { useCareon } from "./careon-provider";
 // Below lg, Periode and Team move into a compact filter popover so every
 // filter stays reachable on mobile.
 export function CareonFilterBar() {
-  const { filters, setFilter, isProduction } = useCareon();
+  const { filters, setFilter, isProduction, locatieOpties } = useCareon();
 
   // In productie-modus is het teamfilter verborgen: de EPD-data van deze
   // instelling kent maar één zorgvorm (SGGZ), dus filteren is betekenisloos.
@@ -50,7 +50,7 @@ export function CareonFilterBar() {
           <SelectValue placeholder="Locatie" />
         </SelectTrigger>
         <SelectContent>
-          {CAREON_LOCATIONS.map((location) => (
+          {locatieOpties.map((location) => (
             <SelectItem key={location} value={location}>
               {location}
             </SelectItem>
@@ -112,7 +112,7 @@ export function CareonFilterBar() {
                 <SelectValue placeholder="Locatie" />
               </SelectTrigger>
               <SelectContent>
-                {CAREON_LOCATIONS.map((location) => (
+                {locatieOpties.map((location) => (
                   <SelectItem key={location} value={location}>
                     {location}
                   </SelectItem>

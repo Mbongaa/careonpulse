@@ -46,7 +46,7 @@ const OPTIONAL_COLUMNS = [
 
 const DATE_RE = /^(\d{2})-(\d{2})-(\d{4})$/;
 
-function splitLine(line: string, delim: string): string[] {
+export function splitLine(line: string, delim: string): string[] {
   if (!line.includes('"')) {
     return line.split(delim);
   }
@@ -73,7 +73,7 @@ function splitLine(line: string, delim: string): string[] {
   return cells;
 }
 
-function cleanCell(value: string | undefined): string | null {
+export function cleanCell(value: string | undefined): string | null {
   const trimmed = (value ?? "").trim();
   if (trimmed === "" || trimmed === "-") {
     return null;
@@ -111,9 +111,15 @@ function normalizePlaats(value: string | null): string | null {
     .join(" ");
 }
 
-function normalizeVestiging(value: string | null): string | null {
+export function normalizeVestiging(value: string | null): string | null {
   if (!value) return null;
-  return value.replace(/^TGC\s+/i, "").trim();
+  // Beide instellingen in de export mappen op stad-niveau: "TGC Tilburg" →
+  // "Tilburg", "Vurans Veghel" → "Veghel". Zo blijft het locatiefilter één
+  // begrip (vestigingsplaats), ook nu de export twee instellingen bevat.
+  return value
+    .replace(/^TGC\s+/i, "")
+    .replace(/^Vurans\s+/i, "")
+    .trim();
 }
 
 function normalizeGeslacht(value: string | null): "Vrouw" | "Man" | "Anders" {
@@ -174,7 +180,7 @@ function buildHeaderIndex(headerCells: string[]): { index: Map<string, number>; 
 // aantal samengevoegde regels en een terugval die de gebufferde regels weer
 // lós parseert mét waarschuwing — anders zou één stray quote de rest van het
 // bestand geruisloos in één cel opslokken.
-interface RawRow {
+export interface RawRow {
   text: string;
   /** 1-based fysiek regelnummer van de eerste regel van deze (evt. samengevoegde) rij. */
   lineNumber: number;
@@ -182,7 +188,7 @@ interface RawRow {
 
 const MAX_QUOTED_ROW_LINES = 10;
 
-function mergeQuotedLines(rawLines: string[]): { rows: RawRow[]; warnings: ImportWarning[] } {
+export function mergeQuotedLines(rawLines: string[]): { rows: RawRow[]; warnings: ImportWarning[] } {
   const rows: RawRow[] = [];
   const warnings: ImportWarning[] = [];
   let buffer: string[] = [];
@@ -267,7 +273,15 @@ export function parseClientExport(fileName: string, text: string): ParseExportRe
   warnings.push(...mergeWarnings);
 
   const records: ClientRecord[] = [];
-  const seenIds = new Set<string>();
+  // Eén record per cliënt. De export kan meerdere trajectrijen per cliënt
+  // bevatten (afgesloten + heropend); het open/meest recente traject wint —
+  // altijd-de-eerste zou bij een heropende cliënt het afgesloten traject
+  // bewaren en de cliënt ten onrechte als uitgestroomd tellen.
+  const recordIndexById = new Map<string, number>();
+  const trajectRang = (record: ClientRecord): number => {
+    if (record.episodeStart === null) return 0;
+    return record.episodeEind === null ? 2 : 1;
+  };
   let totalRows = 0;
   let skippedRows = 0;
 
@@ -290,12 +304,6 @@ export function parseClientExport(fileName: string, text: string): ParseExportRe
       warnings.push({ row: rowNumber, message: "Rij zonder Cliënt ID overgeslagen." });
       continue;
     }
-    if (seenIds.has(id)) {
-      warnings.push({ row: rowNumber, message: `Dubbele Cliënt ID ${id} — rij overgeslagen.` });
-      skippedRows += 1;
-      continue;
-    }
-    seenIds.add(id);
 
     const rawEpisodeStart = cell("Episode startdatum");
     const episodeStart = parseDutchDate(rawEpisodeStart);
@@ -328,7 +336,7 @@ export function parseClientExport(fileName: string, text: string): ParseExportRe
       .map((label) => label.trim())
       .filter((label) => label !== "" && label !== "-");
 
-    records.push({
+    const record: ClientRecord = {
       id,
       geslacht: normalizeGeslacht(cell("Client geslacht")),
       leeftijd,
@@ -370,7 +378,26 @@ export function parseClientExport(fileName: string, text: string): ParseExportRe
       wachtlijstLabels,
       preWachtlijst: cell("Pre Wachtlijst Status") === "Ja",
       dossierUrl,
-    });
+    };
+
+    const bestaandeIndex = recordIndexById.get(id);
+    if (bestaandeIndex === undefined) {
+      recordIndexById.set(id, records.length);
+      records.push(record);
+    } else {
+      const bestaand = records[bestaandeIndex];
+      const nieuwWint =
+        trajectRang(record) > trajectRang(bestaand) ||
+        (trajectRang(record) === trajectRang(bestaand) && (record.episodeStart ?? "") > (bestaand.episodeStart ?? ""));
+      if (nieuwWint) {
+        records[bestaandeIndex] = record;
+      }
+      skippedRows += 1;
+      warnings.push({
+        row: rowNumber,
+        message: `Dubbele Cliënt ID ${id} — het ${nieuwWint ? "eerdere" : "extra"} traject is overgeslagen (open/meest recente traject behouden).`,
+      });
+    }
   }
 
   if (records.length === 0) {

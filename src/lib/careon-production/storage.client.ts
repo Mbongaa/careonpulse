@@ -2,7 +2,16 @@
 
 import { getLocalStorageValue, setLocalStorageValue } from "@/lib/local-storage.client";
 
-import { isProductionState, type ProductionState } from "./types";
+import {
+  type AgendaFacts,
+  isAgendaFacts,
+  isProductionState,
+  isToeslagenFacts,
+  isVerwijzersFacts,
+  type ProductionState,
+  type ToeslagenFacts,
+  type VerwijzersFacts,
+} from "./types";
 
 // Productie-state (gepseudonimiseerde records + importmetadata) wordt lokaal
 // bewaard zodat productie-modus een herlaad overleeft. Bij een geconfigureerde
@@ -61,5 +70,84 @@ export function loadProductionState(): ProductionState | null {
     return isProductionState(parsed) ? parsed : null;
   } catch {
     return null;
+  }
+}
+
+// ---- Aanvullende exports (agenda, verwijzers) ----
+// Zelfde levenscyclus als de productie-state: lokaal bewaard, gewist bij
+// "Herstel demo-data". De aggregaten zijn klein (~300 kB) — geen quota-risico.
+
+const AGENDA_KEY = "careon-agenda-v1";
+const VERWIJZERS_KEY = "careon-verwijzers-v1";
+
+export function saveAgendaFacts(facts: AgendaFacts): boolean {
+  try {
+    window.localStorage.setItem(AGENDA_KEY, JSON.stringify(facts));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function loadAgendaFacts(): AgendaFacts | null {
+  const raw = getLocalStorageValue(AGENDA_KEY);
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isAgendaFacts(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveVerwijzersFacts(facts: VerwijzersFacts): boolean {
+  try {
+    window.localStorage.setItem(VERWIJZERS_KEY, JSON.stringify(facts));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function loadVerwijzersFacts(): VerwijzersFacts | null {
+  const raw = getLocalStorageValue(VERWIJZERS_KEY);
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isVerwijzersFacts(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+const TOESLAGEN_KEY = "careon-toeslagen-v1";
+
+export function saveToeslagenFacts(facts: ToeslagenFacts): boolean {
+  try {
+    window.localStorage.setItem(TOESLAGEN_KEY, JSON.stringify(facts));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function loadToeslagenFacts(): ToeslagenFacts | null {
+  const raw = getLocalStorageValue(TOESLAGEN_KEY);
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isToeslagenFacts(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearAuxFacts(): void {
+  try {
+    window.localStorage.removeItem(AGENDA_KEY);
+    window.localStorage.removeItem(VERWIJZERS_KEY);
+    window.localStorage.removeItem(TOESLAGEN_KEY);
+  } catch {
+    // localStorage niet beschikbaar — niets te wissen.
   }
 }

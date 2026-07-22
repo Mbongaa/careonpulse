@@ -91,15 +91,21 @@ const noshowConfig = {
 } satisfies ChartConfig;
 
 export function NoShowChart({ className }: Readonly<{ className?: string }>) {
+  const { production } = useCareon();
+  const agendaActief = production?.agenda != null;
+  // In productie mét agenda: echte no-show-percentages per afspraakmaand.
+  const data = agendaActief
+    ? production.monthly.map((point) => ({ m: point.m, noshow: point.noshowPct }))
+    : CAREON_MONTHLY;
   return (
     <CareonChartCard
       title="No-show"
-      sub="Grens 5%"
+      sub={agendaActief ? "Per afspraakmaand · grens 5%" : "Grens 5%"}
       className={className}
       titleBadge={<CareonSourceBadge page="cockpit" widget="No-show trend" />}
     >
       <ChartContainer config={noshowConfig} className="aspect-auto h-56 w-full">
-        <LineChart data={CAREON_MONTHLY} margin={{ top: 8, left: 0 }}>
+        <LineChart data={data} margin={{ top: 8, left: 0 }}>
           <CartesianGrid vertical={false} strokeOpacity={0.5} />
           <XAxis dataKey="m" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} />
           <YAxis

@@ -20,7 +20,12 @@ export function CareonLiveBanner({ page }: Readonly<{ page: string }>) {
   const buitenFilter =
     filters.locatie !== "Alle locaties" && production.meta.zonderVestiging > 0 ? production.meta.zonderVestiging : null;
 
-  const counts = pageLiveCounts(page);
+  const counts = pageLiveCounts(page, {
+    agenda: production.agenda != null,
+    agendaToekomst: production.agenda?.vooruitblik != null,
+    verwijzers: production.verwijzerNetwerk != null,
+    toeslagen: production.toeslagen != null,
+  });
   // UTC, net als de referentiedatum van de snapshot: anders kan de banner
   // "1 aug" tonen naast KPI's die (correct) op het juni-venster staan.
   const importDate = new Date(production.meta.importedAt).toLocaleDateString("nl-NL", {
@@ -45,6 +50,20 @@ export function CareonLiveBanner({ page }: Readonly<{ page: string }>) {
       <span>
         Import {production.meta.fileName} ({importDate}) — {production.meta.totalRows} cliëntrijen
       </span>
+      {production.agenda && (
+        <>
+          <span>·</span>
+          <span>
+            Agenda t/m{" "}
+            {new Date(`${production.agenda.meta.bronTot}T00:00:00Z`).toLocaleDateString("nl-NL", {
+              day: "numeric",
+              month: "short",
+              timeZone: "UTC",
+            })}{" "}
+            ({production.agenda.meta.sessieRows} sessies)
+          </span>
+        </>
+      )}
       {buitenFilter !== null && (
         <>
           <span>·</span>

@@ -1,6 +1,6 @@
 "use client";
 
-import { PROXY_NOTES, widgetSource } from "@/lib/careon-production/provenance";
+import { AGENDA_PROXY_NOTES, PROXY_NOTES, widgetSource } from "@/lib/careon-production/provenance";
 import { cn } from "@/lib/utils";
 
 import { useCareon } from "./careon-provider";
@@ -24,15 +24,24 @@ export function CareonSourceBadge({
   widget,
   className,
 }: Readonly<{ page: string; widget: string; className?: string }>) {
-  const { isProduction } = useCareon();
+  const { isProduction, production } = useCareon();
   if (!isProduction) {
     return null;
   }
 
-  const source = widgetSource(page, widget);
+  const caps = {
+    agenda: production?.agenda != null,
+    agendaToekomst: production?.agenda?.vooruitblik != null,
+    verwijzers: production?.verwijzerNetwerk != null,
+    toeslagen: production?.toeslagen != null,
+  };
+  const source = widgetSource(page, widget, caps);
   let note = "Berekend uit de geïmporteerde EPD-export.";
   if (source === "proxy") {
-    note = PROXY_NOTES[widget] ?? "Afgeleide waarde — zie Databron voor de definitie.";
+    note =
+      (caps.agenda ? AGENDA_PROXY_NOTES[widget] : undefined) ??
+      PROXY_NOTES[widget] ??
+      "Afgeleide waarde — zie Databron voor de definitie.";
   } else if (source === "demo") {
     note = "Demo-data — wacht op aanvullende EPD-export (zie Databron).";
   }

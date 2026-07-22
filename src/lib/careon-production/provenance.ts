@@ -41,8 +41,10 @@ export const PROXY_NOTES: Record<string, string> = {
 // Voetnoot op KPI-detailpagina's in productie-modus wanneer de records nog
 // demo zijn: benoemt expliciet op welke aanvullende export het domein wacht.
 export const DETAIL_WAIT_NOTES: Record<string, string> = {
-  planning: "Demo-records — echte afspraakregels vereisen de agenda-export uit het EPD.",
-  financieel: "Demo-records — echte declaratieregels vereisen de declaratie-export (Vecozo/Infomedics).",
+  planning:
+    "Demo-records — de agenda-import bewaart uit privacy-oogpunt alleen aggregaten, geen losse afspraakregels; na een agenda-import zijn de kaartwaarden op de Planning-pagina wél live.",
+  financieel:
+    "Demo-records — echte declaratieregels vereisen de declaratie-export (Vecozo/Infomedics); na een agenda-import komen de omzetcijfers op de Financieel-pagina wél live uit de agenda.",
   hr: "Demo-records — echte personeelsgegevens vereisen de HR-export.",
   kwaliteit: "Demo-records — echte metingen vereisen de ROM/MIC-export.",
 };
@@ -210,13 +212,148 @@ export const CAREON_PROVENANCE: Record<string, PageProvenance> = {
   },
 };
 
-export function widgetSource(pageId: string, widgetId: string): WidgetSource {
+// ---- Overlay: aanvullende exports ----
+// Het basisregister beschrijft de stand mét alleen de cliëntendata-export.
+// Zodra de agenda- of verwijzersexport is geïmporteerd, schuiven de
+// betreffende widgets op — de badge volgt de werkelijk aanwezige bron.
+export interface ProvenanceCaps {
+  agenda?: boolean;
+  /** Agenda-export mét toekomstvenster (geplande afspraken ná de peildatum). */
+  agendaToekomst?: boolean;
+  verwijzers?: boolean;
+  /** Toeslagen-export (declared surcharges) gekoppeld. */
+  toeslagen?: boolean;
+}
+
+export const AGENDA_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
+  cockpit: {
+    "No-show": "live",
+    "No-show trend": "live",
+    "Omzet verzekeraars": "live",
+    Omzetontwikkeling: "live",
+  },
+  signaleringen: {
+    "Geen contact >60 dagen": "live",
+    "No-show >5% per behandelaar": "live",
+    "Dossiers zonder behandelplan": "proxy",
+    "Sessies >90 dgn niet gefactureerd": "proxy",
+  },
+  patienten: {
+    ">30 dgn geen contact": "live",
+    ">60 dgn geen contact": "live",
+    ">30 dgn geen registratie": "live",
+    ">60 dgn geen registratie": "live",
+  },
+  planning: {
+    "Afspraken deze maand": "live",
+    "No-shows": "live",
+    Geannuleerd: "live",
+    "Agenda-bezetting": "proxy",
+    "Beschikbare uren": "proxy",
+    "Productieve uren": "proxy",
+    Behandeluren: "live",
+    "Indirecte uren": "live",
+    Urenverdeling: "live",
+    "No-show per weekdag": "live",
+  },
+  financieel: {
+    "Omzet verzekeraars": "live",
+    "Onderhanden werk": "proxy",
+    "Gem. omzet / cliënt": "live",
+    "Gem. omzet / traject": "live",
+    "Declaraties >90 dgn": "proxy",
+    Omzetontwikkeling: "live",
+    "Omzet per verzekeraar": "live",
+    "Omzet per locatie": "live",
+    "Ouderdom openstaande declaraties": "proxy",
+  },
+  behandelaren: {
+    Behandelaren: "live",
+  },
+  dossiers: {
+    "Sessie zonder sessieverslag (agenda)": "live",
+    "Sessie niet ondertekend (agenda)": "live",
+  },
+  dossiersProductie: {
+    "Productie-uren": "live",
+    Productiviteit: "proxy",
+  },
+};
+
+// Extra overlay wanneer de agenda-export een toekomstvenster heeft (einddatum
+// in de toekomst): pas dan is "geen vervolgafspraak" te onderscheiden van
+// "niet geëxporteerd".
+export const AGENDA_TOEKOMST_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
+  cockpit: {
+    "Zonder vervolgafspraak": "live",
+  },
+  patienten: {
+    "Zonder vervolgafspraak": "live",
+  },
+  // "Geen evaluatie gepland" blijft bewust demo: toekomstige MDO-sessies staan
+  // in de export vrijwel allemaal zonder cliënt-ID (nog niet toegewezen
+  // MDO-blokken) — per cliënt is dit niet eerlijk te meten.
+  signaleringen: {
+    "Zonder vervolgafspraak": "live",
+  },
+  planning: {
+    Vooruitblik: "live",
+  },
+};
+
+export const VERWIJZERS_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
+  dossiersProductie: {
+    Verwijzers: "live",
+    Verwijsnetwerk: "live",
+  },
+};
+
+export const TOESLAGEN_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
+  financieel: {
+    Toeslagen: "live",
+  },
+};
+
+// Proxy-toelichtingen voor de agenda-afleidingen (zelfde mechaniek als PROXY_NOTES).
+export const AGENDA_PROXY_NOTES: Record<string, string> = {
+  "Agenda-bezetting":
+    "Agenda-vulling: sessietijd als aandeel van sessietijd + afwezig-blokken. Contracturen zitten niet in de export (HR-export nodig voor echte bezetting).",
+  "Beschikbare uren":
+    "De export kent geen contracturen; getoond wordt de als 'Afwezig' geblokkeerde agendatijd van de maand.",
+  "Productieve uren": "Alle geregistreerde sessietijd (direct + indirect + reistijd) in de maand.",
+  "Onderhanden werk": "Geprijsde sessies zonder factuurnummer — de export bevat geen declaratiestatus (Vecozo).",
+  "Declaraties >90 dgn": "Geprijsde sessies die >90 dagen na de afspraakmaand nog geen factuurnummer hebben.",
+  "Dossiers zonder behandelplan": "Actieve dossiers (>30 dagen open) zonder behandelplan-sessie in de agenda-export.",
+  "Sessies >90 dgn niet gefactureerd":
+    "Geprijsde sessies die >90 dagen na de afspraakmaand nog geen factuurnummer hebben.",
+  "Ouderdom openstaande declaraties":
+    "Ouderdom van het onderhanden werk (nog niet gefactureerde sessiewaarde) — geen declaratiestatus.",
+  Productiviteit: "Directe tijd als aandeel van de totale geregistreerde sessietijd (laatste 12 agenda-maanden).",
+};
+
+export function widgetSource(pageId: string, widgetId: string, caps?: ProvenanceCaps): WidgetSource {
+  if (caps?.verwijzers) {
+    const override = VERWIJZERS_PROVENANCE[pageId]?.[widgetId];
+    if (override) return override;
+  }
+  if (caps?.toeslagen) {
+    const override = TOESLAGEN_PROVENANCE[pageId]?.[widgetId];
+    if (override) return override;
+  }
+  if (caps?.agendaToekomst) {
+    const override = AGENDA_TOEKOMST_PROVENANCE[pageId]?.[widgetId];
+    if (override) return override;
+  }
+  if (caps?.agenda) {
+    const override = AGENDA_PROVENANCE[pageId]?.[widgetId];
+    if (override) return override;
+  }
   return CAREON_PROVENANCE[pageId]?.widgets[widgetId] ?? "demo";
 }
 
-export function pageLiveCounts(pageId: string): { live: number; total: number } {
+export function pageLiveCounts(pageId: string, caps?: ProvenanceCaps): { live: number; total: number } {
   const widgets = CAREON_PROVENANCE[pageId]?.widgets ?? {};
-  const sources = Object.values(widgets);
+  const sources = Object.keys(widgets).map((widgetId) => widgetSource(pageId, widgetId, caps));
   return {
     live: sources.filter((source) => source !== "demo").length,
     total: sources.length,

@@ -5,13 +5,19 @@ import { REGIE_NORM } from "../../data/careon/careon-dossiers-productie";
 import { TREEKNORM_WEKEN } from "../../data/careon/careon-patienten";
 import type {
   AantalGroep,
+  AgendaFacts,
   ClientRecord,
   LiveMetric,
+  ProductionAgendaSnapshot,
   ProductionAlert,
   ProductionMonthPoint,
   ProductionSnapshot,
   ProductionState,
+  ProductionToeslagen,
+  ProductionVerwijzerNetwerk,
   RisicoRij,
+  ToeslagenFacts,
+  VerwijzersFacts,
 } from "./types";
 
 // Alle productie-aggregaties zijn pure functies over de gepseudonimiseerde
@@ -234,16 +240,25 @@ function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-const KNOWN_LOCATIES = ["Tilburg", "Breda", "Roermond"];
+// Veghel: sinds de export van 2026-07 bevat de cliëntendata ook de tweede
+// instelling (Vurans Veghel) — genormaliseerd tot vestigingsplaats "Veghel".
+export const KNOWN_LOCATIES = ["Tilburg", "Veghel", "Breda", "Roermond"];
 
 export interface SnapshotFilters {
   locatie: string;
+}
+
+export interface SnapshotExtra {
+  agenda?: AgendaFacts | null;
+  verwijzers?: VerwijzersFacts | null;
+  toeslagen?: ToeslagenFacts | null;
 }
 
 export function computeProductionSnapshot(
   state: ProductionState,
   filters: SnapshotFilters,
   referenceDate: Date,
+  extra?: SnapshotExtra,
 ): ProductionSnapshot {
   const referenceIso = isoFromDate(referenceDate);
   const records =
@@ -265,6 +280,9 @@ export function computeProductionSnapshot(
     uitstroom: eindesPerMaand.get(month.key) ?? 0,
     caseload: records.filter((record) => activeAt(record, month.endIso)).length,
     verwijzingen: verwijzingenPerMaand.get(month.key) ?? 0,
+    // Agenda-velden worden verderop ingevuld wanneer een agenda-import aanwezig is.
+    noshowPct: null,
+    omzet: null,
   }));
 
   const actieveClienten = records.filter((record) => activeAt(record, referenceIso));
@@ -989,6 +1007,654 @@ export function computeProductionSnapshot(
       activeAt(record, referenceIso) && (record.vestiging === null || !KNOWN_LOCATIES.includes(record.vestiging)),
   ).length;
 
+  // ---- Agenda-export: planning, no-show, uren, omzet en contactrecentheid ----
+  const agendaFacts = extra?.agenda ?? null;
+  let agendaSnapshot: ProductionAgendaSnapshot | null = null;
+  if (agendaFacts) {
+    const inFilter = (locatie: string | null) => filters.locatie === "Alle locaties" || locatie === filters.locatie;
+    const cellen = agendaFacts.cellen.filter((cel) => inFilter(cel.locatie));
+
+    // Blok-rijen (Afwezig) dragen geen locatie: attribueer ze aan de modale
+    // sessie-locatie van de behandelaar (gedocumenteerde benadering).
+    const locatiePerBehandelaar = new Map<string, Map<string, number>>();
+    for (const cel of agendaFacts.cellen) {
+      if (cel.behandelaar === null || cel.locatie === null) continue;
+      const counts = locatiePerBehandelaar.get(cel.behandelaar) ?? new Map<string, number>();
+      counts.set(cel.locatie, (counts.get(cel.locatie) ?? 0) + cel.sessies);
+      locatiePerBehandelaar.set(cel.behandelaar, counts);
+    }
+    const modaleLocatie = (behandelaar: string | null): string | null => {
+      if (behandelaar === null) return null;
+      const counts = locatiePerBehandelaar.get(behandelaar);
+      if (!counts || counts.size === 0) return null;
+      return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    };
+    const blokken = agendaFacts.blokken.filter((blok) => inFilter(modaleLocatie(blok.behandelaar)));
+
+    // Vensters op het agenda-bereik zelf: is de agenda ouder dan de cliënten-
+    // import, dan blijft de "laatste volle maand" binnen het agenda-bereik.
+    const agendaRefIso = agendaFacts.bronTot < referenceIso ? agendaFacts.bronTot : referenceIso;
+    const agendaMonths = lastFullMonths(agendaRefIso, 12);
+    const lastAgendaMonth = agendaMonths[agendaMonths.length - 1];
+    const prevAgendaMonth = agendaMonths[agendaMonths.length - 2];
+    const maandLabel = MAAND_NAMEN[lastAgendaMonth.month0];
+    const agendaKeys = new Set(agendaMonths.map((month) => month.key));
+
+    const NUM_VELDEN = [
+      "sessies",
+      "noShows",
+      "tijdigAfgezegd",
+      "directeMin",
+      "indirecteMin",
+      "reisMin",
+      "totaleMin",
+      "online",
+      "opLocatie",
+      "verslagen",
+      "ondertekend",
+      "omzetGerealiseerd",
+      "onderhanden",
+      "onderhandenSessies",
+    ] as const;
+    type Rollup = Record<(typeof NUM_VELDEN)[number], number>;
+    const leegRollup = (): Rollup => {
+      const rollup = {} as Rollup;
+      for (const veld of NUM_VELDEN) rollup[veld] = 0;
+      return rollup;
+    };
+    const telOp = (acc: Rollup, cel: Rollup) => {
+      for (const veld of NUM_VELDEN) acc[veld] += cel[veld];
+    };
+
+    const perMaand = new Map<string, Rollup>();
+    const totaalRollup = leegRollup();
+    const twaalfMndRollup = leegRollup();
+    for (const cel of cellen) {
+      const acc = perMaand.get(cel.key) ?? leegRollup();
+      telOp(acc, cel);
+      perMaand.set(cel.key, acc);
+      telOp(totaalRollup, cel);
+      if (agendaKeys.has(cel.key)) telOp(twaalfMndRollup, cel);
+    }
+    const van = (key: string): Rollup => perMaand.get(key) ?? leegRollup();
+
+    const blokPerMaand = new Map<string, number>();
+    for (const blok of blokken) {
+      blokPerMaand.set(blok.key, (blokPerMaand.get(blok.key) ?? 0) + blok.blokMin);
+    }
+    const factuurCellen = agendaFacts.facturatie.filter((cel) => inFilter(cel.locatie));
+    const omzetPerMaand = new Map<string, number>();
+    for (const cel of factuurCellen) {
+      omzetPerMaand.set(cel.key, (omzetPerMaand.get(cel.key) ?? 0) + cel.omzet);
+    }
+    // Toeslagen (zelfde facturen, extra regels) tellen mee in de omzetreeks —
+    // alleen ongefilterd: de toeslagen-export draagt geen vestiging.
+    const toeslagenMee = filters.locatie === "Alle locaties" ? (extra?.toeslagen ?? null) : null;
+    if (toeslagenMee) {
+      for (const cel of toeslagenMee.cellen) {
+        omzetPerMaand.set(cel.key, (omzetPerMaand.get(cel.key) ?? 0) + cel.omzet);
+      }
+    }
+
+    const laatste = van(lastAgendaMonth.key);
+    const vorige = van(prevAgendaMonth.key);
+    const blokLaatste = blokPerMaand.get(lastAgendaMonth.key) ?? 0;
+    const blokVorige = blokPerMaand.get(prevAgendaMonth.key) ?? 0;
+    const uren = (minuten: number) => Math.round(minuten / 60);
+    const noshowPctVan = (rollup: Rollup): number | null =>
+      rollup.sessies === 0 ? null : round1((rollup.noShows / rollup.sessies) * 100);
+    const vulling = (rollup: Rollup, blokMin: number): number | null => {
+      const totaal = rollup.totaleMin + blokMin;
+      return totaal === 0 ? null : Math.round((rollup.totaleMin / totaal) * 100);
+    };
+
+    const planningMetrics: Record<string, LiveMetric> = {
+      "Afspraken deze maand": {
+        label: "Afspraken",
+        value: laatste.sessies,
+        prev: vorige.sessies,
+        f: "int",
+        windowLabel: maandLabel,
+      },
+      "No-shows": {
+        label: "No-shows",
+        value: laatste.noShows,
+        prev: vorige.noShows,
+        f: "int",
+        betterLow: true,
+        windowLabel: maandLabel,
+      },
+      Geannuleerd: {
+        label: "Tijdig afgezegd",
+        value: laatste.tijdigAfgezegd,
+        prev: vorige.tijdigAfgezegd,
+        f: "int",
+        betterLow: true,
+        windowLabel: maandLabel,
+      },
+      "Agenda-bezetting": {
+        label: "Agenda-vulling",
+        value: vulling(laatste, blokLaatste) ?? 0,
+        prev: vulling(vorige, blokVorige),
+        f: "pct0",
+        windowLabel: maandLabel,
+        noData: vulling(laatste, blokLaatste) === null,
+      },
+      "Beschikbare uren": {
+        label: "Afwezig geblokkeerd (u)",
+        value: uren(blokLaatste),
+        prev: uren(blokVorige),
+        f: "int",
+        windowLabel: maandLabel,
+      },
+      "Productieve uren": {
+        label: "Geregistreerde uren",
+        value: uren(laatste.totaleMin),
+        prev: uren(vorige.totaleMin),
+        f: "int",
+        windowLabel: maandLabel,
+      },
+      Behandeluren: {
+        label: "Behandeluren",
+        value: uren(laatste.directeMin),
+        prev: uren(vorige.directeMin),
+        f: "int",
+        windowLabel: maandLabel,
+      },
+      "Indirecte uren": {
+        label: "Indirecte uren",
+        value: uren(laatste.indirecteMin),
+        prev: uren(vorige.indirecteMin),
+        f: "int",
+        betterLow: true,
+        windowLabel: maandLabel,
+      },
+    };
+
+    // Alle 7 weekdagen in Nederlandse volgorde — de praktijk werkt ook in het weekend.
+    const WEEKDAG_LABELS = ["zo", "ma", "di", "wo", "do", "vr", "za"];
+    const weekdagCellen = agendaFacts.weekdagen.filter((cel) => inFilter(cel.locatie));
+    const noshowWeekdagen = [1, 2, 3, 4, 5, 6, 0].map((dag) => {
+      const sessies = weekdagCellen.filter((cel) => cel.dag === dag).reduce((sum, cel) => sum + cel.sessies, 0);
+      const noShows = weekdagCellen.filter((cel) => cel.dag === dag).reduce((sum, cel) => sum + cel.noShows, 0);
+      return {
+        dag: WEEKDAG_LABELS[dag],
+        pct: sessies === 0 ? 0 : round1((noShows / sessies) * 100),
+        sessies,
+      };
+    });
+
+    const urenverdeling = [
+      { name: "Behandeluren", value: uren(laatste.directeMin), color: "var(--chart-1)" },
+      { name: "Indirecte uren", value: uren(laatste.indirecteMin), color: "var(--chart-2)" },
+      { name: "Reistijd", value: uren(laatste.reisMin), color: "var(--chart-3)" },
+      { name: "Afwezig-blokken", value: uren(blokLaatste), color: "var(--chart-4)" },
+    ].filter((item) => item.value > 0);
+
+    const bezettingVoor = (loc: string): { sessieMin: number; blokMin: number } => {
+      const sessieMin = agendaFacts.cellen
+        .filter((cel) => cel.locatie === loc && agendaKeys.has(cel.key))
+        .reduce((sum, cel) => sum + cel.totaleMin, 0);
+      const blokMin = agendaFacts.blokken
+        .filter((blok) => modaleLocatie(blok.behandelaar) === loc && agendaKeys.has(blok.key))
+        .reduce((sum, blok) => sum + blok.blokMin, 0);
+      return { sessieMin, blokMin };
+    };
+    const bezettingPerLocatie = KNOWN_LOCATIES.filter((loc) => inFilter(loc))
+      .map((loc) => {
+        const { sessieMin, blokMin } = bezettingVoor(loc);
+        const totaal = sessieMin + blokMin;
+        return { loc, pct: totaal === 0 ? 0 : Math.round((sessieMin / totaal) * 100), totaal };
+      })
+      .filter((row) => row.totaal > 0)
+      .map(({ loc, pct }) => ({ loc, pct }));
+    const twaalfMndBlok = blokken
+      .filter((blok) => agendaKeys.has(blok.key))
+      .reduce((sum, blok) => sum + blok.blokMin, 0);
+    const bezettingTotaal = vulling(twaalfMndRollup, twaalfMndBlok);
+
+    const modality = [
+      { name: "Online", value: twaalfMndRollup.online, color: "var(--chart-2)" },
+      { name: "Op locatie", value: twaalfMndRollup.opLocatie, color: "var(--chart-1)" },
+      {
+        name: "Overig (MDO, telefonisch, …)",
+        value: twaalfMndRollup.sessies - twaalfMndRollup.online - twaalfMndRollup.opLocatie,
+        color: "var(--chart-4)",
+      },
+    ].filter((item) => item.value > 0);
+
+    // ---- Financieel ----
+    const omzetLaatste = omzetPerMaand.get(lastAgendaMonth.key) ?? 0;
+    const omzetVorige = omzetPerMaand.get(prevAgendaMonth.key) ?? 0;
+    const onderhandenTotaal = totaalRollup.onderhanden;
+    // ">90 dagen": alles ouder dan drie volle maanden vóór de agenda-referentie.
+    const drempel90 = agendaMonths[agendaMonths.length - 3].key;
+    const ouder90 = cellen.filter((cel) => cel.key < drempel90).reduce((sum, cel) => sum + cel.onderhanden, 0);
+    const ouder90Sessies = cellen
+      .filter((cel) => cel.key < drempel90)
+      .reduce((sum, cel) => sum + cel.onderhandenSessies, 0);
+
+    const omzetGerealiseerdTotaal = agendaFacts.cellen.reduce((sum, cel) => sum + cel.omzetGerealiseerd, 0);
+    const gemOmzetPerClient =
+      agendaFacts.clienten.length === 0 ? null : omzetGerealiseerdTotaal / agendaFacts.clienten.length;
+    const trajectenTotaal = agendaFacts.trajecten ?? 0;
+
+    const financieelMetrics: Record<string, LiveMetric> = {
+      "Omzet verzekeraars": {
+        label: "Omzet verzekeraars",
+        value: Math.round(omzetLaatste),
+        prev: Math.round(omzetVorige),
+        f: "eurK",
+        windowLabel: `gefactureerd in ${maandLabel}`,
+      },
+      "Onderhanden werk": {
+        label: "Onderhanden werk",
+        value: Math.round(onderhandenTotaal),
+        prev: null,
+        f: "eurK",
+        neutralDown: true,
+        windowLabel: "nog niet gefactureerd",
+      },
+      "Declaraties >90 dgn": {
+        label: "Niet gefactureerd >90 dgn",
+        value: Math.round(ouder90),
+        prev: null,
+        f: "eurK",
+        betterLow: true,
+      },
+      "Gem. omzet / cliënt": {
+        label: "Gem. omzet / cliënt",
+        value: gemOmzetPerClient === null ? 0 : Math.round(gemOmzetPerClient),
+        prev: null,
+        f: "eur",
+        windowLabel: "hele agenda-export",
+        // Cliënt-aantallen zijn niet per vestiging te splitsen in de agenda-
+        // aggregaten; toon de waarde alleen ongefilterd.
+        noData: filters.locatie !== "Alle locaties" || gemOmzetPerClient === null,
+      },
+      "Gem. omzet / traject": {
+        label: "Gem. omzet / traject",
+        value: trajectenTotaal === 0 ? 0 : Math.round(omzetGerealiseerdTotaal / trajectenTotaal),
+        prev: null,
+        f: "eur",
+        windowLabel: "hele agenda-export",
+        // Traject-aantallen zijn evenmin per vestiging te splitsen; oudere
+        // opgeslagen aggregaten missen de trajectteller (dan geen meting).
+        noData: filters.locatie !== "Alle locaties" || trajectenTotaal === 0,
+      },
+    };
+
+    const omzetKoepels = new Map<string, number>();
+    for (const cel of factuurCellen) {
+      if (!agendaKeys.has(cel.key)) continue;
+      const label = cel.koepel ?? "Onbekend";
+      omzetKoepels.set(label, (omzetKoepels.get(label) ?? 0) + cel.omzet);
+    }
+    if (toeslagenMee) {
+      for (const cel of toeslagenMee.cellen) {
+        if (!agendaKeys.has(cel.key)) continue;
+        const label = cel.koepel ?? "Onbekend";
+        omzetKoepels.set(label, (omzetKoepels.get(label) ?? 0) + cel.omzet);
+      }
+    }
+    const koepelsGesorteerd = [...omzetKoepels.entries()].sort((a, b) => b[1] - a[1]);
+    const omzetPerVerzekeraar = koepelsGesorteerd.slice(0, 5).map(([label, omzet]) => ({
+      label,
+      aantal: Math.round(omzet),
+    }));
+    const koepelRest = koepelsGesorteerd.slice(5).reduce((sum, [, omzet]) => sum + omzet, 0);
+    if (koepelRest > 0) omzetPerVerzekeraar.push({ label: "Overig", aantal: Math.round(koepelRest) });
+
+    const omzetLocaties = new Map<string, number>();
+    for (const cel of factuurCellen) {
+      if (!agendaKeys.has(cel.key)) continue;
+      const label = cel.locatie ?? "Onbekend";
+      omzetLocaties.set(label, (omzetLocaties.get(label) ?? 0) + cel.omzet);
+    }
+    const omzetPerLocatie = [...KNOWN_LOCATIES, "Onbekend"]
+      .filter((loc) => (omzetLocaties.get(loc) ?? 0) > 0)
+      .map((loc) => ({ label: loc, aantal: Math.round(omzetLocaties.get(loc) ?? 0) }));
+
+    const maandAfstand = (key: string): number =>
+      Number(lastAgendaMonth.key.slice(0, 4)) * 12 +
+      Number(lastAgendaMonth.key.slice(5, 7)) -
+      (Number(key.slice(0, 4)) * 12 + Number(key.slice(5, 7)));
+    const ouderdomBuckets = [
+      { label: "Binnen 30 dagen", test: (afstand: number) => afstand <= 1 },
+      { label: "30–60 dagen", test: (afstand: number) => afstand === 2 },
+      { label: "60–90 dagen", test: (afstand: number) => afstand === 3 },
+      { label: "Ouder dan 90 dagen", test: (afstand: number) => afstand > 3 },
+    ];
+    const onderhandenOuderdom = ouderdomBuckets.map(({ label, test }) => {
+      const bedrag = cellen.filter((cel) => test(maandAfstand(cel.key))).reduce((sum, cel) => sum + cel.onderhanden, 0);
+      return {
+        label,
+        bedrag: Math.round(bedrag),
+        pct: onderhandenTotaal === 0 ? 0 : Math.round((bedrag / onderhandenTotaal) * 100),
+      };
+    });
+
+    // ---- Per behandelaar (laatste 12 agenda-maanden) ----
+    const behandelaarStats: ProductionAgendaSnapshot["behandelaarStats"] = {};
+    const statsAccu = new Map<string, Rollup>();
+    for (const cel of cellen) {
+      if (cel.behandelaar === null || !agendaKeys.has(cel.key)) continue;
+      const acc = statsAccu.get(cel.behandelaar) ?? leegRollup();
+      telOp(acc, cel);
+      statsAccu.set(cel.behandelaar, acc);
+    }
+    for (const [naam, acc] of statsAccu) {
+      behandelaarStats[naam] = {
+        sessies: acc.sessies,
+        noShowPct: acc.sessies >= 10 ? round1((acc.noShows / acc.sessies) * 100) : null,
+        directeUren: uren(acc.directeMin),
+        totaleUren: uren(acc.totaleMin),
+        omzet: Math.round(acc.omzetGerealiseerd),
+      };
+    }
+
+    // ---- Contactrecentheid (echte agenda-data i.p.v. registratie-proxy) ----
+    const factPerClient = new Map(agendaFacts.clienten.map((fact) => [fact.id, fact]));
+    const contactDagen = (record: ClientRecord): number => {
+      const anker = factPerClient.get(record.id)?.laatste ?? record.episodeStart;
+      if (!anker || anker > agendaRefIso) return 0;
+      return daysBetween(anker, agendaRefIso);
+    };
+    const zonderContact = (dagen: number) =>
+      actieveClienten.filter((record) => !isWachtend(record) && contactDagen(record) > dagen).length;
+    const z30 = zonderContact(30);
+    const z60 = zonderContact(60);
+
+    patientenMetrics[">30 dgn geen contact"] = {
+      label: ">30 dgn geen contact",
+      value: z30,
+      prev: null,
+      f: "int",
+      betterLow: true,
+    };
+    patientenMetrics[">60 dgn geen contact"] = {
+      label: ">60 dgn geen contact",
+      value: z60,
+      prev: null,
+      f: "int",
+      betterLow: true,
+    };
+
+    // ---- Vooruitblik (alleen wanneer de export een toekomstvenster heeft) ----
+    // Zonder toekomstvenster is "geen vervolgafspraak" niet te onderscheiden
+    // van "niet geëxporteerd" — de widgets blijven dan demo-gemarkeerd.
+    let vooruitblik: ProductionAgendaSnapshot["vooruitblik"] = null;
+    const vervolgPerClient: Record<string, string> = {};
+    if (agendaFacts.toekomst && agendaFacts.peildatum) {
+      for (const fact of agendaFacts.clienten) {
+        if (fact.volgende) vervolgPerClient[fact.id] = fact.volgende;
+      }
+      const toekomstCellen = agendaFacts.toekomst.perMaand.filter((cel) => inFilter(cel.locatie));
+      const perToekomstMaand = new Map<string, { sessies: number; totaleMin: number }>();
+      for (const cel of toekomstCellen) {
+        const acc = perToekomstMaand.get(cel.key) ?? { sessies: 0, totaleMin: 0 };
+        acc.sessies += cel.sessies;
+        acc.totaleMin += cel.totaleMin;
+        perToekomstMaand.set(cel.key, acc);
+      }
+      const maanden = [...perToekomstMaand.entries()]
+        .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+        .slice(0, 6)
+        .map(([key, acc]) => ({
+          key,
+          label: MAAND_LABELS[Number(key.slice(5, 7)) - 1],
+          sessies: acc.sessies,
+          uren: uren(acc.totaleMin),
+        }));
+      const zonderVervolgClienten = actieveClienten.filter(
+        (record) => !isWachtend(record) && vervolgPerClient[record.id] === undefined,
+      );
+      const zonderVervolgEnContact = zonderVervolgClienten.filter((record) => contactDagen(record) > 30).length;
+      // Bewust GEEN "Geen evaluatie gepland": toekomstige MDO-sessies staan in
+      // de export vrijwel allemaal zonder cliënt-ID (terugkerende MDO-blokken
+      // die nog niet aan een cliënt zijn gekoppeld) — per cliënt is dit dus
+      // niet eerlijk te meten; de widget blijft demo-gemarkeerd.
+      vooruitblik = {
+        peildatum: agendaFacts.peildatum,
+        sessies: toekomstCellen.reduce((sum, cel) => sum + cel.sessies, 0),
+        clienten: agendaFacts.toekomst.clienten,
+        tot: agendaFacts.toekomst.tot,
+        maanden,
+        zonderVervolg: zonderVervolgClienten.length,
+        zonderVervolgEnContact,
+      };
+
+      cockpitKpis.zondervervolg = { value: vooruitblik.zonderVervolg, prev: null, spark: [] };
+      patientenMetrics["Zonder vervolgafspraak"] = {
+        label: "Zonder vervolgafspraak",
+        value: vooruitblik.zonderVervolg,
+        prev: null,
+        f: "int",
+        betterLow: true,
+      };
+      if (vooruitblik.zonderVervolg > 0) {
+        signaleringen.push({
+          sev: "hoog",
+          titel: "Zonder vervolgafspraak",
+          unit: "cliënten",
+          detail: `${nl.format(vooruitblik.zonderVervolg)} actieve cliënten hebben geen geplande vervolgafspraak${
+            zonderVervolgEnContact > 0
+              ? `, waarvan ${nl.format(zonderVervolgEnContact)} ook al >30 dagen geen gehouden afspraak`
+              : ""
+          }.`,
+          n: vooruitblik.zonderVervolg,
+          page: "patienten",
+        });
+      }
+    }
+
+    // ---- Dossiers & productie: echte 12-maands productie uit de agenda ----
+    dossiersProductieMetrics["Productie-uren"] = {
+      label: "Productie-uren",
+      value: uren(twaalfMndRollup.totaleMin),
+      prev: null,
+      f: "int",
+      windowLabel: "laatste 12 mnd",
+    };
+    dossiersProductieMetrics.Productiviteit = {
+      label: "Productiviteit",
+      value:
+        twaalfMndRollup.totaleMin === 0
+          ? 0
+          : Math.round((twaalfMndRollup.directeMin / twaalfMndRollup.totaleMin) * 100),
+      prev: null,
+      f: "pct0",
+      noData: twaalfMndRollup.totaleMin === 0,
+    };
+
+    // ---- Cockpit-KPI's uit de agenda ----
+    cockpitKpis.noshow = {
+      value: noshowPctVan(laatste) ?? 0,
+      prev: noshowPctVan(vorige),
+      spark: agendaMonths.map((month) => noshowPctVan(van(month.key)) ?? 0),
+      windowLabel: maandLabel,
+    };
+    cockpitKpis.omzetverz = {
+      value: Math.round(omzetLaatste),
+      prev: Math.round(omzetVorige),
+      spark: agendaMonths.map((month) => Math.round(omzetPerMaand.get(month.key) ?? 0)),
+      windowLabel: maandLabel,
+    };
+
+    // ---- Maandreeks verrijken (no-show-trend en omzetontwikkeling) ----
+    const bronVanMaand = agendaFacts.bronVan.slice(0, 7);
+    const bronTotMaand = agendaFacts.bronTot.slice(0, 7);
+    for (const point of monthly) {
+      const rollup = perMaand.get(point.key);
+      point.noshowPct = rollup && rollup.sessies > 0 ? round1((rollup.noShows / rollup.sessies) * 100) : null;
+      const binnenBereik = point.key >= bronVanMaand && point.key <= bronTotMaand;
+      point.omzet = binnenBereik ? Math.round(omzetPerMaand.get(point.key) ?? 0) : null;
+    }
+
+    // ---- Signaleringen uit de agenda ----
+    if (z60 > 0) {
+      signaleringen.push({
+        sev: "hoog",
+        titel: "Geen contact >60 dagen",
+        unit: "cliënten",
+        detail: `${nl.format(z60)} actieve cliënten hebben al meer dan 60 dagen geen gehouden afspraak (agenda-export).`,
+        n: z60,
+        page: "patienten",
+      });
+    }
+    const kwartaalKeys = new Set(agendaMonths.slice(-3).map((month) => month.key));
+    const kwartaalAccu = new Map<string, { sessies: number; noShows: number }>();
+    for (const cel of cellen) {
+      if (cel.behandelaar === null || !kwartaalKeys.has(cel.key)) continue;
+      const acc = kwartaalAccu.get(cel.behandelaar) ?? { sessies: 0, noShows: 0 };
+      acc.sessies += cel.sessies;
+      acc.noShows += cel.noShows;
+      kwartaalAccu.set(cel.behandelaar, acc);
+    }
+    const noshowBoven5 = [...kwartaalAccu.entries()]
+      .map(([naam, acc]) => ({ naam, sessies: acc.sessies, pct: (acc.noShows / Math.max(1, acc.sessies)) * 100 }))
+      .filter((row) => row.sessies >= 20 && row.pct > 5)
+      .sort((a, b) => b.pct - a.pct);
+    if (noshowBoven5.length > 0) {
+      signaleringen.push({
+        sev: "middel",
+        titel: "No-show >5% per behandelaar",
+        unit: "behandelaars",
+        detail: `${noshowBoven5
+          .slice(0, 3)
+          .map((row) => `${row.naam} (${String(round1(row.pct)).replace(".", ",")}%)`)
+          .join(", ")} in de laatste drie volle maanden.`,
+        n: noshowBoven5.length,
+        page: "behandelaren",
+      });
+    }
+    const zonderPlan = actieveClienten.filter(
+      (record) =>
+        !isWachtend(record) &&
+        record.episodeStart !== null &&
+        record.episodeStart <= agendaRefIso &&
+        daysBetween(record.episodeStart, agendaRefIso) > 30 &&
+        factPerClient.get(record.id)?.behandelplan !== true,
+    ).length;
+    if (zonderPlan > 0) {
+      signaleringen.push({
+        sev: "middel",
+        titel: "Dossiers zonder behandelplan",
+        unit: "dossiers",
+        detail: `${nl.format(zonderPlan)} actieve dossiers (>30 dgn open) zonder behandelplan-sessie in de agenda-export.`,
+        n: zonderPlan,
+        page: "dossiers",
+      });
+    }
+    if (ouder90Sessies > 0) {
+      signaleringen.push({
+        sev: "middel",
+        titel: "Sessies >90 dgn niet gefactureerd",
+        unit: "sessies",
+        detail: `${nl.format(ouder90Sessies)} sessies (€ ${nl.format(Math.round(ouder90))}) wachten al langer dan 90 dagen op facturatie.`,
+        n: ouder90Sessies,
+        page: "financieel",
+      });
+    }
+
+    agendaSnapshot = {
+      meta: {
+        fileName: agendaFacts.fileName,
+        importedAt: agendaFacts.importedAt,
+        bronVan: agendaFacts.bronVan,
+        bronTot: agendaFacts.bronTot,
+        sessieRows: agendaFacts.sessieRows,
+        blokRows: agendaFacts.blokRows,
+        maandLabel,
+        maandKey: lastAgendaMonth.key,
+      },
+      planningMetrics,
+      noshowWeekdagen,
+      urenverdeling,
+      bezettingPerLocatie,
+      bezettingTotaal,
+      afzegRedenen: agendaFacts.afzegRedenen,
+      sessieTypen: agendaFacts.sessieTypen,
+      modality,
+      financieel: {
+        metrics: financieelMetrics,
+        omzetPerVerzekeraar,
+        omzetPerLocatie,
+        onderhandenTotaal: Math.round(onderhandenTotaal),
+        onderhandenOuderdom,
+      },
+      behandelaarStats,
+      contact: { z30, z60 },
+      contactPerClient: Object.fromEntries(
+        agendaFacts.clienten
+          .filter((fact): fact is typeof fact & { laatste: string } => fact.laatste !== null)
+          .map((fact) => [fact.id, fact.laatste]),
+      ),
+      vervolgPerClient,
+      vooruitblik,
+      dossierchecks: {
+        verslagOntbreekt: totaalRollup.sessies - totaalRollup.verslagen,
+        nietOndertekend: totaalRollup.sessies - totaalRollup.ondertekend,
+      },
+    };
+  }
+
+  // ---- Verwijzernetwerk (huisarts/verwijzer-export) ----
+  const verwijzersFacts = extra?.verwijzers ?? null;
+  let verwijzerNetwerk: ProductionVerwijzerNetwerk | null = null;
+  if (verwijzersFacts && verwijzersFacts.contacten.length > 0) {
+    const plaatsGewogen = new Map<string, number>();
+    for (const contact of verwijzersFacts.contacten) {
+      const label = contact.plaats ?? "Onbekend";
+      plaatsGewogen.set(label, (plaatsGewogen.get(label) ?? 0) + contact.clienten);
+    }
+    verwijzerNetwerk = {
+      fileName: verwijzersFacts.fileName,
+      importedAt: verwijzersFacts.importedAt,
+      contacten: verwijzersFacts.contacten,
+      clienten: verwijzersFacts.clienten,
+      zorgmailPct: Math.round(
+        (verwijzersFacts.contacten.filter((contact) => contact.zorgmail).length / verwijzersFacts.contacten.length) *
+          100,
+      ),
+      rollen: topGroepen(
+        groupCount(verwijzersFacts.contacten, (contact) => contact.rol),
+        5,
+        "Overig",
+      ),
+      plaatsen: topGroepen(plaatsGewogen, 7, "Overige plaatsen"),
+    };
+  }
+
+  // ---- Toeslagen (declared surcharges) ----
+  const toeslagenFacts = extra?.toeslagen ?? null;
+  let toeslagen: ProductionToeslagen | null = null;
+  if (toeslagenFacts) {
+    const perKoepelMap = new Map<string, number>();
+    for (const cel of toeslagenFacts.cellen) {
+      const label = cel.koepel ?? "Onbekend";
+      perKoepelMap.set(label, (perKoepelMap.get(label) ?? 0) + cel.omzet);
+    }
+    toeslagen = {
+      meta: {
+        fileName: toeslagenFacts.fileName,
+        importedAt: toeslagenFacts.importedAt,
+        bronVan: toeslagenFacts.bronVan,
+        bronTot: toeslagenFacts.bronTot,
+      },
+      totaal: Math.round(toeslagenFacts.cellen.reduce((sum, cel) => sum + cel.omzet, 0)),
+      aantal: toeslagenFacts.cellen.reduce((sum, cel) => sum + cel.aantal, 0),
+      clienten: toeslagenFacts.clienten,
+      tolkClienten: toeslagenFacts.tolkClienten,
+      perCode: toeslagenFacts.perCode,
+      perKoepel: topGroepen(perKoepelMap, 5, "Overig").map((groep) => ({
+        label: groep.label,
+        aantal: Math.round(groep.aantal),
+      })),
+      inOmzetVerwerkt: agendaSnapshot !== null && filters.locatie === "Alle locaties",
+    };
+  }
+
   return {
     meta: {
       fileName: state.fileName,
@@ -1074,7 +1740,25 @@ export function computeProductionSnapshot(
         { check: "COV-check ontbreekt of polis verlopen", n: covRisico, sev: "hoog" },
         { check: "Verwijzer zonder AGB-code", n: agbOntbreekt, sev: "middel" },
         { check: "Afgesloten zonder primaire diagnose", n: afgeslotenZonderDiagnose, sev: "middel" },
+        // Agenda-controles: over de sessierijen binnen het locatiefilter.
+        ...(agendaSnapshot
+          ? ([
+              {
+                check: "Sessie zonder sessieverslag (agenda)",
+                n: agendaSnapshot.dossierchecks.verslagOntbreekt,
+                sev: "middel",
+              },
+              {
+                check: "Sessie niet ondertekend (agenda)",
+                n: agendaSnapshot.dossierchecks.nietOndertekend,
+                sev: "hoog",
+              },
+            ] as const)
+          : []),
       ],
     },
+    agenda: agendaSnapshot,
+    verwijzerNetwerk,
+    toeslagen,
   };
 }

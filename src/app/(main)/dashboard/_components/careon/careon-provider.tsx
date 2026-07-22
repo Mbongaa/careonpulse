@@ -3,23 +3,42 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import { CRITICAL_ALERT_COUNT } from "@/data/careon/careon-alerts";
-import { CAREON_LOCATION_SCALE } from "@/data/careon/careon-filters";
+import { CAREON_LOCATION_SCALE, CAREON_LOCATIONS } from "@/data/careon/careon-filters";
 import { COCKPIT_KPIS } from "@/data/careon/careon-kpis";
 import type { CareonFilters, CareonKpi, CareonKpiOverrides, CareonSource } from "@/data/careon/careon-types";
-import { computeProductionSnapshot } from "@/lib/careon-production/compute-snapshot";
+import { computeProductionSnapshot, KNOWN_LOCATIES } from "@/lib/careon-production/compute-snapshot";
 import {
+  fetchRemoteAgendaFacts,
   fetchRemoteProductionState,
+  fetchRemoteToeslagenFacts,
+  fetchRemoteVerwijzersFacts,
   type PushResult,
+  pushRemoteAgendaFacts,
   pushRemoteProductionState,
+  pushRemoteToeslagenFacts,
+  pushRemoteVerwijzersFacts,
 } from "@/lib/careon-production/remote.client";
 import {
+  clearAuxFacts,
   clearProductionState,
   hasProductionOptOut,
+  loadAgendaFacts,
   loadProductionState,
+  loadToeslagenFacts,
+  loadVerwijzersFacts,
+  saveAgendaFacts,
   saveProductionState,
+  saveToeslagenFacts,
+  saveVerwijzersFacts,
   setProductionOptOut,
 } from "@/lib/careon-production/storage.client";
-import type { ProductionSnapshot, ProductionState } from "@/lib/careon-production/types";
+import type {
+  AgendaFacts,
+  ProductionSnapshot,
+  ProductionState,
+  ToeslagenFacts,
+  VerwijzersFacts,
+} from "@/lib/careon-production/types";
 
 export interface ActivationResult {
   /** false: localStorage-opslag mislukt (quota) — modus overleeft geen herlaad. */
@@ -43,6 +62,12 @@ interface CareonContextValue {
   production: ProductionSnapshot | null;
   isProduction: boolean;
   activateProduction: (state: ProductionState) => Promise<ActivationResult>;
+  /** Aanvullende exports (vereisen actieve productie-modus). */
+  activateAgenda: (facts: AgendaFacts) => Promise<ActivationResult>;
+  activateVerwijzers: (facts: VerwijzersFacts) => Promise<ActivationResult>;
+  activateToeslagen: (facts: ToeslagenFacts) => Promise<ActivationResult>;
+  /** Beschikbare locatiefilter-opties (productie: alleen vestigingen uit de data). */
+  locatieOpties: string[];
 }
 
 const DEMO_SOURCE: CareonSource = { mode: "demo", label: "Demo-data", detail: "Voorbeeldset Careon" };
@@ -74,6 +99,9 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
   const [source, setSourceState] = useState<CareonSource>(DEMO_SOURCE);
   const [overrides, setOverrides] = useState<CareonKpiOverrides>({});
   const [productionState, setProductionState] = useState<ProductionState | null>(null);
+  const [agendaFacts, setAgendaFacts] = useState<AgendaFacts | null>(null);
+  const [verwijzersFacts, setVerwijzersFacts] = useState<VerwijzersFacts | null>(null);
+  const [toeslagenFacts, setToeslagenFacts] = useState<ToeslagenFacts | null>(null);
 
   // Zodra de gebruiker zelf een bron kiest (import, csv, api, herstel demo)
   // mag een nog lopende remote-fetch die keuze niet meer overschrijven.
@@ -82,24 +110,50 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
   // Hydratatie na mount (nooit tijdens SSR): een eerder geactiveerde
   // productie-import overleeft zo een herlaad van de app. Lokale opslag wint
   // (directe start); daarna wordt best-effort de centrale Supabase-run
-  // opgehaald zodat collega's dezelfde import zien. Een expliciete demo-keuze
-  // ("Herstel demo-data") blokkeert die auto-activatie tot een nieuwe import.
+  // opgehaald. De centrale run wint van de lokale kopie wanneer die NIEUWER
+  // is — zo landt een server-side dataverversing ook in browsers die nog een
+  // oudere import in localStorage hebben. Een expliciete demo-keuze
+  // ("Herstel demo-data") blokkeert de auto-activatie tot een nieuwe import.
   useEffect(() => {
     const stored = loadProductionState();
+    const storedAgenda = loadAgendaFacts();
+    const storedVerwijzers = loadVerwijzersFacts();
+    const storedToeslagen = loadToeslagenFacts();
     if (stored) {
       setProductionState(stored);
       setSourceState(productionSource(stored));
-      return;
-    }
-    if (hasProductionOptOut()) {
+      if (storedAgenda) setAgendaFacts(storedAgenda);
+      if (storedVerwijzers) setVerwijzersFacts(storedVerwijzers);
+      if (storedToeslagen) setToeslagenFacts(storedToeslagen);
+    } else if (hasProductionOptOut()) {
       return;
     }
     let cancelled = false;
+    const isNieuwer = (remote: { importedAt: string }, lokaal: { importedAt: string } | null) =>
+      lokaal === null || Date.parse(remote.importedAt) > Date.parse(lokaal.importedAt);
     void fetchRemoteProductionState().then((remote) => {
-      if (remote && !cancelled && !userChoseSourceRef.current) {
+      if (remote && !cancelled && !userChoseSourceRef.current && isNieuwer(remote, stored)) {
         setProductionState(remote);
         saveProductionState(remote);
         setSourceState(productionSource(remote));
+      }
+    });
+    void fetchRemoteAgendaFacts().then((remote) => {
+      if (remote && !cancelled && !userChoseSourceRef.current && isNieuwer(remote, storedAgenda)) {
+        setAgendaFacts(remote);
+        saveAgendaFacts(remote);
+      }
+    });
+    void fetchRemoteVerwijzersFacts().then((remote) => {
+      if (remote && !cancelled && !userChoseSourceRef.current && isNieuwer(remote, storedVerwijzers)) {
+        setVerwijzersFacts(remote);
+        saveVerwijzersFacts(remote);
+      }
+    });
+    void fetchRemoteToeslagenFacts().then((remote) => {
+      if (remote && !cancelled && !userChoseSourceRef.current && isNieuwer(remote, storedToeslagen)) {
+        setToeslagenFacts(remote);
+        saveToeslagenFacts(remote);
       }
     });
     return () => {
@@ -114,24 +168,44 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
   // Publieke setSource (gebruikt door de csv- en api-kaarten): een keuze voor
   // een niet-productiebron maakt de bewaarde productie-import ongedaan, zodat
   // de bronnen elkaar nooit stilzwijgend overlappen.
-  const setSource = useCallback((next: CareonSource) => {
-    userChoseSourceRef.current = true;
-    if (next.mode !== "productie") {
-      setProductionState(null);
-      clearProductionState();
-      setProductionOptOut(true);
-    }
-    setSourceState(next);
+  // Terug naar demo: ook het locatiefilter terug naar de geauditeerde lijst —
+  // een productie-vestiging (bijv. Veghel) bestaat daar niet.
+  const resetDemoFilters = useCallback(() => {
+    setFilters((prev) =>
+      (CAREON_LOCATIONS as readonly string[]).includes(prev.locatie) ? prev : { ...prev, locatie: "Alle locaties" },
+    );
   }, []);
+
+  const clearProductionSlices = useCallback(() => {
+    setProductionState(null);
+    setAgendaFacts(null);
+    setVerwijzersFacts(null);
+    setToeslagenFacts(null);
+    clearProductionState();
+    clearAuxFacts();
+  }, []);
+
+  const setSource = useCallback(
+    (next: CareonSource) => {
+      userChoseSourceRef.current = true;
+      if (next.mode !== "productie") {
+        clearProductionSlices();
+        setProductionOptOut(true);
+        resetDemoFilters();
+      }
+      setSourceState(next);
+    },
+    [clearProductionSlices, resetDemoFilters],
+  );
 
   const restoreDemo = useCallback(() => {
     userChoseSourceRef.current = true;
     setOverrides({});
-    setProductionState(null);
-    clearProductionState();
+    clearProductionSlices();
     setProductionOptOut(true);
+    resetDemoFilters();
     setSourceState(DEMO_SOURCE);
-  }, []);
+  }, [clearProductionSlices, resetDemoFilters]);
 
   // De activatie zelf is synchroon (state + bron flippen direct); opslag- en
   // sync-uitkomsten gaan terug naar de aanroeper zodat een quota- of
@@ -147,6 +221,27 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
     return { persisted, sync };
   }, []);
 
+  const activateAgenda = useCallback(async (facts: AgendaFacts): Promise<ActivationResult> => {
+    setAgendaFacts(facts);
+    const persisted = saveAgendaFacts(facts);
+    const sync = await pushRemoteAgendaFacts(facts);
+    return { persisted, sync };
+  }, []);
+
+  const activateVerwijzers = useCallback(async (facts: VerwijzersFacts): Promise<ActivationResult> => {
+    setVerwijzersFacts(facts);
+    const persisted = saveVerwijzersFacts(facts);
+    const sync = await pushRemoteVerwijzersFacts(facts);
+    return { persisted, sync };
+  }, []);
+
+  const activateToeslagen = useCallback(async (facts: ToeslagenFacts): Promise<ActivationResult> => {
+    setToeslagenFacts(facts);
+    const persisted = saveToeslagenFacts(facts);
+    const sync = await pushRemoteToeslagenFacts(facts);
+    return { persisted, sync };
+  }, []);
+
   const isProduction = source.mode === "productie" && productionState !== null;
 
   // Productie filtert echt op vestiging; de demo-schaalfactor blijft een
@@ -158,10 +253,27 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
   const production = useMemo(
     () =>
       isProduction && productionState
-        ? computeProductionSnapshot(productionState, { locatie: filters.locatie }, new Date(productionState.importedAt))
+        ? computeProductionSnapshot(
+            productionState,
+            { locatie: filters.locatie },
+            new Date(productionState.importedAt),
+            { agenda: agendaFacts, verwijzers: verwijzersFacts, toeslagen: toeslagenFacts },
+          )
         : null,
-    [isProduction, productionState, filters.locatie],
+    [isProduction, productionState, filters.locatie, agendaFacts, verwijzersFacts, toeslagenFacts],
   );
+
+  // Locatiefilter-opties: demo toont de geauditeerde lijst; productie alleen
+  // vestigingen die echt in de data voorkomen (incl. Veghel sinds juli 2026).
+  const locatieOpties = useMemo<string[]>(() => {
+    if (!isProduction || !productionState) return [...CAREON_LOCATIONS];
+    const aanwezig = new Set(
+      productionState.records
+        .map((record) => record.vestiging)
+        .filter((vestiging): vestiging is string => vestiging !== null),
+    );
+    return ["Alle locaties", ...KNOWN_LOCATIES.filter((loc) => aanwezig.has(loc))];
+  }, [isProduction, productionState]);
 
   const kpis = useMemo(
     () =>
@@ -208,6 +320,10 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
       production,
       isProduction,
       activateProduction,
+      activateAgenda,
+      activateVerwijzers,
+      activateToeslagen,
+      locatieOpties,
     }),
     [
       exposedFilters,
@@ -222,6 +338,10 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
       production,
       isProduction,
       activateProduction,
+      activateAgenda,
+      activateVerwijzers,
+      activateToeslagen,
+      locatieOpties,
     ],
   );
 

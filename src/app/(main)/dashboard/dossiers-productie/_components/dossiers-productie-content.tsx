@@ -25,6 +25,7 @@ import {
   VerzekeraarsPanel,
 } from "./population-breakdown";
 import { RegiebehandelaarPanel } from "./regiebehandelaar-panel";
+import { VerwijsnetwerkPanel } from "./verwijsnetwerk-panel";
 import { WachtlijstPanel } from "./wachtlijst-panel";
 import { BehandelduurPanel, ZorgvraagtyperingPanel } from "./zorg-analyse-panels";
 
@@ -97,6 +98,8 @@ export function DossiersProductieContent() {
         <BehandelduurPanel className="lg:col-span-6" />
         <RegiebehandelaarPanel className="lg:col-span-6" />
         <WachtlijstPanel className="lg:col-span-6" />
+        {/* Productie-exclusief: rendert alleen na de huisarts/verwijzer-import. */}
+        <VerwijsnetwerkPanel className="lg:col-span-12" />
       </div>
 
       <p className="text-center text-muted-foreground text-xs">

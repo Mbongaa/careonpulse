@@ -24,13 +24,24 @@ import { PLANNING_METRICS } from "../data/careon/careon-planning";
 import { buildProductionAssistantFacts } from "../lib/careon-production/assistant-facts";
 import { computeProductionSnapshot } from "../lib/careon-production/compute-snapshot";
 import {
+  hasProductionDetailRows,
   PRODUCTION_DETAIL_ROWS,
   productionDetailMetric,
   productionDetailTrend,
 } from "../lib/careon-production/detail-rows";
+import { parseAgendaExport } from "../lib/careon-production/parse-agenda";
 import { diagnoseGroepVanCode, parseClientExport, parseDutchDate } from "../lib/careon-production/parse-export";
-import { CAREON_PROVENANCE, pageLiveCounts, widgetSource } from "../lib/careon-production/provenance";
-import { isProductionState } from "../lib/careon-production/types";
+import { parseToeslagenExport } from "../lib/careon-production/parse-toeslagen";
+import { parseVerwijzersExport } from "../lib/careon-production/parse-verwijzers";
+import {
+  AGENDA_PROVENANCE,
+  CAREON_PROVENANCE,
+  pageLiveCounts,
+  TOESLAGEN_PROVENANCE,
+  VERWIJZERS_PROVENANCE,
+  widgetSource,
+} from "../lib/careon-production/provenance";
+import { isAgendaFacts, isProductionState, isToeslagenFacts, isVerwijzersFacts } from "../lib/careon-production/types";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -256,6 +267,7 @@ check(
   snap.treekLocaties.map((row) => [row.loc, row.intake]),
   [
     ["Tilburg", 3.3],
+    ["Veghel", null],
     ["Breda", 2],
     ["Roermond", 4],
   ],
@@ -263,12 +275,12 @@ check(
 check(
   "treek behandeling (alleen Roermond heeft wachtenden)",
   snap.treekLocaties.map((row) => row.behandeling),
-  [null, null, 19.3],
+  [null, null, null, 19.3],
 );
 check(
-  "treek venster: Tilburg kwartaal, Breda/Roermond 12-mnds terugval",
+  "treek venster: Tilburg kwartaal, rest 12-mnds terugval (incl. Veghel)",
   snap.treekLocaties.map((row) => row.intakeVenster),
-  ["kwartaal", "12mnd", "12mnd"],
+  ["kwartaal", "12mnd", "12mnd", "12mnd"],
 );
 
 check(
@@ -333,6 +345,7 @@ check(
 // locatiebalken weer optellen tot "Totaal wachtend" (3).
 check("wachtlijst per locatie", snap.dossiersProductie.wachtlijst.perLocatie, [
   { label: "Tilburg", aantal: 1 },
+  { label: "Veghel", aantal: 0 },
   { label: "Breda", aantal: 0 },
   { label: "Roermond", aantal: 1 },
   { label: "Onbekend", aantal: 1 },
@@ -647,8 +660,10 @@ check(
   [],
 );
 check(
-  "drill: elke afleiding heeft een live kopmetric",
-  Object.keys(PRODUCTION_DETAIL_ROWS).filter((id) => productionDetailMetric(snap, id) === null),
+  "drill: elke afleiding heeft een live kopmetric (waar de gate open staat)",
+  Object.keys(PRODUCTION_DETAIL_ROWS).filter(
+    (id) => hasProductionDetailRows(id, snap) && productionDetailMetric(snap, id) === null,
+  ),
   [],
 );
 const drillCounts: [string, number][] = [
@@ -696,6 +711,494 @@ check(
   snap.monthly.map((point) => point.caseload),
 );
 check("drill trend afwezig zonder historie (wachtlijst)", productionDetailTrend(snap, "wachtlijst-totaal"), null);
+
+// ==== Agenda-export: parser, aggregatie en snapshot-integratie ====
+
+const AGENDA_HEADER =
+  "Soort;Behandelaar;Sessie_Naam;Afspraak_lokatie;Datum;Directe_tijd_minute(n);Indirecte_tijd_minute(n);Reistijd_minute(n);Totale_tijd_minute(n);Prijs;Client_ID;Client_naam;No_Show;Tijdig_afgezegd;Tijdig_afgezegd_Redenen;Verzekeringskoepel;Factuurnummer;Factuurdatum;Ondertekend;Sessieverslagen;Memo;BSN";
+const agendaCsv = [
+  AGENDA_HEADER,
+  "Sessie;Anna Jansen;Behandeling - ONLINE;TGC Tilburg;10-06-2026;60,0;0,0;0,0;60,0;100,00;1;GEHEIMNAAM;n;n;;VGZ;F001;12-06-2026;Nee;Ja;supergeheime memotekst;999999990",
+  "Sessie;Anna Jansen;Intake - OP LOCATIE;TGC Tilburg;05-06-2026;60,0;0,0;0,0;60,0;200,00;2;GEHEIMNAAM2;y;n;;CZ;;;Nee;Nee;;999999991",
+  "Sessie;Bea Smit;Behandelplan - ONLINE;TGC Breda;20-05-2026;30,0;0,0;0,0;30,0;150,00;1;GEHEIMNAAM;n;y;Ziek;VGZ;F002;25-05-2026;Nee;Ja;;999999990",
+  "Blok;Anna Jansen;Afwezig;;11-06-2026;0,0;0,0;0,0;120,0;;;;n;n;;;;;;;;",
+  "Sessie;Bea Smit;Behandeling - OP LOCATIE;TGC Roermond;15-01-2026;45,0;15,0;10,0;70,0;300,00;3;GEHEIMNAAM3;n;n;;DSW;;;Nee;Ja;;999999992",
+  "Sessie;Bea Smit;Behandeling - ONLINE;TGC Breda;31-13-2026;30,0;0,0;0,0;30,0;;4;X;n;n;;;;;Nee;Nee;;1",
+  // Blok begin juli: schuift het bronbereik voorbij juni zodat juni de laatste
+  // vólledige agenda-maand is (net als de echte export, die t/m 21-07 loopt).
+  "Blok;Bea Smit;Afwezig;;05-07-2026;0,0;0,0;0,0;60,0;;;;n;n;;;;;;;;",
+  // Toekomstvenster (peildatum = 2026-07-14): geplande sessie voor cliënt 1
+  // (geprijsd maar ongefactureerd — mag onderhanden werk NIET vervuilen),
+  // een cliëntloos MDO-blok en een toekomstige agenda-blokkade.
+  "Sessie;Anna Jansen;Behandeling - ONLINE;TGC Tilburg;20-07-2026;60,0;0,0;0,0;60,0;120,00;1;GEHEIMNAAM;n;n;;VGZ;;;Nee;Nee;;999999990",
+  "Sessie;Bea Smit;MDO met patient;TGC Breda;05-08-2026;60,0;0,0;0,0;60,0;;;;n;n;;;;;Nee;Nee;;",
+  "Blok;Anna Jansen;Afwezig;;21-07-2026;0,0;0,0;0,0;60,0;;;;n;n;;;;;;;;",
+].join("\n");
+const agendaParse = parseAgendaExport("agenda-fixture.csv", agendaCsv, "2026-07-14T09:00:00.000Z");
+check("agenda: ok", agendaParse.ok, true);
+const agendaFacts = agendaParse.facts;
+if (!agendaFacts) {
+  throw new Error("agenda-fixture parse faalde");
+}
+check(
+  "agenda: sessies/blok/overgeslagen",
+  [agendaFacts.sessieRows, agendaFacts.blokRows, agendaFacts.skippedRows],
+  [4, 2, 1],
+);
+check("agenda: bronbereik", [agendaFacts.bronVan, agendaFacts.bronTot], ["2026-01-15", "2026-08-05"]);
+check("agenda: peildatum uit importmoment", agendaFacts.peildatum, "2026-07-14");
+check(
+  "agenda: toekomstvenster (2 geplande sessies, 1 cliënt)",
+  [agendaFacts.toekomst?.sessies, agendaFacts.toekomst?.clienten, agendaFacts.toekomst?.tot],
+  [2, 1, "2026-08-05"],
+);
+check(
+  "agenda: geplande sessie zet volgende-datum op cliënt 1",
+  agendaFacts.clienten.find((fact) => fact.id === "1")?.volgende,
+  "2026-07-20",
+);
+check(
+  "agenda: geprijsde toekomstsessie blijft buiten historische aggregaten",
+  Math.round(agendaFacts.cellen.reduce((sum, cel) => sum + cel.onderhanden, 0)),
+  500,
+);
+check(
+  "agenda: BSN-kolom triggert privacy-waarschuwing",
+  agendaParse.warnings.some((warning) => warning.message.includes("BSN")),
+  true,
+);
+check(
+  "agenda: onleesbare datum overgeslagen met waarschuwing",
+  agendaParse.warnings.some((warning) => warning.message.includes("afspraakdatum")),
+  true,
+);
+// Privacy-canaries: naam, memo en BSN mogen nooit in de aggregaten belanden.
+const agendaJson = JSON.stringify(agendaFacts);
+check("agenda: geen cliëntnamen in aggregaat", agendaJson.includes("GEHEIMNAAM"), false);
+check("agenda: geen memotekst in aggregaat", agendaJson.includes("supergeheime"), false);
+check("agenda: geen BSN in aggregaat", agendaJson.includes("999999990"), false);
+check("agenda: guard accepteert aggregaat", isAgendaFacts(agendaFacts), true);
+
+const juniCel = agendaFacts.cellen.find((cel) => cel.key === "2026-06" && cel.behandelaar === "Anna Jansen");
+check(
+  "agenda: juni-cel (sessies, noshow, online, opLocatie, verslag)",
+  [juniCel?.sessies, juniCel?.noShows, juniCel?.online, juniCel?.opLocatie, juniCel?.verslagen],
+  [2, 1, 1, 1, 1],
+);
+check("agenda: onderhanden in juni-cel (niet-gefactureerde no-show-intake)", juniCel?.onderhanden, 200);
+const factuurJuni = agendaFacts.facturatie.find((cel) => cel.key === "2026-06");
+check(
+  "agenda: factuur op factuurmaand",
+  [factuurJuni?.locatie, factuurJuni?.koepel, factuurJuni?.omzet],
+  ["Tilburg", "VGZ", 100],
+);
+const client1 = agendaFacts.clienten.find((fact) => fact.id === "1");
+const client2 = agendaFacts.clienten.find((fact) => fact.id === "2");
+check("agenda: contact = alleen gehouden sessies", [client1?.laatste, client1?.sessies], ["2026-06-10", 2]);
+check("agenda: afgezegde behandelplan-sessie telt niet als gevoerd", client1?.behandelplan, false);
+check("agenda: cliënt met alleen no-show heeft geen contactmoment", [client2?.laatste, client2?.noShows], [null, 1]);
+check(
+  "agenda: verkeerde kaart (cliëntendata) wordt doorverwezen",
+  parseAgendaExport("clienten.csv", `${EDGE_HEADER}\n1;Man;30;TGC Tilburg;15-01-2026;;;Nee;;`).error?.includes(
+    "Productie-modus",
+  ),
+  true,
+);
+
+// ---- Snapshot-integratie over de cliënten-fixture + agenda-fixture ----
+const snapAgenda = computeProductionSnapshot(state, { locatie: "Alle locaties" }, REFERENCE, {
+  agenda: agendaFacts,
+});
+const agendaSnap = snapAgenda.agenda;
+if (!agendaSnap) {
+  throw new Error("agenda-snapshot ontbreekt");
+}
+check(
+  "agenda-snap: venster = laatste volle agenda-maand",
+  [agendaSnap.meta.maandKey, agendaSnap.meta.maandLabel],
+  ["2026-06", "juni"],
+);
+check(
+  "agenda-snap: planning juni (afspraken, no-shows, geannuleerd)",
+  [
+    agendaSnap.planningMetrics["Afspraken deze maand"].value,
+    agendaSnap.planningMetrics["No-shows"].value,
+    agendaSnap.planningMetrics.Geannuleerd.value,
+  ],
+  [2, 1, 0],
+);
+check(
+  "agenda-snap: uren juni (behandel, afwezig, geregistreerd)",
+  [
+    agendaSnap.planningMetrics.Behandeluren.value,
+    agendaSnap.planningMetrics["Beschikbare uren"].value,
+    agendaSnap.planningMetrics["Productieve uren"].value,
+  ],
+  [2, 2, 2],
+);
+check(
+  "agenda-snap: agenda-vulling 50% (2u sessie vs 2u afwezig)",
+  agendaSnap.planningMetrics["Agenda-bezetting"].value,
+  50,
+);
+check(
+  "agenda-snap: cockpit no-show juni 50% (1/2), mei 0%",
+  [snapAgenda.cockpitKpis.noshow.value, snapAgenda.cockpitKpis.noshow.prev],
+  [50, 0],
+);
+check(
+  "agenda-snap: cockpit omzet juni/mei (factuurmaand)",
+  [snapAgenda.cockpitKpis.omzetverz.value, snapAgenda.cockpitKpis.omzetverz.prev],
+  [100, 150],
+);
+check(
+  "agenda-snap: maandreeks draagt no-show en omzet",
+  [snapAgenda.monthly[11].noshowPct, snapAgenda.monthly[11].omzet],
+  [50, 100],
+);
+check("agenda-snap: maand buiten agenda-bereik → omzet null", snapAgenda.monthly[0].omzet, null);
+check(
+  "agenda-snap: financieel (onderhanden 500, >90 dgn 300)",
+  [agendaSnap.financieel.metrics["Onderhanden werk"].value, agendaSnap.financieel.metrics["Declaraties >90 dgn"].value],
+  [500, 300],
+);
+check("agenda-snap: omzet per verzekeraar (12 mnd gefactureerd)", agendaSnap.financieel.omzetPerVerzekeraar, [
+  { label: "VGZ", aantal: 250 },
+]);
+check("agenda-snap: omzet per locatie", agendaSnap.financieel.omzetPerLocatie, [
+  { label: "Tilburg", aantal: 100 },
+  { label: "Breda", aantal: 150 },
+]);
+check(
+  "agenda-snap: ouderdom onderhanden (binnen 30 = 200, >90 = 300)",
+  agendaSnap.financieel.onderhandenOuderdom.map((bucket) => bucket.bedrag),
+  [200, 0, 0, 300],
+);
+// Contact: het toekomstvenster tilt bronTot voorbij de referentiedatum, dus
+// contact wordt op de referentiedatum zelf (14-07) gemeten — alle zes de
+// actieve niet-wachtende fixture-cliënten zitten dan boven de 30 dagen;
+// alleen cliënt 8 (start 15-04) boven de 60.
+check("agenda-snap: echte contact-tellingen", agendaSnap.contact, { z30: 6, z60: 1 });
+check("agenda-snap: patiënten-metric >30 dgn wordt echt contact", snapAgenda.patientenMetrics[">30 dgn geen contact"], {
+  label: ">30 dgn geen contact",
+  value: 6,
+  prev: null,
+  f: "int",
+  betterLow: true,
+});
+check(
+  "agenda-snap: dossiercontrole agenda-checks toegevoegd",
+  snapAgenda.dossiercontrole.checks.slice(-2).map((row) => [row.check, row.n]),
+  [
+    ["Sessie zonder sessieverslag (agenda)", 1],
+    ["Sessie niet ondertekend (agenda)", 4],
+  ],
+);
+check(
+  "agenda-snap: signalering zonder behandelplan (alle zes >30 dgn open)",
+  snapAgenda.signaleringen.find((alert) => alert.titel === "Dossiers zonder behandelplan")?.n,
+  6,
+);
+check(
+  "agenda-snap: signalering niet-gefactureerd >90 dgn",
+  snapAgenda.signaleringen.find((alert) => alert.titel === "Sessies >90 dgn niet gefactureerd")?.n,
+  1,
+);
+check(
+  "agenda-snap: geen no-show-alert onder de 20-sessies-drempel",
+  snapAgenda.signaleringen.some((alert) => alert.titel === "No-show >5% per behandelaar"),
+  false,
+);
+
+// ---- Vooruitblik (toekomstvenster) ----
+const vooruitblik = agendaSnap.vooruitblik;
+if (!vooruitblik) {
+  throw new Error("vooruitblik ontbreekt ondanks toekomstvenster");
+}
+check("vooruitblik: peildatum + bereik", [vooruitblik.peildatum, vooruitblik.tot], ["2026-07-14", "2026-08-05"]);
+check("vooruitblik: geplande sessies (alle locaties)", vooruitblik.sessies, 2);
+check(
+  "vooruitblik: maanden (jul 1, aug 1)",
+  vooruitblik.maanden.map((maand) => [maand.key, maand.sessies, maand.uren]),
+  [
+    ["2026-07", 1, 1],
+    ["2026-08", 1, 1],
+  ],
+);
+// Cliënt 1 heeft een geplande afspraak; de overige vijf actieve niet-wachtende
+// fixture-cliënten niet — en allemaal zitten ze ook al >30 dagen zonder contact.
+check("vooruitblik: zonder vervolgafspraak", [vooruitblik.zonderVervolg, vooruitblik.zonderVervolgEnContact], [5, 5]);
+check("vooruitblik: cockpit-KPI zondervervolg", snapAgenda.cockpitKpis.zondervervolg.value, 5);
+check("vooruitblik: patiënten-metric", snapAgenda.patientenMetrics["Zonder vervolgafspraak"].value, 5);
+check(
+  "vooruitblik: signalering zonder vervolgafspraak",
+  snapAgenda.signaleringen.find((alert) => alert.titel === "Zonder vervolgafspraak")?.n,
+  5,
+);
+check(
+  "vooruitblik: géén 'Geen evaluatie gepland' (MDO-blokken zijn cliëntloos)",
+  snapAgenda.signaleringen.some((alert) => alert.titel === "Geen evaluatie gepland"),
+  false,
+);
+check("vooruitblik: drill zondervervolg volgt de telling", PRODUCTION_DETAIL_ROWS.zondervervolg(snapAgenda).length, 5);
+check(
+  "vooruitblik: drilldown-gate vereist toekomstvenster",
+  [hasProductionDetailRows("zondervervolg", snapAgenda), hasProductionDetailRows("zondervervolg", snap)],
+  [true, false],
+);
+check(
+  "vooruitblik: provenance flipt alleen mét toekomstvenster",
+  [
+    widgetSource("cockpit", "Zonder vervolgafspraak", { agenda: true }),
+    widgetSource("cockpit", "Zonder vervolgafspraak", { agenda: true, agendaToekomst: true }),
+    widgetSource("signaleringen", "Zonder vervolgafspraak", { agenda: true, agendaToekomst: true }),
+    widgetSource("signaleringen", "Geen evaluatie gepland", { agenda: true, agendaToekomst: true }),
+  ],
+  ["demo", "live", "live", "demo"],
+);
+check("agenda-snap: behandelaarstats Anna (12 mnd)", agendaSnap.behandelaarStats["Anna Jansen"], {
+  sessies: 2,
+  noShowPct: null,
+  directeUren: 2,
+  totaleUren: 2,
+  omzet: 300,
+});
+check(
+  "agenda-snap: drill contact30 volgt agenda-telling",
+  PRODUCTION_DETAIL_ROWS.contact30(snapAgenda).length,
+  agendaSnap.contact.z30,
+);
+// Locatiefilter over agenda-aggregaten.
+const snapAgendaBreda = computeProductionSnapshot(state, { locatie: "Breda" }, REFERENCE, { agenda: agendaFacts });
+if (!snapAgendaBreda.agenda) {
+  throw new Error("Breda-agenda-snapshot ontbreekt");
+}
+const bredaPlanning = snapAgendaBreda.agenda.planningMetrics;
+check(
+  "agenda-snap: Breda-filter (alleen mei-afzegging telt daar)",
+  [bredaPlanning["Afspraken deze maand"].value, bredaPlanning.Geannuleerd.prev],
+  [0, 1],
+);
+
+// ---- Provenance-overlay: badges volgen de aanwezige exports ----
+check(
+  "overlay: planning-sleutels bestaan in het basisregister",
+  Object.keys(AGENDA_PROVENANCE.planning).filter((key) => !(key in CAREON_PROVENANCE.planning.widgets)),
+  [],
+);
+check(
+  "overlay: financieel-sleutels bestaan in het basisregister",
+  Object.keys(AGENDA_PROVENANCE.financieel).filter((key) => !(key in CAREON_PROVENANCE.financieel.widgets)),
+  [],
+);
+check(
+  "overlay: cockpit-sleutels bestaan in het basisregister",
+  Object.keys(AGENDA_PROVENANCE.cockpit).filter((key) => !(key in CAREON_PROVENANCE.cockpit.widgets)),
+  [],
+);
+check(
+  "overlay: no-show demo → live met agenda",
+  [widgetSource("cockpit", "No-show"), widgetSource("cockpit", "No-show", { agenda: true })],
+  ["demo", "live"],
+);
+check(
+  "overlay: planning telling zonder/met agenda",
+  [pageLiveCounts("planning").live, pageLiveCounts("planning", { agenda: true }).live],
+  [1, 11],
+);
+check(
+  "overlay: financieel telling zonder/met agenda",
+  [pageLiveCounts("financieel").live, pageLiveCounts("financieel", { agenda: true }).live],
+  [0, 9],
+);
+check(
+  "overlay: agenda-signaleringstitels niet langer demo",
+  [
+    "Geen contact >60 dagen",
+    "No-show >5% per behandelaar",
+    "Dossiers zonder behandelplan",
+    "Sessies >90 dgn niet gefactureerd",
+  ].filter((titel) => widgetSource("signaleringen", titel, { agenda: true, agendaToekomst: true }) === "demo"),
+  [],
+);
+check(
+  "overlay: verwijzers-sleutel geregistreerd",
+  widgetSource("dossiersProductie", "Verwijsnetwerk", { verwijzers: true }),
+  "live",
+);
+check(
+  "agenda-snap: gefabriceerde signaleringstitels zijn geregistreerd (geen stille demo-badge)",
+  snapAgenda.signaleringen
+    .map((alert) => alert.titel)
+    .filter((titel) => widgetSource("signaleringen", titel, { agenda: true, agendaToekomst: true }) === "demo"),
+  [],
+);
+
+// ==== Verwijzers-export: parser en netwerk ====
+const verwijzersCsv = [
+  "Cliënt ID;Cliënt Code;Naam;Rol;Code;AGB Code;Zorgmail;e-mail;Postcode;Plaats",
+  "1;X;A. Arts (HAP Fixture);Huisarts;1;01000001;Ja;geheim@lms.example;1234 AB;Tilburg",
+  "2;Y;A. Arts (Huisartsenpraktijk Fixture);Huisarts;1;01000001;Nee;;;Tilburg",
+  "2;Y;B. Arts (Praktijk B);Psycholoog;2;01000002;Nee;;;Breda",
+  ";Z;C. Arts;;;;;;;",
+].join("\n");
+const verwijzersParse = parseVerwijzersExport("verwijzers-fixture.csv", verwijzersCsv, "2026-07-14T09:00:00.000Z");
+check("verwijzers: ok", verwijzersParse.ok, true);
+const verwijzersFacts = verwijzersParse.facts;
+if (!verwijzersFacts) {
+  throw new Error("verwijzers-fixture parse faalde");
+}
+check("verwijzers: AGB groepeert naamvarianten", verwijzersFacts.contacten.length, 2);
+check(
+  "verwijzers: grootste contact (2 cliënten, zorgmail via één rij)",
+  [verwijzersFacts.contacten[0].clienten, verwijzersFacts.contacten[0].zorgmail, verwijzersFacts.contacten[0].plaats],
+  [2, true, "Tilburg"],
+);
+check(
+  "verwijzers: rijen zonder id overgeslagen met waarschuwing",
+  verwijzersParse.warnings.some((warning) => warning.message.includes("overgeslagen")),
+  true,
+);
+check("verwijzers: geen e-mailadressen in aggregaat", JSON.stringify(verwijzersFacts).includes("geheim@"), false);
+check("verwijzers: guard accepteert aggregaat", isVerwijzersFacts(verwijzersFacts), true);
+check(
+  "verwijzers: verkeerde kaart (agenda) wordt doorverwezen",
+  parseVerwijzersExport("agenda.csv", agendaCsv).error?.includes("agenda-export"),
+  true,
+);
+
+const snapNetwerk = computeProductionSnapshot(state, { locatie: "Alle locaties" }, REFERENCE, {
+  verwijzers: verwijzersFacts,
+});
+check("netwerk: zorgmail-percentage", snapNetwerk.verwijzerNetwerk?.zorgmailPct, 50);
+check("netwerk: plaatsen gewogen op cliënten", snapNetwerk.verwijzerNetwerk?.plaatsen, [
+  { label: "Tilburg", aantal: 2 },
+  { label: "Breda", aantal: 1 },
+]);
+check("netwerk: zonder agenda blijft agenda-snapshot leeg", snapNetwerk.agenda, null);
+check("netwerk: VERWIJZERS_PROVENANCE alleen dossiersProductie", Object.keys(VERWIJZERS_PROVENANCE), [
+  "dossiersProductie",
+]);
+
+// ==== Toeslagen-export (declared surcharges): parser en omzet-merge ====
+
+const toeslagenCsv = [
+  'Cliënt;Instelling;"Zorgtraject startdatum";Verzekeringskoepel;Uzovi;Afspraakdatum;Starttijd;Eindtijd;Sessietype;"Directe tijd";"Indirecte tijd";Code;Omschrijving;Prijs;Factuurnummer;Factuurdatum',
+  '"GEHEIM PERSOON";TGC;01-05-2026;VGZ;7095;10-06-2026;10:00;11:00;Behandeling;60;0;TC0010;"Toeslag reistijd vanaf 25 minuten - ggz";93,85;F001;12-06-2026',
+  '"GEHEIM PERSOON";TGC;01-05-2026;VGZ;7095;10-06-2026;10:00;11:00;Behandeling;60;0;TC0008;"Toeslag inzet tolk 120 minuten";274,86;F001;12-06-2026',
+  '"ANDER MENS";TGC;01-04-2026;CZ;9664;20-05-2026;09:00;10:00;Intake;60;0;TC0010;"Toeslag reistijd vanaf 25 minuten - ggz";93,85;F002;25-05-2026',
+  '"KAPOTTE RIJ";TGC;01-04-2026;CZ;9664;20-05-2026;09:00;10:00;Intake;60;0;TC0010;"Zonder prijs";;F003;25-05-2026',
+].join("\n");
+const toeslagenParse = parseToeslagenExport("toeslagen-fixture.csv", toeslagenCsv, "2026-07-14T09:00:00.000Z");
+check("toeslagen: ok", toeslagenParse.ok, true);
+const toeslagenFixture = toeslagenParse.facts;
+if (!toeslagenFixture) {
+  throw new Error("toeslagen-fixture parse faalde");
+}
+check("toeslagen: rijen/overgeslagen", [toeslagenFixture.totalRows, toeslagenFixture.skippedRows], [4, 1]);
+check(
+  "toeslagen: cliënten geteld, namen nooit bewaard",
+  [toeslagenFixture.clienten, toeslagenFixture.tolkClienten],
+  [2, 1],
+);
+check("toeslagen: privacy-canary", JSON.stringify(toeslagenFixture).includes("GEHEIM"), false);
+check("toeslagen: guard accepteert aggregaat", isToeslagenFacts(toeslagenFixture), true);
+check(
+  "toeslagen: perCode gesorteerd op omzet (tolk boven reistijd)",
+  toeslagenFixture.perCode.map((groep) => [groep.code, Math.round(groep.omzet), groep.aantal, groep.clienten]),
+  [
+    ["TC0008", 275, 1, 1],
+    ["TC0010", 188, 2, 2],
+  ],
+);
+check(
+  "toeslagen: cel op factuurmaand",
+  toeslagenFixture.cellen.find((cel) => cel.key === "2026-06" && cel.code === "TC0010")?.omzet,
+  93.85,
+);
+check(
+  "toeslagen: verkeerde kaart (agenda) doorverwezen",
+  parseToeslagenExport("agenda.csv", agendaCsv).error?.includes("agenda-export"),
+  true,
+);
+
+// ---- Omzet-merge: toeslagen tellen mee in de omzetreeks (zelfde facturen) ----
+const snapToeslag = computeProductionSnapshot(state, { locatie: "Alle locaties" }, REFERENCE, {
+  agenda: agendaFacts,
+  toeslagen: toeslagenFixture,
+});
+check(
+  "toeslag-merge: cockpit omzet juni/mei (agenda + toeslagen)",
+  [snapToeslag.cockpitKpis.omzetverz.value, snapToeslag.cockpitKpis.omzetverz.prev],
+  [469, 244],
+);
+if (!snapToeslag.agenda) {
+  throw new Error("toeslag-merge: agenda-snapshot ontbreekt");
+}
+check("toeslag-merge: omzet per verzekeraar incl. toeslagen", snapToeslag.agenda.financieel.omzetPerVerzekeraar, [
+  { label: "VGZ", aantal: 619 },
+  { label: "CZ", aantal: 94 },
+]);
+check(
+  "toeslag-merge: snapshot-toeslagen totaal",
+  [snapToeslag.toeslagen?.totaal, snapToeslag.toeslagen?.aantal],
+  [463, 3],
+);
+check("toeslag-merge: inOmzetVerwerkt (ongefilterd + agenda)", snapToeslag.toeslagen?.inOmzetVerwerkt, true);
+const snapToeslagBreda = computeProductionSnapshot(state, { locatie: "Breda" }, REFERENCE, {
+  agenda: agendaFacts,
+  toeslagen: toeslagenFixture,
+});
+if (!snapToeslagBreda.agenda) {
+  throw new Error("toeslag-merge: Breda-agenda-snapshot ontbreekt");
+}
+check(
+  "toeslag-merge: locatiefilter sluit toeslagen uit (geen vestiging in export)",
+  [snapToeslagBreda.toeslagen?.inOmzetVerwerkt, snapToeslagBreda.agenda.financieel.metrics["Omzet verzekeraars"].prev],
+  [false, 150],
+);
+check(
+  "toeslag-merge: zonder agenda geen omzet-verwerking",
+  computeProductionSnapshot(state, { locatie: "Alle locaties" }, REFERENCE, { toeslagen: toeslagenFixture }).toeslagen
+    ?.inOmzetVerwerkt,
+  false,
+);
+check(
+  "toeslag-provenance: Toeslagen-widget flipt met cap",
+  [widgetSource("financieel", "Toeslagen"), widgetSource("financieel", "Toeslagen", { toeslagen: true })],
+  ["demo", "live"],
+);
+check("toeslag-provenance: register alleen financieel", Object.keys(TOESLAGEN_PROVENANCE), ["financieel"]);
+
+// ---- Gem. omzet / traject uit de agenda (Zorgtraject_ID) ----
+const trajectCsv = [
+  "Soort;Behandelaar;Datum;Client_ID;No_Show;Totale_tijd_minute(n);Zorgtraject_ID;Prijs;Sessie_Naam;Afspraak_lokatie",
+  "Sessie;Anna Jansen;10-06-2026;1;n;60,0;T1;100,00;Behandeling;TGC Tilburg",
+  "Sessie;Anna Jansen;11-06-2026;1;n;60,0;T1;100,00;Behandeling;TGC Tilburg",
+  "Sessie;Bea Smit;12-06-2026;2;n;60,0;T2;100,00;Behandeling;TGC Breda",
+].join("\n");
+const trajectParse = parseAgendaExport("traject.csv", trajectCsv, "2026-07-14T09:00:00.000Z");
+check("traject: teller uit Zorgtraject_ID", trajectParse.facts?.trajecten, 2);
+const snapTraject = computeProductionSnapshot(state, { locatie: "Alle locaties" }, REFERENCE, {
+  agenda: trajectParse.facts,
+});
+if (!snapTraject.agenda) {
+  throw new Error("traject: agenda-snapshot ontbreekt");
+}
+check(
+  "traject: gem. omzet per traject (300 / 2)",
+  [
+    snapTraject.agenda.financieel.metrics["Gem. omzet / traject"].value,
+    snapTraject.agenda.financieel.metrics["Gem. omzet / traject"].noData,
+  ],
+  [150, false],
+);
+// De hoofd-fixture heeft geen Zorgtraject_ID-kolom: metric aanwezig maar zonder meting.
+check(
+  "traject: zonder kolom → geen meting (noData)",
+  snapAgenda.agenda === null ? null : snapAgenda.agenda.financieel.metrics["Gem. omzet / traject"].noData,
+  true,
+);
 
 // ---- Optionele sanity-pass op de echte export (lokaal, gitignored) ----
 const realPath = path.join(__dirname, "../../cli_ntendata_export--6-.csv");
@@ -845,6 +1348,192 @@ if (fs.existsSync(realPath)) {
   );
 } else {
   console.log("(echte export niet aanwezig — sanity-pass overgeslagen)");
+}
+
+// ---- Optionele sanity-pass op de nieuwe exports (Exports EPD/, gitignored) ----
+// Verwachtingen onafhankelijk berekend (Python-profiel van 2026-07-22).
+const exportsDir = path.join(__dirname, "../../Exports EPD");
+const nieuwClientPath = path.join(exportsDir, "cli_ntendata_export.csv");
+const nieuwAgendaPath = path.join(exportsDir, "exporteer_agenda_afspraken_2023_01_01_2028_01_01.csv");
+const nieuwVerwijzersPath = path.join(exportsDir, "huisarts_verwijzer export 2026_07_21__16_51_16.csv");
+if (fs.existsSync(nieuwClientPath) && fs.existsSync(nieuwAgendaPath) && fs.existsSync(nieuwVerwijzersPath)) {
+  const REFERENCE_NIEUW = new Date(Date.UTC(2026, 6, 22));
+  const nieuwClient = parseClientExport("cli_ntendata_export.csv", fs.readFileSync(nieuwClientPath, "utf8"));
+  check(
+    "nieuw: cliënten geparsed (dubbele trajecten samengevoegd)",
+    [nieuwClient.records.length, nieuwClient.skippedRows],
+    [1267, 38],
+  );
+  const nieuwAgenda = parseAgendaExport(
+    "agenda.csv",
+    fs.readFileSync(nieuwAgendaPath, "utf8"),
+    "2026-07-22T09:00:00.000Z",
+  );
+  const nieuwAgendaFacts = nieuwAgenda.facts;
+  if (!nieuwAgendaFacts) {
+    throw new Error("echte agenda-export parse faalde");
+  }
+  check(
+    "nieuw: agenda-rijen (sessie/blok/overgeslagen — historisch)",
+    [nieuwAgendaFacts.sessieRows, nieuwAgendaFacts.blokRows, nieuwAgendaFacts.skippedRows],
+    [15873, 6983, 0],
+  );
+  check("nieuw: agenda-bereik", [nieuwAgendaFacts.bronVan, nieuwAgendaFacts.bronTot], ["2025-04-07", "2028-01-01"]);
+  check(
+    "nieuw: toekomstvenster (geplande sessies, cliënten, t/m)",
+    [nieuwAgendaFacts.toekomst?.sessies, nieuwAgendaFacts.toekomst?.clienten, nieuwAgendaFacts.toekomst?.tot],
+    [4099, 559, "2027-07-30"],
+  );
+  check(
+    "nieuw: agenda-totalen (no-shows, afzeggingen — historisch)",
+    [
+      nieuwAgendaFacts.cellen.reduce((sum, cel) => sum + cel.noShows, 0),
+      nieuwAgendaFacts.cellen.reduce((sum, cel) => sum + cel.tijdigAfgezegd, 0),
+    ],
+    [120, 775],
+  );
+  check(
+    "nieuw: gefactureerd totaal (€)",
+    Math.round(nieuwAgendaFacts.facturatie.reduce((sum, cel) => sum + cel.omzet, 0)),
+    3607109,
+  );
+  check(
+    "nieuw: onderhanden totaal (€ — geplande sessies tellen niet mee)",
+    Math.round(nieuwAgendaFacts.cellen.reduce((sum, cel) => sum + cel.onderhanden, 0)),
+    459677,
+  );
+  check(
+    "nieuw: privacy — geen naam/memo-lek in echt aggregaat",
+    JSON.stringify(nieuwAgendaFacts).includes("Astan"),
+    false,
+  );
+  const nieuwVerwijzers = parseVerwijzersExport(
+    "verwijzers.csv",
+    fs.readFileSync(nieuwVerwijzersPath, "utf8"),
+    "2026-07-22T09:00:00.000Z",
+  );
+  if (!nieuwVerwijzers.facts) {
+    throw new Error("echte verwijzers-export parse faalde");
+  }
+  check(
+    "nieuw: verwijzers (AGB-gegroepeerd, cliëntkoppelingen)",
+    [nieuwVerwijzers.facts.contacten.length, nieuwVerwijzers.facts.clienten],
+    [415, 1245],
+  );
+
+  const nieuwSnap = computeProductionSnapshot(
+    { fileName: "cli_ntendata_export.csv", importedAt: "2026-07-22T09:00:00.000Z", records: nieuwClient.records },
+    { locatie: "Alle locaties" },
+    REFERENCE_NIEUW,
+    { agenda: nieuwAgendaFacts, verwijzers: nieuwVerwijzers.facts },
+  );
+  if (!nieuwSnap.agenda) {
+    throw new Error("agenda-snapshot over de echte export ontbreekt");
+  }
+  const nieuwAgendaSnap = nieuwSnap.agenda;
+  check("nieuw: actieve cliënten (open traject wint bij dubbele id)", nieuwSnap.cockpitKpis.actief.value, 975);
+  check(
+    "nieuw: no-show KPI juni (echt, sessie-basis)",
+    [nieuwSnap.cockpitKpis.noshow.value, nieuwSnap.cockpitKpis.noshow.prev],
+    [0.8, 0.2],
+  );
+  check(
+    "nieuw: omzet KPI juni/mei (factuurmaand)",
+    [nieuwSnap.cockpitKpis.omzetverz.value, nieuwSnap.cockpitKpis.omzetverz.prev],
+    [552012, 648395],
+  );
+  check(
+    "nieuw: planning juni (afspraken, no-shows, afgezegd, behandeluren)",
+    [
+      nieuwAgendaSnap.planningMetrics["Afspraken deze maand"].value,
+      nieuwAgendaSnap.planningMetrics["No-shows"].value,
+      nieuwAgendaSnap.planningMetrics.Geannuleerd.value,
+      nieuwAgendaSnap.planningMetrics.Behandeluren.value,
+    ],
+    [3279, 26, 185, 3174],
+  );
+  check("nieuw: echte contactrecentheid", nieuwAgendaSnap.contact, { z30: 343, z60: 205 });
+  check(
+    "nieuw: vooruitblik (zonder vervolgafspraak, dubbel signaal)",
+    [nieuwAgendaSnap.vooruitblik?.zonderVervolg, nieuwAgendaSnap.vooruitblik?.zonderVervolgEnContact],
+    [364, 258],
+  );
+  check(
+    "nieuw: signalering zonder vervolgafspraak",
+    nieuwSnap.signaleringen.find((alert) => alert.titel === "Zonder vervolgafspraak")?.n,
+    364,
+  );
+  check("nieuw: drill zondervervolg rows", PRODUCTION_DETAIL_ROWS.zondervervolg(nieuwSnap).length, 364);
+  check(
+    "nieuw: agenda-dossierchecks (verslag ontbreekt, niet ondertekend)",
+    [nieuwAgendaSnap.dossierchecks.verslagOntbreekt, nieuwAgendaSnap.dossierchecks.nietOndertekend],
+    [1558, 15873],
+  );
+  check(
+    "nieuw: signalering zonder behandelplan",
+    nieuwSnap.signaleringen.find((alert) => alert.titel === "Dossiers zonder behandelplan")?.n,
+    511,
+  );
+  check(
+    "nieuw: Veghel-vooruitblik (geplande sessies, zonder vervolg)",
+    (() => {
+      const veghel = computeProductionSnapshot(
+        { fileName: "cli_ntendata_export.csv", importedAt: "2026-07-22T09:00:00.000Z", records: nieuwClient.records },
+        { locatie: "Veghel" },
+        REFERENCE_NIEUW,
+        { agenda: nieuwAgendaFacts },
+      );
+      return [veghel.agenda?.vooruitblik?.sessies, veghel.agenda?.vooruitblik?.zonderVervolg];
+    })(),
+    [209, 50],
+  );
+  check(
+    "nieuw: signalering niet-gefactureerd >90 dgn",
+    nieuwSnap.signaleringen.find((alert) => alert.titel === "Sessies >90 dgn niet gefactureerd")?.n,
+    296,
+  );
+  check("nieuw: verwijzernetwerk zorgmail", nieuwSnap.verwijzerNetwerk?.zorgmailPct, 95);
+  check(
+    "nieuw: Veghel als echte vestiging filterbaar",
+    computeProductionSnapshot(
+      { fileName: "cli_ntendata_export.csv", importedAt: "2026-07-22T09:00:00.000Z", records: nieuwClient.records },
+      { locatie: "Veghel" },
+      REFERENCE_NIEUW,
+    ).cockpitKpis.actief.value,
+    177,
+  );
+  check("nieuw: actief zonder vestiging", nieuwSnap.meta.zonderVestiging, 27);
+} else {
+  console.log("(nieuwe exports niet aanwezig — sanity-pass Exports EPD overgeslagen)");
+}
+
+// ---- Optionele sanity-pass op de echte toeslagen-export ----
+const echteToeslagenPath = path.join(exportsDir, "declared_surcharges_20260722_1300.csv");
+if (fs.existsSync(echteToeslagenPath)) {
+  const echteToeslagen = parseToeslagenExport(
+    "declared_surcharges_20260722_1300.csv",
+    fs.readFileSync(echteToeslagenPath, "utf8"),
+    "2026-07-22T09:00:00.000Z",
+  );
+  const echteFacts = echteToeslagen.facts;
+  if (!echteFacts) {
+    throw new Error("echte toeslagen-export parse faalde");
+  }
+  check("echt toeslagen: rijen/overgeslagen", [echteFacts.totalRows, echteFacts.skippedRows], [882, 0]);
+  check(
+    "echt toeslagen: totaal (€ 84.219, onafhankelijk berekend)",
+    Math.round(echteFacts.cellen.reduce((sum, cel) => sum + cel.omzet, 0)),
+    84219,
+  );
+  check("echt toeslagen: cliënten en tolk", [echteFacts.clienten, echteFacts.tolkClienten], [67, 3]);
+  check(
+    "echt toeslagen: grootste post = reistijd ≥25 min",
+    [echteFacts.perCode[0].code, echteFacts.perCode[0].aantal, Math.round(echteFacts.perCode[0].omzet)],
+    ["TC0010", 675, 63964],
+  );
+  check("echt toeslagen: geen namen in aggregaat", JSON.stringify(echteFacts).includes("Abdirahman"), false);
+} else {
+  console.log("(toeslagen-export niet aanwezig — sanity-pass overgeslagen)");
 }
 
 console.log(`\nverify-production: ${passes} passed, ${failures} failed`);

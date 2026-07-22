@@ -1,6 +1,15 @@
 "use client";
 
-import { isProductionState, type ProductionState } from "./types";
+import {
+  type AgendaFacts,
+  isAgendaFacts,
+  isProductionState,
+  isToeslagenFacts,
+  isVerwijzersFacts,
+  type ProductionState,
+  type ToeslagenFacts,
+  type VerwijzersFacts,
+} from "./types";
 
 // Dunne client voor de optionele Supabase-persistentie. Zonder geconfigureerde
 // omgeving antwoordt de route met 501; alle functies degraderen dan stil naar
@@ -47,4 +56,57 @@ export async function pushRemoteProductionState(state: ProductionState): Promise
   } catch {
     return "failed";
   }
+}
+
+// ---- Aanvullende exports: agenda- en verwijzersaggregaten ----
+// Zelfde route-patroon als middelen (nieuwste jsonb-rij wint); de guards
+// draaien client-side zodat een gemanipuleerde payload nooit de provider raakt.
+
+async function fetchAuxState<T>(endpoint: string, guard: (value: unknown) => value is T): Promise<T | null> {
+  try {
+    const response = await fetch(endpoint, { cache: "no-store", headers: syncHeaders() });
+    if (!response.ok) return null;
+    const payload = (await response.json()) as { state?: unknown };
+    return guard(payload.state) ? payload.state : null;
+  } catch {
+    return null;
+  }
+}
+
+async function pushAuxState(endpoint: string, state: unknown): Promise<PushResult> {
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: syncHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(state),
+    });
+    if (response.status === 501) return "unconfigured";
+    return response.ok ? "ok" : "failed";
+  } catch {
+    return "failed";
+  }
+}
+
+export function fetchRemoteAgendaFacts(): Promise<AgendaFacts | null> {
+  return fetchAuxState("/api/careon/agenda", isAgendaFacts);
+}
+
+export function pushRemoteAgendaFacts(facts: AgendaFacts): Promise<PushResult> {
+  return pushAuxState("/api/careon/agenda", facts);
+}
+
+export function fetchRemoteVerwijzersFacts(): Promise<VerwijzersFacts | null> {
+  return fetchAuxState("/api/careon/verwijzers", isVerwijzersFacts);
+}
+
+export function pushRemoteVerwijzersFacts(facts: VerwijzersFacts): Promise<PushResult> {
+  return pushAuxState("/api/careon/verwijzers", facts);
+}
+
+export function fetchRemoteToeslagenFacts(): Promise<ToeslagenFacts | null> {
+  return fetchAuxState("/api/careon/toeslagen", isToeslagenFacts);
+}
+
+export function pushRemoteToeslagenFacts(facts: ToeslagenFacts): Promise<PushResult> {
+  return pushAuxState("/api/careon/toeslagen", facts);
 }

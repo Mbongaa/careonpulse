@@ -101,6 +101,10 @@ export interface ProductionMonthPoint {
   caseload: number;
   /** Binnengekomen verwijzingen (vraagkant) — recente maanden mogelijk onvolledig. */
   verwijzingen: number;
+  /** No-show-percentage uit de agenda-export; null zonder agenda(-data die maand). */
+  noshowPct: number | null;
+  /** Gefactureerde omzet (op factuurmaand) uit de agenda-export; null zonder agenda. */
+  omzet: number | null;
 }
 
 export interface ProductionAlert {
@@ -109,7 +113,7 @@ export interface ProductionAlert {
   unit: string;
   detail: string;
   n: number;
-  page: "patienten" | "behandelaren" | "dossiers" | "dossiersProductie";
+  page: "patienten" | "behandelaren" | "dossiers" | "dossiersProductie" | "financieel" | "planning";
 }
 
 export interface RisicoRij {
@@ -120,6 +124,91 @@ export interface RisicoRij {
   signaal: string;
   dagen: number;
   dossierUrl: string | null;
+}
+
+/** Agenda-gedeelte van de productie-snapshot (alleen aanwezig na agenda-import). */
+export interface ProductionAgendaSnapshot {
+  meta: {
+    fileName: string;
+    importedAt: string;
+    bronVan: string;
+    bronTot: string;
+    sessieRows: number;
+    blokRows: number;
+    /** Laatste vólledige maand binnen het agenda-bereik ("juni" / "2026-06"). */
+    maandLabel: string;
+    maandKey: string;
+  };
+  /** Gesleuteld op de demo-labels van PLANNING_METRICS (vervangings-patroon). */
+  planningMetrics: Record<string, LiveMetric>;
+  /** Alle 7 weekdagen (de praktijk werkt ook in het weekend). */
+  noshowWeekdagen: { dag: string; pct: number; sessies: number }[];
+  urenverdeling: { name: string; value: number; color: string }[];
+  bezettingPerLocatie: { loc: string; pct: number }[];
+  bezettingTotaal: number | null;
+  afzegRedenen: AantalGroep[];
+  sessieTypen: AantalGroep[];
+  /** Online / op locatie / overig — sessies in de laatste 12 agenda-maanden. */
+  modality: { name: string; value: number; color: string }[];
+  financieel: {
+    /** Gesleuteld op de demo-labels van FINANCIEEL_METRICS. */
+    metrics: Record<string, LiveMetric>;
+    omzetPerVerzekeraar: AantalGroep[];
+    omzetPerLocatie: AantalGroep[];
+    onderhandenTotaal: number;
+    onderhandenOuderdom: { label: string; bedrag: number; pct: number }[];
+  };
+  /** Per behandelaar (laatste 12 agenda-maanden), sleutel = naam. */
+  behandelaarStats: Record<
+    string,
+    { sessies: number; noShowPct: number | null; directeUren: number; totaleUren: number; omzet: number }
+  >;
+  /** Actieve, niet-wachtende cliënten zonder gehouden afspraak in >30/>60 dagen. */
+  contact: { z30: number; z60: number };
+  /** Laatste gehouden afspraak (ISO) per cliënt-ID — bron voor de contact-drilldowns. */
+  contactPerClient: Record<string, string>;
+  /** Eerstvolgende geplande afspraak per cliënt-ID (leeg zonder toekomstvenster). */
+  vervolgPerClient: Record<string, string>;
+  /** Vooruitblik — alleen wanneer de export een toekomstvenster heeft. */
+  vooruitblik: {
+    peildatum: string;
+    /** Geplande sessies binnen het locatiefilter. */
+    sessies: number;
+    /** Unieke cliënten met een geplande afspraak (niet per locatie te splitsen). */
+    clienten: number;
+    tot: string | null;
+    /** Eerste zes komende maanden (binnen het locatiefilter). */
+    maanden: { key: string; label: string; sessies: number; uren: number }[];
+    /** Actieve, niet-wachtende cliënten zonder geplande vervolgafspraak. */
+    zonderVervolg: number;
+    /** Waarvan ook al >30 dagen geen gehouden afspraak (dubbel signaal). */
+    zonderVervolgEnContact: number;
+  } | null;
+  dossierchecks: { verslagOntbreekt: number; nietOndertekend: number };
+}
+
+/** Toeslagen-gedeelte van de snapshot (alleen na toeslagen-import). */
+export interface ProductionToeslagen {
+  meta: { fileName: string; importedAt: string; bronVan: string; bronTot: string };
+  totaal: number;
+  aantal: number;
+  clienten: number;
+  tolkClienten: number;
+  perCode: ToeslagCodeGroep[];
+  /** € per verzekeringskoepel (afgerond). */
+  perKoepel: AantalGroep[];
+  /** Toeslag-omzet telt mee in de omzet-KPI's (vereist agenda + geen locatiefilter). */
+  inOmzetVerwerkt: boolean;
+}
+
+export interface ProductionVerwijzerNetwerk {
+  fileName: string;
+  importedAt: string;
+  contacten: VerwijzerContact[];
+  clienten: number;
+  zorgmailPct: number;
+  rollen: AantalGroep[];
+  plaatsen: AantalGroep[];
 }
 
 export interface ProductionSnapshot {
@@ -213,12 +302,227 @@ export interface ProductionSnapshot {
     nietCompleet: number;
     checks: { check: string; n: number; sev: CareonSeverity }[];
   };
+  /** Alleen gevuld na een agenda-import (Databron → aanvullende exports). */
+  agenda: ProductionAgendaSnapshot | null;
+  /** Alleen gevuld na een huisarts/verwijzer-import. */
+  verwijzerNetwerk: ProductionVerwijzerNetwerk | null;
+  /** Alleen gevuld na een toeslagen-import. */
+  toeslagen: ProductionToeslagen | null;
 }
 
 export interface ProductionState {
   fileName: string;
   importedAt: string;
   records: ClientRecord[];
+}
+
+// ---- Agenda-export (afspraken) ----
+// De agenda-export wordt bij het parsen direct geaggregeerd: er worden nooit
+// losse afspraakregels bewaard (22k+ rijen zouden de browseropslag breken en
+// bevatten vrije-tekstvelden). Cliëntnaam, memo en BSN worden nooit gelezen.
+
+/** Aggregaat per (maand, vestiging, behandelaar) over de sessie-rijen. */
+export interface AgendaCel {
+  /** Maand van de afspraakdatum, "2026-06". */
+  key: string;
+  locatie: string | null;
+  behandelaar: string | null;
+  sessies: number;
+  noShows: number;
+  tijdigAfgezegd: number;
+  directeMin: number;
+  indirecteMin: number;
+  reisMin: number;
+  totaleMin: number;
+  online: number;
+  opLocatie: number;
+  /** Sessies met sessieverslag ("Sessieverslagen" = Ja). */
+  verslagen: number;
+  /** Ondertekende sessies ("Ondertekend" = Ja). */
+  ondertekend: number;
+  /** Geprijsde sessiewaarde op afspraakmaand (ook nog niet gefactureerd). */
+  omzetGerealiseerd: number;
+  /** Geprijsd maar (nog) zonder factuurnummer — onderhanden werk. */
+  onderhanden: number;
+  onderhandenSessies: number;
+}
+
+/** Afwezig-blokken per (maand, behandelaar) — blokrijen dragen geen locatie. */
+export interface AgendaBlokCel {
+  key: string;
+  behandelaar: string | null;
+  blokMin: number;
+}
+
+/** Gefactureerde omzet per (factuurmaand, vestiging, verzekeringskoepel). */
+export interface AgendaFactuurCel {
+  key: string;
+  locatie: string | null;
+  koepel: string | null;
+  omzet: number;
+}
+
+/** Sessies en no-shows per weekdag (0 = zondag … 6 = zaterdag) per vestiging. */
+export interface AgendaWeekdagCel {
+  dag: number;
+  locatie: string | null;
+  sessies: number;
+  noShows: number;
+}
+
+/** Contactfeiten per cliënt — alleen het EPD-cliënt-ID, nooit een naam. */
+export interface AgendaClientFact {
+  id: string;
+  /** ISO-datum van de eerste/laatste GEHOUDEN sessie (no-shows en afzeggingen
+   * tellen niet als contact); null wanneer alle sessies uitvielen. */
+  eerste: string | null;
+  laatste: string | null;
+  sessies: number;
+  noShows: number;
+  /** Er is een behandelplan-sessie gevoerd. */
+  behandelplan: boolean;
+  /**
+   * Toekomstvelden (alleen wanneer de export een toekomstvenster heeft;
+   * optioneel voor compatibiliteit met eerder opgeslagen aggregaten).
+   * `volgende` = eerstvolgende geplande afspraak ná de peildatum.
+   */
+  volgende?: string | null;
+  /** Er staat een MDO-/evaluatiesessie gepland ná de peildatum. */
+  mdoGepland?: boolean;
+}
+
+/** Geplande (toekomstige) sessies per maand × vestiging — vooruitblik. */
+export interface AgendaToekomstCel {
+  key: string;
+  locatie: string | null;
+  sessies: number;
+  totaleMin: number;
+}
+
+export interface AgendaToekomst {
+  /** Geplande sessies ná de peildatum. */
+  sessies: number;
+  /** Unieke cliënten met minstens één geplande afspraak. */
+  clienten: number;
+  /** Laatste geplande afspraakdatum (ISO). */
+  tot: string | null;
+  perMaand: AgendaToekomstCel[];
+}
+
+export interface AgendaFacts {
+  fileName: string;
+  importedAt: string;
+  /** Datumbereik van de afspraakrijen in de export (ISO). */
+  bronVan: string;
+  bronTot: string;
+  totalRows: number;
+  sessieRows: number;
+  blokRows: number;
+  skippedRows: number;
+  cellen: AgendaCel[];
+  blokken: AgendaBlokCel[];
+  facturatie: AgendaFactuurCel[];
+  weekdagen: AgendaWeekdagCel[];
+  clienten: AgendaClientFact[];
+  /** Redenen bij tijdig afgezegde afspraken (klein, geaggregeerd). */
+  afzegRedenen: AantalGroep[];
+  /** Top sessietypen (bijv. "MDO met patient"), geaggregeerd. */
+  sessieTypen: AantalGroep[];
+  /**
+   * Peildatum (ISO-dag van het importmoment): rijen ná deze dag zijn geplande
+   * afspraken en tellen niet mee in de historische aggregaten. Optioneel —
+   * eerder opgeslagen aggregaten (export zonder toekomstvenster) missen dit.
+   */
+  peildatum?: string;
+  /** Vooruitblik; alleen aanwezig wanneer de export een toekomstvenster heeft. */
+  toekomst?: AgendaToekomst | null;
+  /** Unieke zorgtrajecten in de historische sessies (basis voor omzet/traject). */
+  trajecten?: number;
+}
+
+export interface ParseAgendaResult {
+  ok: boolean;
+  error?: string;
+  facts: AgendaFacts | null;
+  warnings: ImportWarning[];
+}
+
+// ---- Toeslagen-export (declared surcharges) ----
+// ZPM-toeslagprestaties (TC-codes: reistijd, tolk, psychodiagnostiek) die als
+// extra regels op dezelfde facturen staan als de sessies uit de agenda-export.
+// De export bevat cliëntNAMEN (geen ID's): die worden bij het parsen alleen
+// geteld (distinct per code) en nooit bewaard. Geen vestigings-dimensie.
+
+/** Aggregaat per (factuurmaand, verzekeringskoepel, toeslagcode). */
+export interface ToeslagCel {
+  /** Factuurmaand "2026-06". */
+  key: string;
+  koepel: string | null;
+  code: string;
+  aantal: number;
+  omzet: number;
+}
+
+export interface ToeslagCodeGroep {
+  code: string;
+  omschrijving: string;
+  aantal: number;
+  omzet: number;
+  /** Unieke cliënten (geteld bij het parsen; namen worden niet bewaard). */
+  clienten: number;
+}
+
+export interface ToeslagenFacts {
+  fileName: string;
+  importedAt: string;
+  totalRows: number;
+  skippedRows: number;
+  /** Bereik van de afspraakdatums (ISO). */
+  bronVan: string;
+  bronTot: string;
+  cellen: ToeslagCel[];
+  perCode: ToeslagCodeGroep[];
+  /** Unieke cliënten in de export. */
+  clienten: number;
+  /** Unieke cliënten met een tolk-toeslag. */
+  tolkClienten: number;
+}
+
+export interface ParseToeslagenResult {
+  ok: boolean;
+  error?: string;
+  facts: ToeslagenFacts | null;
+  warnings: ImportWarning[];
+}
+
+// ---- Huisarts/verwijzer-export ----
+// Zakelijke praktijkgegevens (geen cliëntkenmerken behalve het cliënt-ID dat
+// alleen geteld wordt); e-mailadressen worden bewust niet bewaard.
+export interface VerwijzerContact {
+  /** AGB-code — autoritatieve sleutel; null wanneer niet geregistreerd. */
+  agb: string | null;
+  naam: string;
+  rol: string;
+  plaats: string | null;
+  zorgmail: boolean;
+  /** Aantal unieke cliënten met deze verwijzer in de export. */
+  clienten: number;
+}
+
+export interface VerwijzersFacts {
+  fileName: string;
+  importedAt: string;
+  totalRows: number;
+  /** Unieke cliënten in de export (koppelingsbasis). */
+  clienten: number;
+  contacten: VerwijzerContact[];
+}
+
+export interface ParseVerwijzersResult {
+  ok: boolean;
+  error?: string;
+  facts: VerwijzersFacts | null;
+  warnings: ImportWarning[];
 }
 
 // Gedeelde runtime-guards voor alle persistentiepaden (localStorage, Supabase
@@ -261,6 +565,196 @@ export function isClientRecord(value: unknown): value is ClientRecord {
     typeof record.directeTijdMin === "number" &&
     typeof record.indirecteTijdMin === "number" &&
     typeof record.totaleTijdMin === "number"
+  );
+}
+
+function isFiniteNumber(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isMonthKey(value: unknown): boolean {
+  return typeof value === "string" && /^\d{4}-\d{2}$/.test(value);
+}
+
+function isIsoDay(value: unknown): boolean {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function isAgendaCel(value: unknown): value is AgendaCel {
+  if (typeof value !== "object" || value === null) return false;
+  const cel = value as Record<string, unknown>;
+  return (
+    isMonthKey(cel.key) &&
+    isNullableString(cel.locatie) &&
+    isNullableString(cel.behandelaar) &&
+    isFiniteNumber(cel.sessies) &&
+    isFiniteNumber(cel.noShows) &&
+    isFiniteNumber(cel.tijdigAfgezegd) &&
+    isFiniteNumber(cel.directeMin) &&
+    isFiniteNumber(cel.indirecteMin) &&
+    isFiniteNumber(cel.reisMin) &&
+    isFiniteNumber(cel.totaleMin) &&
+    isFiniteNumber(cel.online) &&
+    isFiniteNumber(cel.opLocatie) &&
+    isFiniteNumber(cel.verslagen) &&
+    isFiniteNumber(cel.ondertekend) &&
+    isFiniteNumber(cel.omzetGerealiseerd) &&
+    isFiniteNumber(cel.onderhanden) &&
+    isFiniteNumber(cel.onderhandenSessies)
+  );
+}
+
+export function isAgendaFacts(value: unknown): value is AgendaFacts {
+  if (typeof value !== "object" || value === null) return false;
+  const facts = value as Record<string, unknown>;
+  return (
+    typeof facts.fileName === "string" &&
+    typeof facts.importedAt === "string" &&
+    Number.isFinite(Date.parse(facts.importedAt)) &&
+    isIsoDay(facts.bronVan) &&
+    isIsoDay(facts.bronTot) &&
+    isFiniteNumber(facts.totalRows) &&
+    isFiniteNumber(facts.sessieRows) &&
+    isFiniteNumber(facts.blokRows) &&
+    isFiniteNumber(facts.skippedRows) &&
+    Array.isArray(facts.cellen) &&
+    facts.cellen.length > 0 &&
+    facts.cellen.every(isAgendaCel) &&
+    Array.isArray(facts.blokken) &&
+    facts.blokken.every(
+      (blok: unknown) =>
+        typeof blok === "object" &&
+        blok !== null &&
+        isMonthKey((blok as Record<string, unknown>).key) &&
+        isNullableString((blok as Record<string, unknown>).behandelaar) &&
+        isFiniteNumber((blok as Record<string, unknown>).blokMin),
+    ) &&
+    Array.isArray(facts.facturatie) &&
+    facts.facturatie.every(
+      (cel: unknown) =>
+        typeof cel === "object" &&
+        cel !== null &&
+        isMonthKey((cel as Record<string, unknown>).key) &&
+        isNullableString((cel as Record<string, unknown>).locatie) &&
+        isNullableString((cel as Record<string, unknown>).koepel) &&
+        isFiniteNumber((cel as Record<string, unknown>).omzet),
+    ) &&
+    Array.isArray(facts.weekdagen) &&
+    facts.weekdagen.every(
+      (cel: unknown) =>
+        typeof cel === "object" &&
+        cel !== null &&
+        isFiniteNumber((cel as Record<string, unknown>).dag) &&
+        isNullableString((cel as Record<string, unknown>).locatie) &&
+        isFiniteNumber((cel as Record<string, unknown>).sessies) &&
+        isFiniteNumber((cel as Record<string, unknown>).noShows),
+    ) &&
+    Array.isArray(facts.clienten) &&
+    facts.clienten.every(
+      (fact: unknown) =>
+        typeof fact === "object" &&
+        fact !== null &&
+        typeof (fact as Record<string, unknown>).id === "string" &&
+        ((fact as Record<string, unknown>).eerste === null || isIsoDay((fact as Record<string, unknown>).eerste)) &&
+        ((fact as Record<string, unknown>).laatste === null || isIsoDay((fact as Record<string, unknown>).laatste)) &&
+        isFiniteNumber((fact as Record<string, unknown>).sessies) &&
+        isFiniteNumber((fact as Record<string, unknown>).noShows) &&
+        typeof (fact as Record<string, unknown>).behandelplan === "boolean" &&
+        ((fact as Record<string, unknown>).volgende === undefined ||
+          (fact as Record<string, unknown>).volgende === null ||
+          isIsoDay((fact as Record<string, unknown>).volgende)) &&
+        ((fact as Record<string, unknown>).mdoGepland === undefined ||
+          typeof (fact as Record<string, unknown>).mdoGepland === "boolean"),
+    ) &&
+    Array.isArray(facts.afzegRedenen) &&
+    Array.isArray(facts.sessieTypen) &&
+    (facts.peildatum === undefined || isIsoDay(facts.peildatum)) &&
+    (facts.toekomst === undefined || facts.toekomst === null || isAgendaToekomst(facts.toekomst)) &&
+    (facts.trajecten === undefined || isFiniteNumber(facts.trajecten))
+  );
+}
+
+function isAgendaToekomst(value: unknown): value is AgendaToekomst {
+  if (typeof value !== "object" || value === null) return false;
+  const toekomst = value as Record<string, unknown>;
+  return (
+    isFiniteNumber(toekomst.sessies) &&
+    isFiniteNumber(toekomst.clienten) &&
+    (toekomst.tot === null || isIsoDay(toekomst.tot)) &&
+    Array.isArray(toekomst.perMaand) &&
+    toekomst.perMaand.every(
+      (cel: unknown) =>
+        typeof cel === "object" &&
+        cel !== null &&
+        isMonthKey((cel as Record<string, unknown>).key) &&
+        isNullableString((cel as Record<string, unknown>).locatie) &&
+        isFiniteNumber((cel as Record<string, unknown>).sessies) &&
+        isFiniteNumber((cel as Record<string, unknown>).totaleMin),
+    )
+  );
+}
+
+export function isToeslagenFacts(value: unknown): value is ToeslagenFacts {
+  if (typeof value !== "object" || value === null) return false;
+  const facts = value as Record<string, unknown>;
+  return (
+    typeof facts.fileName === "string" &&
+    typeof facts.importedAt === "string" &&
+    Number.isFinite(Date.parse(facts.importedAt)) &&
+    isFiniteNumber(facts.totalRows) &&
+    isFiniteNumber(facts.skippedRows) &&
+    isIsoDay(facts.bronVan) &&
+    isIsoDay(facts.bronTot) &&
+    isFiniteNumber(facts.clienten) &&
+    isFiniteNumber(facts.tolkClienten) &&
+    Array.isArray(facts.cellen) &&
+    facts.cellen.length > 0 &&
+    facts.cellen.every(
+      (cel: unknown) =>
+        typeof cel === "object" &&
+        cel !== null &&
+        isMonthKey((cel as Record<string, unknown>).key) &&
+        isNullableString((cel as Record<string, unknown>).koepel) &&
+        typeof (cel as Record<string, unknown>).code === "string" &&
+        isFiniteNumber((cel as Record<string, unknown>).aantal) &&
+        isFiniteNumber((cel as Record<string, unknown>).omzet),
+    ) &&
+    Array.isArray(facts.perCode) &&
+    facts.perCode.every(
+      (groep: unknown) =>
+        typeof groep === "object" &&
+        groep !== null &&
+        typeof (groep as Record<string, unknown>).code === "string" &&
+        typeof (groep as Record<string, unknown>).omschrijving === "string" &&
+        isFiniteNumber((groep as Record<string, unknown>).aantal) &&
+        isFiniteNumber((groep as Record<string, unknown>).omzet) &&
+        isFiniteNumber((groep as Record<string, unknown>).clienten),
+    )
+  );
+}
+
+export function isVerwijzersFacts(value: unknown): value is VerwijzersFacts {
+  if (typeof value !== "object" || value === null) return false;
+  const facts = value as Record<string, unknown>;
+  return (
+    typeof facts.fileName === "string" &&
+    typeof facts.importedAt === "string" &&
+    Number.isFinite(Date.parse(facts.importedAt)) &&
+    isFiniteNumber(facts.totalRows) &&
+    isFiniteNumber(facts.clienten) &&
+    Array.isArray(facts.contacten) &&
+    facts.contacten.length > 0 &&
+    facts.contacten.every(
+      (contact: unknown) =>
+        typeof contact === "object" &&
+        contact !== null &&
+        isNullableString((contact as Record<string, unknown>).agb) &&
+        typeof (contact as Record<string, unknown>).naam === "string" &&
+        typeof (contact as Record<string, unknown>).rol === "string" &&
+        isNullableString((contact as Record<string, unknown>).plaats) &&
+        typeof (contact as Record<string, unknown>).zorgmail === "boolean" &&
+        isFiniteNumber((contact as Record<string, unknown>).clienten),
+    )
   );
 }
 

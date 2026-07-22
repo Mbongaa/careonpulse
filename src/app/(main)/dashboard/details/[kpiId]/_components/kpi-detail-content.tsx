@@ -37,7 +37,7 @@ export function KpiDetailContent({ kpiId }: Readonly<{ kpiId: string }>) {
   const router = useRouter();
   const { filters, kpis, factor, production } = useCareon();
 
-  const liveRows = production && entry && hasProductionDetailRows(entry.id);
+  const liveRows = production && entry && hasProductionDetailRows(entry.id, production);
 
   // Records: in productie de echte (al op vestiging gefilterde) ClientRecords,
   // anders de deterministische demo-set met client-side locatiefilter.
@@ -45,7 +45,7 @@ export function KpiDetailContent({ kpiId }: Readonly<{ kpiId: string }>) {
     if (!entry) {
       return [];
     }
-    if (production && hasProductionDetailRows(entry.id)) {
+    if (production && hasProductionDetailRows(entry.id, production)) {
       return PRODUCTION_DETAIL_ROWS[entry.id](production);
     }
     const demo = demoDetailRows(entry.id);

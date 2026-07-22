@@ -14,7 +14,8 @@
     "generate:presets": "ts-node -P tsconfig.scripts.json src/scripts/generate-theme-presets.ts",
     "verify:careon": "ts-node -P tsconfig.scripts.json src/scripts/verify-careon.ts",
     "test:e2e": "playwright test",
-    "verify:production": "ts-node -P tsconfig.scripts.json src/scripts/verify-production.ts"
+    "verify:production": "ts-node -P tsconfig.scripts.json src/scripts/verify-production.ts",
+    "push:production": "ts-node -P tsconfig.scripts.json src/scripts/push-production.ts"
   },
   "lint-staged": {
     "*.{js,ts,jsx,tsx}": ["biome check --write --no-errors-on-unmatched"]

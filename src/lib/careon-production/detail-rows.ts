@@ -66,6 +66,30 @@ function wachtlijstRows(snapshot: ProductionSnapshot, filter?: (rij: WachtRij) =
 
 function contactProxyRows(snapshot: ProductionSnapshot, minDagen: number): KpiDetailRow[] {
   const referenceIso = snapshot.meta.referenceDate;
+
+  // Mét agenda-import: échte contactrecentheid — zelfde ankerlogica als de
+  // snapshot-telling (laatste gehouden afspraak, terugval episodestart).
+  const agenda = snapshot.agenda;
+  if (agenda) {
+    const agendaRefIso = agenda.meta.bronTot < referenceIso ? agenda.meta.bronTot : referenceIso;
+    return snapshot.records
+      .filter((record) => activeAt(record, referenceIso) && !isWachtend(record))
+      .map((record) => {
+        const laatste = agenda.contactPerClient[record.id] ?? null;
+        const anker = laatste ?? record.episodeStart;
+        const dagen = anker && anker <= agendaRefIso ? daysBetween(anker, agendaRefIso) : 0;
+        return { record, laatste, dagen };
+      })
+      .filter((item) => item.dagen > minDagen)
+      .sort((a, b) => b.dagen - a.dagen)
+      .map(({ record, laatste, dagen }) =>
+        clientRow(record, {
+          laatste: laatste ?? "geen afspraak in de export",
+          dagen,
+        }),
+      );
+  }
+
   return snapshot.records
     .filter(
       (record) =>
@@ -170,6 +194,32 @@ export const PRODUCTION_DETAIL_ROWS: Record<string, (snapshot: ProductionSnapsho
   "wachtlijst-behandeling": (snapshot) => wachtlijstRows(snapshot, (rij) => rij.fase === "Behandeling"),
   "wachtlijst-totaal": (snapshot) => wachtlijstRows(snapshot),
   "wachtlijst-urgent": (snapshot) => wachtlijstRows(snapshot, (rij) => rij.dagen > 60),
+
+  // Vereist een agenda-export mét toekomstvenster (zie hasProductionDetailRows).
+  zondervervolg: (snapshot) => {
+    const agenda = snapshot.agenda;
+    if (!agenda?.vooruitblik) return [];
+    const referenceIso = snapshot.meta.referenceDate;
+    const agendaRefIso = agenda.meta.bronTot < referenceIso ? agenda.meta.bronTot : referenceIso;
+    return snapshot.records
+      .filter(
+        (record) =>
+          activeAt(record, referenceIso) && !isWachtend(record) && agenda.vervolgPerClient[record.id] === undefined,
+      )
+      .map((record) => {
+        const laatste = agenda.contactPerClient[record.id] ?? null;
+        const anker = laatste ?? record.episodeStart;
+        const dagen = anker && anker <= agendaRefIso ? daysBetween(anker, agendaRefIso) : 0;
+        return { record, laatste, dagen };
+      })
+      .sort((a, b) => b.dagen - a.dagen)
+      .map(({ record, laatste, dagen }) =>
+        clientRow(record, {
+          laatste: laatste ?? "geen gehouden afspraak in de export",
+          dagen,
+        }),
+      );
+  },
 
   "zonder-behandelaar": (snapshot) => {
     const referenceIso = snapshot.meta.referenceDate;
@@ -297,6 +347,8 @@ export function productionDetailMetric(snapshot: ProductionSnapshot, id: string)
       return patient(">30 dgn geen contact");
     case "contact60":
       return patient(">60 dgn geen contact");
+    case "zondervervolg":
+      return patient("Zonder vervolgafspraak");
     case "crisis":
       return patient("Crisiscliënten");
     case "outreach": {
@@ -349,6 +401,10 @@ export function productionDetailTrend(
   }
 }
 
-export function hasProductionDetailRows(id: string): boolean {
-  return id in PRODUCTION_DETAIL_ROWS;
+export function hasProductionDetailRows(id: string, snapshot?: ProductionSnapshot | null): boolean {
+  if (!(id in PRODUCTION_DETAIL_ROWS)) return false;
+  // "Zonder vervolgafspraak" is alleen berekenbaar met een agenda-export mét
+  // toekomstvenster; anders blijft de drilldown demo-gemarkeerd.
+  if (id === "zondervervolg") return snapshot?.agenda?.vooruitblik != null;
+  return true;
 }

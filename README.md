@@ -18,7 +18,9 @@ Demo credentials: **`user1`** / **`demo1234`** (session-storage flag; logout via
 | `npm run dev` | Development server |
 | `npm run build` / `npm run start` | Production build / serve |
 | `npm run check` / `npm run check:fix` | Biome lint + format |
-| `npm run verify:careon` | 104 assertions of the Careon business logic against the audited source values (deltas, formats, scaling, CSV parser, alert routing, color thresholds) |
+| `npm run verify:careon` | Assertions of the Careon business logic against the audited source values (deltas, formats, scaling, CSV parser, alert routing, color thresholds) |
+| `npm run verify:production` | Production-mode data core: EPD-parsers (cliëntendata, agenda, verwijzers) incl. privacy-canaries, snapshot-aggregaties, provenance-registers en sanity-passes op de echte exports wanneer lokaal aanwezig |
+| `npm run push:production` | Server-side verversing van de centrale Supabase-opslag met de drie exports uit `Exports EPD/` (nieuwe import-run + agenda-/verwijzersaggregaat) |
 | `npm run test:e2e` | Playwright suite: functional flows + axe-core WCAG-AA audit of all routes in light and dark mode (desktop + mobile projects; run `npm run build` first) |
 
 Release-gate status and iteration history: [RELEASE_GATES.md](RELEASE_GATES.md).
