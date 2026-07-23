@@ -48,39 +48,79 @@ interface RunRow {
   file_name: string;
   imported_at: string;
   total_rows: number;
-  careon_import_records: { record: ClientRecord }[];
+}
+
+// PostgREST kapt élk antwoord af op de `max-rows`-instelling van het project
+// (Supabase-standaard 1000) — óók de records van een embedded resource. Eén
+// round-trip leverde daardoor stilzwijgend een onvolledige run zodra de export
+// boven die grens groeide (juli 2026: 959 → 1267 cliënten). De
+// volledigheidscontrole verwierp dan élke run en de route antwoordde met
+// `state: null`: browsers zonder eigen import bleven op demo staan en browsers
+// mét een oude import hielden die vast. Records worden nu per pagina opgehaald,
+// zodat de route onafhankelijk is van die serverinstelling.
+const PAGE_SIZE = 1000;
+
+type RecordsResult =
+  | { status: "ok"; records: ClientRecord[] }
+  /** Run is onbruikbaar (insert destijds halverwege gefaald) — probeer de vorige. */
+  | { status: "incomplete" }
+  /** Supabase onbereikbaar — geen stille terugval op een oudere run. */
+  | { status: "error" };
+
+async function fetchRunRecords(runId: string, totalRows: number): Promise<RecordsResult> {
+  const records: ClientRecord[] = [];
+  while (records.length < totalRows && records.length < MAX_RECORDS) {
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/careon_import_records?select=record&run_id=eq.${runId}&order=id.asc&limit=${PAGE_SIZE}&offset=${records.length}`,
+      { headers: restHeaders(), cache: "no-store" },
+    );
+    if (!response.ok) {
+      return { status: "error" };
+    }
+    const rows = (await response.json()) as { record: ClientRecord }[];
+    // Lege pagina vóór `total_rows`: er staan minder records dan de run belooft.
+    if (rows.length === 0) {
+      return { status: "incomplete" };
+    }
+    records.push(...rows.map((row) => row.record));
+  }
+  return records.length === totalRows ? { status: "ok", records } : { status: "incomplete" };
 }
 
 export async function GET(request: Request) {
   const denied = guard(request);
   if (denied) return denied;
 
-  // Eén round-trip: PostgREST-embedding haalt de laatste runs mét records op.
   // Drie runs i.p.v. één, plus een volledigheidscontrole: een run waarvan de
-  // records-insert halverwege faalde (of door max-rows is afgekapt) mag niet
-  // als "laatste stand" doorgaan en de vorige goede run verduisteren.
+  // records-insert halverwege faalde mag niet als "laatste stand" doorgaan en
+  // de vorige goede run verduisteren.
   const runResponse = await fetch(
-    `${SUPABASE_URL}/rest/v1/careon_import_runs?select=id,file_name,imported_at,total_rows,careon_import_records(record)&careon_import_records.order=id.asc&order=imported_at.desc&limit=3`,
+    `${SUPABASE_URL}/rest/v1/careon_import_runs?select=id,file_name,imported_at,total_rows&order=imported_at.desc&limit=3`,
     { headers: restHeaders(), cache: "no-store" },
   );
   if (!runResponse.ok) {
     return NextResponse.json({ error: "Supabase niet bereikbaar." }, { status: 502 });
   }
   const runs = (await runResponse.json()) as RunRow[];
-  const run = runs.find(
-    (candidate) =>
-      candidate.careon_import_records.length > 0 && candidate.careon_import_records.length === candidate.total_rows,
-  );
-  if (!run) {
-    return NextResponse.json({ configured: true, state: null });
+
+  for (const run of runs) {
+    // total_rows 0 = run van vóór die kolom (zie migratie 0001): overslaan.
+    if (run.total_rows <= 0) continue;
+    const result = await fetchRunRecords(run.id, run.total_rows);
+    if (result.status === "error") {
+      return NextResponse.json({ error: "Supabase niet bereikbaar." }, { status: 502 });
+    }
+    if (result.status === "incomplete") continue;
+
+    const state: ProductionState = {
+      fileName: run.file_name,
+      importedAt: run.imported_at,
+      records: result.records,
+    };
+    return NextResponse.json({ configured: true, state });
   }
 
-  const state: ProductionState = {
-    fileName: run.file_name,
-    importedAt: run.imported_at,
-    records: run.careon_import_records.map((row) => row.record),
-  };
-  return NextResponse.json({ configured: true, state });
+  return NextResponse.json({ configured: true, state: null });
 }
 
 export async function POST(request: Request) {
