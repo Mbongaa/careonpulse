@@ -1,5 +1,7 @@
 "use client";
 
+import { HeartHandshake } from "lucide-react";
+
 import { CareonInsights } from "@/app/(main)/dashboard/_components/careon/careon-insights";
 import { CareonKpiCard } from "@/app/(main)/dashboard/_components/careon/careon-kpi-card";
 import { CareonLiveBanner } from "@/app/(main)/dashboard/_components/careon/careon-live-banner";
@@ -21,19 +23,47 @@ export function DirectiecockpitContent() {
 
   // In productie-modus vervangen EPD-waarden de demo-constanten voor de
   // live/afgeleide KPI's; demo-KPI's behouden hun waarde en krijgen een badge.
+  // De bron-badge blijft gesleuteld op het demo-label, ook als de live metric
+  // de kaart een productielabel geeft (bijv. "Omzet Vecozo (VGZ + DSW)").
   const displayKpis = kpis.map((kpi) => {
     const live = production?.cockpitKpis[kpi.id];
     if (!live) {
-      return kpi;
+      return { kpi, badgeWidget: kpi.label };
     }
     return {
-      ...kpi,
-      value: live.value,
-      prev: live.prev,
-      spark: live.spark,
-      windowLabel: live.windowLabel,
+      kpi: {
+        ...kpi,
+        label: live.label ?? kpi.label,
+        value: live.value,
+        prev: live.prev,
+        spark: live.spark,
+        windowLabel: live.windowLabel,
+        secondary: live.secondary,
+      },
+      badgeWidget: kpi.label,
     };
   });
+
+  // Productie-exclusief (driedeling van het facturatie-overzicht van de
+  // klant): RMO/RMA-omzet als eigen kaart, direct na de servicebureau-kaart.
+  const rmoLive = production ? production.cockpitKpis.omzetrmo : undefined;
+  if (rmoLive) {
+    displayKpis.splice(displayKpis.findIndex((item) => item.kpi.id === "omzetinfo") + 1, 0, {
+      kpi: {
+        id: "omzetrmo",
+        label: rmoLive.label ?? "Omzet RMO/RMA",
+        icon: HeartHandshake,
+        value: rmoLive.value,
+        prev: rmoLive.prev,
+        f: "eurK",
+        spark: rmoLive.spark,
+        windowLabel: rmoLive.windowLabel,
+        secondary: rmoLive.secondary,
+        page: "financieel",
+      },
+      badgeWidget: "Omzet RMO/RMA",
+    });
+  }
 
   return (
     <div className="@container/main flex flex-col gap-4 md:gap-6">
@@ -46,12 +76,12 @@ export function DirectiecockpitContent() {
       <div className="careon-kpi-grid grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
         {/* Kaarten openen sinds handoff 08 hun KPI-drilldown; de detailpagina
             linkt zelf door naar de betreffende domeinpagina. */}
-        {displayKpis.map((kpi) => (
+        {displayKpis.map(({ kpi, badgeWidget }) => (
           <CareonKpiCard
             key={kpi.id}
             metric={kpi}
             href={careonDetailHref(kpi.id)}
-            sourceBadge={<CareonSourceBadge page="cockpit" widget={kpi.label} />}
+            sourceBadge={<CareonSourceBadge page="cockpit" widget={badgeWidget} />}
           />
         ))}
       </div>

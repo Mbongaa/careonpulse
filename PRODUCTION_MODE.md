@@ -12,10 +12,11 @@ gekoppeld worden (kaart "Agenda- en verwijzersexport koppelen"):
   Zorgmail);
 - de **toeslagen-export** (declared surcharges) — TC-toeslagprestaties
   (reistijd, tolk, psychodiagnostiek) die als extra regels op dezelfde
-  facturen staan als de sessies; ze tellen mee in de omzetcijfers (alleen
-  ongefilterd — de export draagt geen vestiging) en voeden het
-  Toeslagen-paneel op Financieel. De export bevat cliëntnamen (geen ID's):
-  die worden bij het parsen alleen geteld en nooit bewaard;
+  facturen staan als de sessies; ze voeden het Toeslagen-paneel op Financieel
+  maar tellen — net als in het facturatie-overzicht van de klant en de
+  boekhoudkundige factuurtotalen — **niet** mee in de omzetkaarten. De export
+  bevat cliëntnamen (geen ID's): die worden bij het parsen alleen geteld en
+  nooit bewaard;
 - het **declaratie-totaaloverzicht** (declaration total) — per factuur het
   gedeclareerde bedrag, het toegekende totaalbedrag en creditnota's. Voedt
   Openstaande declaraties, "Tekort op toekenning", Declaraties >90 dgn, de
@@ -25,11 +26,29 @@ gekoppeld worden (kaart "Agenda- en verwijzersexport koppelen"):
   "Particulier"; factuurnummers zijn per debiteur-administratie gesleuteld
   (de ZVW- en WMO-reeksen overlappen).
 
-**Omzet-splitsing (opgave klant)**: alleen VGZ en DSW declareren direct; alle
-overige omzet loopt via Infomedics. "Omzet verzekeraars" = VGZ + DSW,
-"Omzet Infomedics" = alle overige koepels — gesplitst op de
-verzekeringskoepel van de factuur, zichtbaar in beide KPI's en als gestapelde
-reeksen in de Omzetontwikkeling-chart.
+**Omzet-indeling (klantformaat FACTURATIE.xlsx, sinds 2026-07-23 — zie
+`agent-handoff/10-omzet-behandelmaand-driedeling.md`)**: omzet wordt geteld
+per **behandelmaand** (afspraakdatum, alleen gefactureerde sessies, excl.
+toeslagen) in de driedeling van het eigen maandoverzicht van de klant:
+
+- **Vecozo (VGZ + DSW)** — declareren rechtstreeks (opgave klant);
+- **Servicebureau (Infomedics)** — alle overige verzekeringskoepels;
+- **RMO/RMA** — regelingen voor asielzoekers/ontheemden, uitgevoerd door DSW,
+  datagedreven herkend aan **Uzovi 3355** (gewone DSW-verzekering is 7029).
+
+Financieel toont "Totale omzet" + de drie kanaalkaarten; de directiecockpit
+draagt de Vecozo-, servicebureau- én RMO/RMA-kaart. De Omzetontwikkeling-chart
+stapelt de drie reeksen per behandelmaand. Let op: een net afgesloten maand
+loopt nog op totdat de facturatierun (begin volgende maand) is geweest — de
+chart-voetnoot toont het nog niet gefactureerde bedrag van die maand.
+
+**Verwachte uitbetaling (tweede kaartwaarde)**: elke omzetkaart draagt onder
+de bruto-waarde een regel "Verwacht uitbetaald" — verzekeraarskanalen
+(Vecozo + servicebureau) × 65% (`UITBETALING_PCT`, opgave klant, spiegelt de
+onderste regel van zijn FACTURATIE.xlsx), RMO/RMA × 100%. De
+omzet-drilldowns tonen de volledige berekening per behandelmaand als extra
+kolom. De *gemeten* toekennings-% per koepel (uit het declaratie-overzicht)
+staat ter referentie in het Declaratiestatus-paneel.
 
 **KPI-drilldowns**: kaarten zijn overal klikbaar. Cliëntgebonden drilldowns
 tonen echte pseudonieme records; agenda-/declaratie-gedreven drilldowns tonen
@@ -125,16 +144,18 @@ filters (vestiging) ─▶ compute-snapshot.ts ──▶ ProductionSnapshot ─�
   aanwezige bron): Planning volledig (afspraken, no-shows, tijdig afgezegd,
   behandel-/indirecte uren, urenverdeling, no-show per 7 weekdagen — de
   praktijk draait ook weekenddiensten), cockpit no-show + omzet (incl.
-  trend-charts), Financieel grotendeels (gefactureerde omzet per factuurmaand,
-  per verzekeraar/locatie, onderhanden werk, ouderdom), échte
+  trend-charts), Financieel grotendeels (gefactureerde omzet per
+  behandelmaand in de driedeling Vecozo/servicebureau/RMO-RMA, per
+  verzekeraar/locatie, onderhanden werk, ouderdom), échte
   contactrecentheid (">30/60 dgn geen contact" op gehouden afspraken),
   behandelaren-consulten/no-show/uren/omzet (12 mnd), en agenda-signaleringen
   (geen contact >60 dgn, no-show >5%, dossiers zonder behandelplan-sessie,
   sessies >90 dgn niet gefactureerd) plus twee dossiercontroles
   (sessieverslag ontbreekt, sessie niet ondertekend). Verwijzers-export →
   Verwijsnetwerk-paneel op Dossiers & Productie (`VERWIJZERS_PROVENANCE`).
-  Facturatie loopt in batches: omzet-maanden met € 0 zijn maanden zonder
-  factuurronde, niet zonder productie. Met een **toekomstvenster** in de
+  Facturatie loopt in batches ná de behandelmaand: de jongste maand loopt
+  nog op tot de eerstvolgende factuurronde (voetnoot in de chart toont het
+  nog niet gefactureerde bedrag). Met een **toekomstvenster** in de
   agenda-export komt daar bovenop (`AGENDA_TOEKOMST_PROVENANCE`): "Zonder
   vervolgafspraak" op cockpit en Patiënten (incl. drilldown met de echte
   cliëntlijst), de bijbehorende signalering, en het Vooruitblik-paneel op

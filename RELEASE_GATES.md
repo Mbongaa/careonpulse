@@ -177,6 +177,19 @@ Uitvoering van het data-onderzoeksrapport (klant-akkoord "start it") + klantverz
 - Aggregaat-schema's uitgebreid met optionele velden (weekdag-afzeggingen, vormen, beroepen, traject-datums) — oudere opgeslagen aggregaten blijven geldig; het centrale agenda-aggregaat is her-gepusht mét de nieuwe velden.
 - Evidence: `npm run check` schoon, `tsc --noEmit` schoon, `verify:careon` **444/444**, `verify:production` **390/390** (incl. onafhankelijk berekende verwachtingen voor beide echte cliëntexports onder de nieuwe instroom-semantiek, populatieprofiel fixture + echt, vormen-percentages, beroepsmix, dekking-mechaniek), clean `npm run build`, `npx playwright test` **92/92**.
 
+## Superseding feature — Omzet per behandelmaand + RMO/RMA-driedeling (klantformaat FACTURATIE.xlsx) (2026-07-23)
+
+Klantbesluit na de juni-reconciliatie (zie `agent-handoff/10-omzet-behandelmaand-driedeling.md`): het dashboard volgt het eigen maandoverzicht van de klant.
+
+1. **Behandelmaand i.p.v. factuurmaand**: `AgendaFactuurCel` sleutelt nu op de afspraakmaand (met verplicht `uzovi`-veld); juli-facturen over juni-werk landen in juni. Type-guard keurt oude aggregaten af → gedwongen her-import (centrale stand op 2026-07-23 opnieuw gepusht met `--force`).
+2. **Driedeling**: Vecozo (VGZ + DSW, opgave klant) / servicebureau (Infomedics, overige koepels) / **RMO/RMA datagedreven via Uzovi 3355** (regelingen asielzoekers/ontheemden, uitgevoerd door DSW — gewone DSW is 7029). Nieuwe kaarten "Totale omzet" (Financieel) en "Omzet RMO/RMA" (Financieel + cockpit, klantverzoek); Omzetontwikkeling stapelt drie reeksen; "Omzet per verzekeraar" toont RMO/RMA als eigen groep; nieuwe drilldowns `omzettotaal`/`omzetrmo`.
+3. **Toeslagen uit de omzetreeks** (conform Excel + boekhoudkundige factuurtotalen); het Toeslagen-paneel blijft.
+4. **Reconciliatie juni 2026** (bewaakt in verify): Vecozo € 249.906 / servicebureau € 312.840 / RMO/RMA € 158.311 (= exact factuur 26000160 uit het klant-Excel) / totaal € 721.057 — waarvan € 582.482 exact de Excel-facturen 26000150–165 dekt en € 138.575 juni-werk op 15 gemengde facturen staat die het handmatige overzicht miste.
+
+Evidence op de eindstand: `npm run check` schoon, `verify:careon` **456/456**, `verify:production` **396/396** (RMO/RMA-fixture met Uzovi 3355/7029, behandelmaand-bucketing over een juli-factuur, toeslagen-uitsluitingsgates, guard-afkeuring van oude aggregaten, echte-export kanaalwaarden onafhankelijk berekend), clean `npm run build`, `npx playwright test` **92/92**.
+
+**Aanvulling (zelfde dag)** — "Verwacht uitbetaald" als tweede kaartwaarde op alle omzetkaarten (Financieel + cockpit): (Vecozo + servicebureau) × 65% (`UITBETALING_PCT`, opgave klant — spiegelt de €434K-regel in zijn Excel) + RMO/RMA × 100%; volledige berekening als extra kolom in de omzet-drilldowns; gemeten toekennings-% blijft ter referentie in Declaratiestatus. `CareonMetricLike`/`LiveMetric` + cockpit-KPI's kregen een optioneel `secondary`-veld, gerenderd in `CareonKpiCard`. Verify-gates uitgebreid (fixture: 65, 163, 400, 628). Eindstand: `verify:production` **398/398**, `verify:careon` **456/456**, build clean, Playwright **92/92**.
+
 ## Previous functional pass — ALL FUNCTIONAL GATES GREEN ✅ (2026-07-08, it.6)
 
 One uninterrupted sequence on the final code state: `npm run check` clean (119 files) → `tsc --noEmit` clean → `verify:careon` 104/104 → clean `npm run build` (route table = Careon app only) → `npx playwright test` 37/37 (15 functional + 22 axe WCAG-AA, desktop + mobile, light + dark). Production server left running on port 3000.

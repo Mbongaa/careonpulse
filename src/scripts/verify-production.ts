@@ -584,7 +584,7 @@ check("provenance outreach proxy", widgetSource("cockpit", "Outreachende cliënt
 check("provenance onbekende widget → demo", widgetSource("cockpit", "Bestaat niet"), "demo");
 check("provenance hr alles demo", pageLiveCounts("hr").live, 0);
 const cockpitCounts = pageLiveCounts("cockpit");
-check("provenance cockpit telling", [cockpitCounts.live, cockpitCounts.total], [10, 17]);
+check("provenance cockpit telling", [cockpitCounts.live, cockpitCounts.total], [10, 18]);
 
 // ---- Drift-bewaking: widget-sleutels zijn vrije strings; deze checks maken
 // een hernoemd KPI-label of alert-titel zonder bijgewerkt provenance-register
@@ -724,24 +724,29 @@ check("drill trend afwezig zonder historie (wachtlijst)", productionDetailTrend(
 // ==== Agenda-export: parser, aggregatie en snapshot-integratie ====
 
 const AGENDA_HEADER =
-  "Soort;Behandelaar;Sessie_Naam;Afspraak_lokatie;Datum;Directe_tijd_minute(n);Indirecte_tijd_minute(n);Reistijd_minute(n);Totale_tijd_minute(n);Prijs;Client_ID;Client_naam;No_Show;Tijdig_afgezegd;Tijdig_afgezegd_Redenen;Verzekeringskoepel;Factuurnummer;Factuurdatum;Ondertekend;Sessieverslagen;Memo;BSN";
+  "Soort;Behandelaar;Sessie_Naam;Afspraak_lokatie;Datum;Directe_tijd_minute(n);Indirecte_tijd_minute(n);Reistijd_minute(n);Totale_tijd_minute(n);Prijs;Client_ID;Client_naam;No_Show;Tijdig_afgezegd;Tijdig_afgezegd_Redenen;Verzekeringskoepel;Uzovi;Factuurnummer;Factuurdatum;Ondertekend;Sessieverslagen;Memo;BSN";
 const agendaCsv = [
   AGENDA_HEADER,
-  "Sessie;Anna Jansen;Behandeling - ONLINE;TGC Tilburg;10-06-2026;60,0;0,0;0,0;60,0;100,00;1;GEHEIMNAAM;n;n;;VGZ;F001;12-06-2026;Nee;Ja;supergeheime memotekst;999999990",
-  "Sessie;Anna Jansen;Intake - OP LOCATIE;TGC Tilburg;05-06-2026;60,0;0,0;0,0;60,0;200,00;2;GEHEIMNAAM2;y;n;;CZ;;;Nee;Nee;;999999991",
-  "Sessie;Bea Smit;Behandelplan - ONLINE;TGC Breda;20-05-2026;30,0;0,0;0,0;30,0;150,00;1;GEHEIMNAAM;n;y;Ziek;VGZ;F002;25-05-2026;Nee;Ja;;999999990",
-  "Blok;Anna Jansen;Afwezig;;11-06-2026;0,0;0,0;0,0;120,0;;;;n;n;;;;;;;;",
-  "Sessie;Bea Smit;Behandeling - OP LOCATIE;TGC Roermond;15-01-2026;45,0;15,0;10,0;70,0;300,00;3;GEHEIMNAAM3;n;n;;DSW;;;Nee;Ja;;999999992",
-  "Sessie;Bea Smit;Behandeling - ONLINE;TGC Breda;31-13-2026;30,0;0,0;0,0;30,0;;4;X;n;n;;;;;Nee;Nee;;1",
+  "Sessie;Anna Jansen;Behandeling - ONLINE;TGC Tilburg;10-06-2026;60,0;0,0;0,0;60,0;100,00;1;GEHEIMNAAM;n;n;;VGZ;7095;F001;12-06-2026;Nee;Ja;supergeheime memotekst;999999990",
+  "Sessie;Anna Jansen;Intake - OP LOCATIE;TGC Tilburg;05-06-2026;60,0;0,0;0,0;60,0;200,00;2;GEHEIMNAAM2;y;n;;CZ;9664;;;Nee;Nee;;999999991",
+  "Sessie;Bea Smit;Behandelplan - ONLINE;TGC Breda;20-05-2026;30,0;0,0;0,0;30,0;150,00;1;GEHEIMNAAM;n;y;Ziek;VGZ;7095;F002;25-05-2026;Nee;Ja;;999999990",
+  "Blok;Anna Jansen;Afwezig;;11-06-2026;0,0;0,0;0,0;120,0;;;;n;n;;;;;;;;;",
+  "Sessie;Bea Smit;Behandeling - OP LOCATIE;TGC Roermond;15-01-2026;45,0;15,0;10,0;70,0;300,00;3;GEHEIMNAAM3;n;n;;DSW;7029;;;Nee;Ja;;999999992",
+  "Sessie;Bea Smit;Behandeling - ONLINE;TGC Breda;31-13-2026;30,0;0,0;0,0;30,0;;4;X;n;n;;;;;;Nee;Nee;;1",
+  // RMO/RMA-sessie (koepel DSW, Uzovi 3355) — behandeld in juni maar pas op
+  // 02-07 gefactureerd: bewijst behandelmaand-bucketing én de RMO/RMA-splitsing.
+  "Sessie;Anna Jansen;Behandeling - OP LOCATIE;TGC Tilburg;08-06-2026;60,0;0,0;0,0;60,0;400,00;1;GEHEIMNAAM;n;n;;DSW;3355;F003;02-07-2026;Ja;Ja;;999999990",
+  // Servicebureau-sessie (CZ), ook juni-behandeld en in juli gefactureerd.
+  "Sessie;Bea Smit;Behandeling - ONLINE;TGC Breda;09-06-2026;60,0;0,0;0,0;60,0;250,00;3;GEHEIMNAAM3;n;n;;CZ;9664;F004;02-07-2026;Ja;Ja;;999999992",
   // Blok begin juli: schuift het bronbereik voorbij juni zodat juni de laatste
   // vólledige agenda-maand is (net als de echte export, die t/m 21-07 loopt).
-  "Blok;Bea Smit;Afwezig;;05-07-2026;0,0;0,0;0,0;60,0;;;;n;n;;;;;;;;",
+  "Blok;Bea Smit;Afwezig;;05-07-2026;0,0;0,0;0,0;60,0;;;;n;n;;;;;;;;;",
   // Toekomstvenster (peildatum = 2026-07-14): geplande sessie voor cliënt 1
   // (geprijsd maar ongefactureerd — mag onderhanden werk NIET vervuilen),
   // een cliëntloos MDO-blok en een toekomstige agenda-blokkade.
-  "Sessie;Anna Jansen;Behandeling - ONLINE;TGC Tilburg;20-07-2026;60,0;0,0;0,0;60,0;120,00;1;GEHEIMNAAM;n;n;;VGZ;;;Nee;Nee;;999999990",
-  "Sessie;Bea Smit;MDO met patient;TGC Breda;05-08-2026;60,0;0,0;0,0;60,0;;;;n;n;;;;;Nee;Nee;;",
-  "Blok;Anna Jansen;Afwezig;;21-07-2026;0,0;0,0;0,0;60,0;;;;n;n;;;;;;;;",
+  "Sessie;Anna Jansen;Behandeling - ONLINE;TGC Tilburg;20-07-2026;60,0;0,0;0,0;60,0;120,00;1;GEHEIMNAAM;n;n;;VGZ;7095;;;Nee;Nee;;999999990",
+  "Sessie;Bea Smit;MDO met patient;TGC Breda;05-08-2026;60,0;0,0;0,0;60,0;;;;n;n;;;;;;Nee;Nee;;",
+  "Blok;Anna Jansen;Afwezig;;21-07-2026;0,0;0,0;0,0;60,0;;;;n;n;;;;;;;;;",
 ].join("\n");
 const agendaParse = parseAgendaExport("agenda-fixture.csv", agendaCsv, "2026-07-14T09:00:00.000Z");
 check("agenda: ok", agendaParse.ok, true);
@@ -752,7 +757,7 @@ if (!agendaFacts) {
 check(
   "agenda: sessies/blok/overgeslagen",
   [agendaFacts.sessieRows, agendaFacts.blokRows, agendaFacts.skippedRows],
-  [4, 2, 1],
+  [6, 2, 1],
 );
 check("agenda: bronbereik", [agendaFacts.bronVan, agendaFacts.bronTot], ["2026-01-15", "2026-08-05"]);
 check("agenda: peildatum uit importmoment", agendaFacts.peildatum, "2026-07-14");
@@ -792,18 +797,36 @@ const juniCel = agendaFacts.cellen.find((cel) => cel.key === "2026-06" && cel.be
 check(
   "agenda: juni-cel (sessies, noshow, online, opLocatie, verslag)",
   [juniCel?.sessies, juniCel?.noShows, juniCel?.online, juniCel?.opLocatie, juniCel?.verslagen],
-  [2, 1, 1, 1, 1],
+  [3, 1, 1, 2, 2],
 );
 check("agenda: onderhanden in juni-cel (niet-gefactureerde no-show-intake)", juniCel?.onderhanden, 200);
-const factuurJuni = agendaFacts.facturatie.find((cel) => cel.key === "2026-06");
+// Facturatie op BEHANDELMAAND: de RMO/RMA- en CZ-sessies van juni zijn pas op
+// 02-07 gefactureerd maar horen in de juni-bucket (klantformaat).
+const factuurVgz = agendaFacts.facturatie.find((cel) => cel.key === "2026-06" && cel.koepel === "VGZ");
 check(
-  "agenda: factuur op factuurmaand",
-  [factuurJuni?.locatie, factuurJuni?.koepel, factuurJuni?.omzet],
-  ["Tilburg", "VGZ", 100],
+  "agenda: factuur op behandelmaand (VGZ juni)",
+  [factuurVgz?.locatie, factuurVgz?.uzovi, factuurVgz?.omzet],
+  ["Tilburg", "7095", 100],
+);
+const factuurRmo = agendaFacts.facturatie.find((cel) => cel.uzovi === "3355");
+check(
+  "agenda: RMO/RMA-cel (DSW 3355, juli-factuur → juni-bucket)",
+  [factuurRmo?.key, factuurRmo?.koepel, factuurRmo?.omzet],
+  ["2026-06", "DSW", 400],
+);
+const factuurCz = agendaFacts.facturatie.find((cel) => cel.key === "2026-06" && cel.koepel === "CZ");
+check("agenda: servicebureau-cel (CZ juni, juli-factuur)", [factuurCz?.locatie, factuurCz?.omzet], ["Breda", 250]);
+check(
+  "agenda: guard eist uzovi-veld (oude aggregaten → her-import)",
+  isAgendaFacts({
+    ...agendaFacts,
+    facturatie: [{ key: "2026-06", locatie: null, koepel: "VGZ", omzet: 1 }],
+  }),
+  false,
 );
 const client1 = agendaFacts.clienten.find((fact) => fact.id === "1");
 const client2 = agendaFacts.clienten.find((fact) => fact.id === "2");
-check("agenda: contact = alleen gehouden sessies", [client1?.laatste, client1?.sessies], ["2026-06-10", 2]);
+check("agenda: contact = alleen gehouden sessies", [client1?.laatste, client1?.sessies], ["2026-06-10", 3]);
 check("agenda: afgezegde behandelplan-sessie telt niet als gevoerd", client1?.behandelplan, false);
 check("agenda: cliënt met alleen no-show heeft geen contactmoment", [client2?.laatste, client2?.noShows], [null, 1]);
 check(
@@ -834,7 +857,7 @@ check(
     agendaSnap.planningMetrics["No-shows"].value,
     agendaSnap.planningMetrics.Geannuleerd.value,
   ],
-  [2, 1, 0],
+  [4, 1, 0],
 );
 check(
   "agenda-snap: uren juni (behandel, afwezig, geregistreerd)",
@@ -843,32 +866,48 @@ check(
     agendaSnap.planningMetrics["Beschikbare uren"].value,
     agendaSnap.planningMetrics["Productieve uren"].value,
   ],
-  [2, 2, 2],
+  [4, 2, 4],
 );
 check(
-  "agenda-snap: agenda-vulling 50% (2u sessie vs 2u afwezig)",
+  "agenda-snap: agenda-vulling 67% (4u sessie vs 2u afwezig)",
   agendaSnap.planningMetrics["Agenda-bezetting"].value,
-  50,
+  67,
 );
 check(
-  "agenda-snap: no-show juni 50%; mei zonder noemer (1 sessie, 1 afgezegd) → null",
+  "agenda-snap: no-show juni 25%; mei zonder noemer (1 sessie, 1 afgezegd) → null",
   [snapAgenda.cockpitKpis.noshow.value, snapAgenda.cockpitKpis.noshow.prev],
-  [50, null],
+  [25, null],
+);
+// Kanaal-splitsing per behandelmaand (klantformaat): Vecozo = VGZ + DSW-7029,
+// servicebureau = overige koepels, RMO/RMA = Uzovi 3355 — juli-facturen over
+// juni-werk landen in juni.
+check(
+  "agenda-snap: cockpit Vecozo juni/mei (VGZ, excl. RMO/RMA)",
+  [
+    snapAgenda.cockpitKpis.omzetverz.value,
+    snapAgenda.cockpitKpis.omzetverz.prev,
+    snapAgenda.cockpitKpis.omzetverz.label,
+  ],
+  [100, 150, "Omzet Vecozo (VGZ + DSW)"],
 );
 check(
-  "agenda-snap: cockpit omzet juni/mei (factuurmaand, VGZ = direct)",
-  [snapAgenda.cockpitKpis.omzetverz.value, snapAgenda.cockpitKpis.omzetverz.prev],
-  [100, 150],
+  "agenda-snap: cockpit servicebureau juni (CZ, juli-factuur → juni-bucket)",
+  [
+    snapAgenda.cockpitKpis.omzetinfo.value,
+    snapAgenda.monthly[11].omzetServicebureau,
+    snapAgenda.cockpitKpis.omzetinfo.label,
+  ],
+  [250, 250, "Omzet servicebureau"],
 );
 check(
-  "agenda-snap: Infomedics-deel 0 (alle fixture-facturen VGZ)",
-  [snapAgenda.cockpitKpis.omzetinfo.value, snapAgenda.monthly[11].omzetInfomedics],
-  [0, 0],
+  "agenda-snap: cockpit RMO/RMA juni (DSW-3355, niet bij Vecozo)",
+  [snapAgenda.cockpitKpis.omzetrmo.value, snapAgenda.monthly[11].omzetRmoRma, snapAgenda.cockpitKpis.omzetrmo.label],
+  [400, 400, "Omzet RMO/RMA"],
 );
 check(
-  "agenda-snap: maandreeks draagt no-show en omzet",
+  "agenda-snap: maandreeks draagt no-show en totaalomzet (100+250+400)",
   [snapAgenda.monthly[11].noshowPct, snapAgenda.monthly[11].omzet],
-  [50, 100],
+  [25, 750],
 );
 check("agenda-snap: maand buiten agenda-bereik → omzet null", snapAgenda.monthly[0].omzet, null);
 check(
@@ -876,12 +915,56 @@ check(
   [agendaSnap.financieel.metrics["Onderhanden werk"].value, agendaSnap.financieel.metrics["Declaraties >90 dgn"].value],
   [500, 300],
 );
-check("agenda-snap: omzet per verzekeraar (12 mnd gefactureerd)", agendaSnap.financieel.omzetPerVerzekeraar, [
-  { label: "VGZ", aantal: 250 },
-]);
+check(
+  "agenda-snap: financieel-kaarten Totale omzet + driedeling (juni/mei)",
+  [
+    agendaSnap.financieel.metrics["Totale omzet"].value,
+    agendaSnap.financieel.metrics["Totale omzet"].prev,
+    agendaSnap.financieel.metrics["Omzet verzekeraars"].value,
+    agendaSnap.financieel.metrics["Omzet verzekeraars"].label,
+    agendaSnap.financieel.metrics["Omzet Infomedics"].value,
+    agendaSnap.financieel.metrics["Omzet RMO/RMA"].value,
+  ],
+  [750, 150, 100, "Omzet Vecozo (VGZ + DSW)", 250, 400],
+);
+// Verwachte uitbetaling (65%-regel klant; RMO/RMA 100%) als tweede kaartwaarde.
+check(
+  "agenda-snap: verwacht uitbetaald (65% Vecozo/SB, 100% RMO, totaal 0,65×350+400)",
+  [
+    agendaSnap.financieel.metrics["Omzet verzekeraars"].secondary?.value,
+    agendaSnap.financieel.metrics["Omzet Infomedics"].secondary?.value,
+    agendaSnap.financieel.metrics["Omzet RMO/RMA"].secondary?.value,
+    agendaSnap.financieel.metrics["Totale omzet"].secondary?.value,
+    agendaSnap.financieel.metrics["Totale omzet"].secondary?.label,
+    snapAgenda.cockpitKpis.omzetverz.secondary?.value,
+  ],
+  [65, 163, 400, 628, "Verwacht uitbetaald (65% · RMO/RMA 100%)", 65],
+);
+check(
+  "agenda-snap: omzet per verzekeraar (12 mnd, RMO/RMA als eigen groep)",
+  agendaSnap.financieel.omzetPerVerzekeraar,
+  [
+    { label: "RMO/RMA", aantal: 400 },
+    { label: "VGZ", aantal: 250 },
+    { label: "CZ", aantal: 250 },
+  ],
+);
 check("agenda-snap: omzet per locatie", agendaSnap.financieel.omzetPerLocatie, [
-  { label: "Tilburg", aantal: 100 },
-  { label: "Breda", aantal: 150 },
+  { label: "Tilburg", aantal: 500 },
+  { label: "Breda", aantal: 400 },
+]);
+// Tijdvenster-bron: behandelmaand × groep / behandelmaand × vestiging — de
+// financieel-kaarten hersommeren dit voor de gekozen venster-toggle.
+check("agenda-snap: omzet maand × koepel (tijdvenster-bron)", agendaSnap.financieel.omzetKoepelMaand, [
+  { key: "2026-05", koepel: "VGZ", omzet: 150 },
+  { key: "2026-06", koepel: "VGZ", omzet: 100 },
+  { key: "2026-06", koepel: "RMO/RMA", omzet: 400 },
+  { key: "2026-06", koepel: "CZ", omzet: 250 },
+]);
+check("agenda-snap: omzet maand × vestiging (tijdvenster-bron)", agendaSnap.financieel.omzetLocatieMaand, [
+  { key: "2026-05", loc: "Breda", omzet: 150 },
+  { key: "2026-06", loc: "Tilburg", omzet: 500 },
+  { key: "2026-06", loc: "Breda", omzet: 250 },
 ]);
 check(
   "agenda-snap: ouderdom onderhanden (binnen 30 = 200, >90 = 300)",
@@ -971,11 +1054,11 @@ check(
   ["demo", "live", "live", "demo"],
 );
 check("agenda-snap: behandelaarstats Anna (12 mnd)", agendaSnap.behandelaarStats["Anna Jansen"], {
-  sessies: 2,
+  sessies: 3,
   noShowPct: null,
-  directeUren: 2,
-  totaleUren: 2,
-  omzet: 300,
+  directeUren: 3,
+  totaleUren: 3,
+  omzet: 700,
 });
 check(
   "agenda-snap: drill contact30 volgt agenda-telling",
@@ -989,9 +1072,9 @@ if (!snapAgendaBreda.agenda) {
 }
 const bredaPlanning = snapAgendaBreda.agenda.planningMetrics;
 check(
-  "agenda-snap: Breda-filter (alleen mei-afzegging telt daar)",
+  "agenda-snap: Breda-filter (juni-CZ-sessie + mei-afzegging)",
   [bredaPlanning["Afspraken deze maand"].value, bredaPlanning.Geannuleerd.prev],
-  [0, 1],
+  [1, 1],
 );
 
 // ---- Provenance-overlay: badges volgen de aanwezige exports ----
@@ -1027,7 +1110,7 @@ check(
     pageLiveCounts("financieel", { agenda: true }).live,
     pageLiveCounts("financieel", { agenda: true, declaraties: true }).live,
   ],
-  [0, 10, 12],
+  [0, 12, 14],
 );
 check(
   "overlay: agenda-signaleringstitels niet langer demo",
@@ -1140,51 +1223,35 @@ check(
   true,
 );
 
-// ---- Omzet-merge: toeslagen tellen mee in de omzetreeks (zelfde facturen) ----
+// ---- Toeslagen blijven BUITEN de omzetreeks (klantformaat: het eigen
+// facturatie-overzicht en de boekhoudkundige factuurtotalen zijn excl.
+// toeslagen) — de toeslagen-import verandert de omzetkaarten dus niet. ----
 const snapToeslag = computeProductionSnapshot(state, { locatie: "Alle locaties" }, REFERENCE, {
   agenda: agendaFacts,
   toeslagen: toeslagenFixture,
 });
 check(
-  "toeslag-merge: cockpit omzet juni/mei (VGZ-toeslag bij direct)",
+  "toeslag: omzetkaarten ongewijzigd door toeslagen-import (Vecozo juni/mei)",
   [snapToeslag.cockpitKpis.omzetverz.value, snapToeslag.cockpitKpis.omzetverz.prev],
-  [469, 150],
+  [100, 150],
 );
 check(
-  "toeslag-merge: CZ-toeslag telt bij Infomedics-deel",
+  "toeslag: servicebureau-deel ongewijzigd (geen CZ-toeslag erbij)",
   [snapToeslag.cockpitKpis.omzetinfo.value, snapToeslag.cockpitKpis.omzetinfo.prev],
-  [0, 94],
+  [250, 0],
 );
 if (!snapToeslag.agenda) {
-  throw new Error("toeslag-merge: agenda-snapshot ontbreekt");
+  throw new Error("toeslag: agenda-snapshot ontbreekt");
 }
-check("toeslag-merge: omzet per verzekeraar incl. toeslagen", snapToeslag.agenda.financieel.omzetPerVerzekeraar, [
-  { label: "VGZ", aantal: 619 },
-  { label: "CZ", aantal: 94 },
+check("toeslag: omzet per verzekeraar excl. toeslagen", snapToeslag.agenda.financieel.omzetPerVerzekeraar, [
+  { label: "RMO/RMA", aantal: 400 },
+  { label: "VGZ", aantal: 250 },
+  { label: "CZ", aantal: 250 },
 ]);
 check(
-  "toeslag-merge: snapshot-toeslagen totaal",
+  "toeslag: snapshot-toeslagen totaal (eigen kaart blijft bestaan)",
   [snapToeslag.toeslagen?.totaal, snapToeslag.toeslagen?.aantal],
   [463, 3],
-);
-check("toeslag-merge: inOmzetVerwerkt (ongefilterd + agenda)", snapToeslag.toeslagen?.inOmzetVerwerkt, true);
-const snapToeslagBreda = computeProductionSnapshot(state, { locatie: "Breda" }, REFERENCE, {
-  agenda: agendaFacts,
-  toeslagen: toeslagenFixture,
-});
-if (!snapToeslagBreda.agenda) {
-  throw new Error("toeslag-merge: Breda-agenda-snapshot ontbreekt");
-}
-check(
-  "toeslag-merge: locatiefilter sluit toeslagen uit (geen vestiging in export)",
-  [snapToeslagBreda.toeslagen?.inOmzetVerwerkt, snapToeslagBreda.agenda.financieel.metrics["Omzet verzekeraars"].prev],
-  [false, 150],
-);
-check(
-  "toeslag-merge: zonder agenda geen omzet-verwerking",
-  computeProductionSnapshot(state, { locatie: "Alle locaties" }, REFERENCE, { toeslagen: toeslagenFixture }).toeslagen
-    ?.inOmzetVerwerkt,
-  false,
 );
 check(
   "toeslag-provenance: Toeslagen-widget flipt met cap",
@@ -1493,17 +1560,25 @@ if (fs.existsSync(nieuwClientPath) && fs.existsSync(nieuwAgendaPath) && fs.exist
     [nieuwSnap.cockpitKpis.noshow.value, nieuwSnap.cockpitKpis.noshow.prev],
     [0.8, 0.2],
   );
+  // Kanaal-verwachtingen onafhankelijk berekend (Python-profiel 2026-07-23):
+  // behandelmaand-buckets, excl. toeslagen; RMO/RMA = Uzovi 3355 (juni exact
+  // gelijk aan factuur 26000160 uit het facturatie-overzicht van de klant).
   check(
-    "nieuw: omzet-KPI juni/mei — VGZ + DSW direct",
+    "nieuw: omzet-KPI juni/mei — Vecozo (VGZ + DSW-7029, behandelmaand)",
     [nieuwSnap.cockpitKpis.omzetverz.value, nieuwSnap.cockpitKpis.omzetverz.prev],
-    [381214, 316644],
+    [249906, 201420],
   );
   check(
-    "nieuw: omzet-KPI juni/mei — via Infomedics (overige koepels)",
+    "nieuw: omzet-KPI juni/mei — servicebureau (overige koepels)",
     [nieuwSnap.cockpitKpis.omzetinfo.value, nieuwSnap.cockpitKpis.omzetinfo.prev],
-    [170798, 331751],
+    [312840, 258347],
   );
-  check("nieuw: maandreeks totaal = direct + Infomedics (juni 552012)", nieuwSnap.monthly[11].omzet, 552012);
+  check(
+    "nieuw: omzet-KPI juni/mei — RMO/RMA (Uzovi 3355; juni = factuur 26000160)",
+    [nieuwSnap.cockpitKpis.omzetrmo.value, nieuwSnap.cockpitKpis.omzetrmo.prev],
+    [158311, 162506],
+  );
+  check("nieuw: maandreeks totaal juni (Vecozo + servicebureau + RMO/RMA)", nieuwSnap.monthly[11].omzet, 721057);
   check(
     "nieuw: planning juni (afspraken, no-shows, afgezegd, behandeluren)",
     [
@@ -1700,23 +1775,40 @@ if (!aggAfspraken) {
 check(
   "agg-drill: afspraken → maandtabel (12 maanden, nieuwste eerst)",
   [aggAfspraken.rows.length, aggAfspraken.rows[0].key, aggAfspraken.rows[0].sessies],
-  [12, "2026-06", 2],
+  [12, "2026-06", 4],
 );
-check("agg-drill: kop volgt live planning-metric", productionDetailMetric(snapAgenda, "afspraken")?.value, 2);
+check("agg-drill: kop volgt live planning-metric", productionDetailMetric(snapAgenda, "afspraken")?.value, 4);
 const aggTrend = productionDetailTrend(snapAgenda, "afspraken");
 if (!aggTrend) {
   throw new Error("agg-drill: afspraken-trend ontbreekt");
 }
-check("agg-drill: trend volgt maandreeks (laatste = juni)", aggTrend.values.slice(-1), [2]);
+check("agg-drill: trend volgt maandreeks (laatste = juni)", aggTrend.values.slice(-1), [4]);
 check("agg-drill: no-show-kop in procenten", productionDetailMetric(snapAgenda, "noshow")?.f, "pct");
 const aggOmzet = productionAggDetail(snapToeslag, "omzetverz");
 if (!aggOmzet) {
   throw new Error("agg-drill: omzet-aggregaat ontbreekt");
 }
 check(
-  "agg-drill: omzet → factuurmaandtabel met VGZ+DSW-splitsing",
-  [aggOmzet.rows[0].key, aggOmzet.rows[0].omzetVerz, aggOmzet.rows[0].totaal],
-  ["2026-06", 469, 469],
+  "agg-drill: omzet → behandelmaandtabel met driedeling (Vecozo/SB/RMO)",
+  [
+    aggOmzet.rows[0].key,
+    aggOmzet.rows[0].omzetVecozo,
+    aggOmzet.rows[0].omzetSb,
+    aggOmzet.rows[0].omzetRmo,
+    aggOmzet.rows[0].totaal,
+  ],
+  ["2026-06", 100, 250, 400, 750],
+);
+check("agg-drill: verwacht-uitbetaald-kolom toont de volledige berekening", aggOmzet.rows[0].verwacht, 628);
+check(
+  "agg-drill: nieuwe drilldowns omzettotaal/omzetrmo delen de maandtabel",
+  [
+    productionAggDetail(snapToeslag, "omzettotaal")?.rows[0].totaal,
+    productionAggDetail(snapToeslag, "omzetrmo")?.rows[0].omzetRmo,
+    productionDetailMetric(snapToeslag, "omzettotaal")?.value,
+    productionDetailMetric(snapToeslag, "omzetrmo")?.value,
+  ],
+  [750, 400, 750, 400],
 );
 const aggOpenstaand = productionAggDetail(snapDeclaraties, "openstaand");
 if (!aggOpenstaand) {
@@ -1742,14 +1834,14 @@ check(
   "vormen: no-show excl. afzeggingen per vorm (fixture)",
   snapAgenda.agenda?.vormen?.map((vorm) => [vorm.vorm, vorm.sessies, vorm.noShowPct, vorm.afzegPct]),
   [
-    ["online", 2, 0, 50],
-    ["locatie", 2, 50, 0],
+    ["online", 3, 0, 33.3],
+    ["locatie", 3, 33.3, 0],
   ],
 );
 check("beroepen: fixture zonder Beroep-kolom → null (paneel verbergt zich)", snapAgenda.agenda?.beroepen, null);
 check("dekking: declaraties t.o.v. agenda-facturatie (mechaniek)", snapDeclaraties.declaraties?.dekking, {
-  agendaGefactureerd: 250,
-  pct: 780,
+  agendaGefactureerd: 900,
+  pct: 217,
 });
 
 // ---- Optionele sanity-pass op het echte declaratie-totaaloverzicht ----

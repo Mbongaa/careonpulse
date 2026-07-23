@@ -1,10 +1,14 @@
 "use client";
 
+import { useState } from "react";
+
 import { CareonBarList } from "@/app/(main)/dashboard/_components/careon/careon-bar-list";
 import { CareonChartCard } from "@/app/(main)/dashboard/_components/careon/careon-chart-card";
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
 import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
+import { CareonTimeframeToggle } from "@/app/(main)/dashboard/_components/careon/careon-timeframe-toggle";
 import { TREEKNORM_WEKEN } from "@/data/careon/careon-patienten";
+import { CAREON_TIMEFRAME_LABELS, type CareonTimeframe, sliceTimeframe } from "@/data/careon/careon-timeframe";
 
 // Productie-exclusief: mediaan gerealiseerde wachttijd per startmaand. Het
 // kwartaalgemiddelde op deze pagina verbergt de trend; dit paneel toont hem.
@@ -15,11 +19,12 @@ const TREEKNORM_DAGEN = TREEKNORM_WEKEN * 7;
 
 export function WachttijdTrendPanel({ className }: Readonly<{ className?: string }>) {
   const { production } = useCareon();
+  const [timeframe, setTimeframe] = useState<CareonTimeframe>("12m");
   if (!production) {
     return null;
   }
 
-  const trend = production.wachttijdTrend;
+  const trend = sliceTimeframe(production.wachttijdTrend, timeframe);
   const totaalOverTreek = trend.reduce((sum, maand) => sum + maand.overTreek, 0);
 
   return (
@@ -28,7 +33,8 @@ export function WachttijdTrendPanel({ className }: Readonly<{ className?: string
       sub="Mediaan gerealiseerde wachttijd (verwijzing → start) per startmaand"
       className={className}
       titleBadge={<CareonSourceBadge page="patienten" widget="Wachttijd-trend" />}
-      footer={`Rood = maanden met starters boven de Treeknorm (${TREEKNORM_WEKEN} wkn); ${nl.format(totaalOverTreek)} starter(s) overschreden de norm in 12 maanden. Kleine aantallen per maand: lees de n mee.`}
+      action={<CareonTimeframeToggle value={timeframe} onChange={setTimeframe} />}
+      footer={`Rood = maanden met starters boven de Treeknorm (${TREEKNORM_WEKEN} wkn); ${nl.format(totaalOverTreek)} starter(s) overschreden de norm (${CAREON_TIMEFRAME_LABELS[timeframe].toLowerCase()}). Kleine aantallen per maand: lees de n mee.`}
     >
       <CareonBarList
         items={trend.map((maand) => ({

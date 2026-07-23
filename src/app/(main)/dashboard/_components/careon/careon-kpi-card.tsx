@@ -67,6 +67,14 @@ export function CareonKpiCard({
           {!metric.noData && <CareonDeltaBadge metric={metric} />}
         </div>
         <p className="text-muted-foreground text-xs">{subText(metric)}</p>
+        {metric.secondary && !metric.noData && (
+          <div className="mt-1 border-t pt-1.5">
+            <p className="text-muted-foreground text-xs">{metric.secondary.label}</p>
+            <div className="font-medium text-sm tabular-nums leading-tight">
+              {formatCareonValue(metric.secondary.value, metric.secondary.f)}
+            </div>
+          </div>
+        )}
         {metric.spark && metric.spark.length > 0 && <CareonSparkline data={metric.spark} className="mt-1 h-8 w-full" />}
       </CardContent>
     </Card>

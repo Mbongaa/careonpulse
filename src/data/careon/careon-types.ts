@@ -22,6 +22,8 @@ export interface CareonMetricLike extends Omit<CareonMetric, "prev"> {
   windowLabel?: string;
   prevLabel?: string;
   noData?: boolean;
+  /** Tweede waarde onder de hoofdwaarde (bijv. "Verwacht uitbetaald (65%)"). */
+  secondary?: { label: string; value: number; f: CareonKpiFormat };
 }
 
 export type CareonPageId =

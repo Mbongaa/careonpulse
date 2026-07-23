@@ -257,6 +257,11 @@ function round1(value: number): number {
 // instelling (Vurans Veghel) — genormaliseerd tot vestigingsplaats "Veghel".
 export const KNOWN_LOCATIES = ["Tilburg", "Veghel", "Breda", "Roermond"];
 
+// Verwachte uitbetaling (opgave klant, spiegelt zijn FACTURATIE.xlsx):
+// verzekeraarskanalen (Vecozo + servicebureau) ± 65%, RMO/RMA-regelingen 100%.
+// De gemeten toekennings-% per koepel staat in het Declaratiestatus-paneel.
+export const UITBETALING_PCT = 0.65;
+
 export interface SnapshotFilters {
   locatie: string;
 }
@@ -297,7 +302,9 @@ export function computeProductionSnapshot(
     // Agenda-velden worden verderop ingevuld wanneer een agenda-import aanwezig is.
     noshowPct: null,
     omzet: null,
-    omzetInfomedics: null,
+    omzetVecozo: null,
+    omzetServicebureau: null,
+    omzetRmoRma: null,
   }));
 
   const actieveClienten = records.filter((record) => activeAt(record, referenceIso));
@@ -1098,32 +1105,40 @@ export function computeProductionSnapshot(
       blokPerMaand.set(blok.key, (blokPerMaand.get(blok.key) ?? 0) + blok.blokMin);
     }
     const factuurCellen = agendaFacts.facturatie.filter((cel) => inFilter(cel.locatie));
-    // Opgave klant: alleen VGZ en DSW declareren direct; alle overige omzet
-    // loopt via Infomedics. De splitsing volgt de verzekeringskoepel op de factuur.
+    // Kanaal-indeling conform het maandoverzicht van de klant (FACTURATIE.xlsx):
+    // • RMO/RMA — regelingen voor asielzoekers/ontheemden, uitgevoerd door DSW,
+    //   herkenbaar aan Uzovi 3355 (gewone DSW-verzekering is 7029): eigen potje;
+    // • Vecozo — VGZ en DSW declareren rechtstreeks (opgave klant);
+    // • Servicebureau — alle overige koepels lopen via Infomedics.
+    // Alles per BEHANDELMAAND en exclusief toeslagen — zo sluiten de kaarten
+    // 1-op-1 aan op het eigen maandoverzicht en de boekhoudkundige factuurtotalen.
+    const RMO_RMA_UZOVI = "3355";
     const DIRECTE_KOEPELS = new Set(["VGZ", "DSW"]);
-    const omzetVerzPerMaand = new Map<string, number>();
-    const omzetInfoPerMaand = new Map<string, number>();
-    const telOmzet = (key: string, koepel: string | null, omzet: number) => {
-      const doel = koepel !== null && DIRECTE_KOEPELS.has(koepel) ? omzetVerzPerMaand : omzetInfoPerMaand;
+    const omzetVecozoPerMaand = new Map<string, number>();
+    const omzetSbPerMaand = new Map<string, number>();
+    const omzetRmoPerMaand = new Map<string, number>();
+    const isRmoRma = (uzovi: string | null): boolean => uzovi === RMO_RMA_UZOVI;
+    const kanaalDoel = (koepel: string | null, uzovi: string | null): Map<string, number> => {
+      if (isRmoRma(uzovi)) return omzetRmoPerMaand;
+      if (koepel !== null && DIRECTE_KOEPELS.has(koepel)) return omzetVecozoPerMaand;
+      return omzetSbPerMaand;
+    };
+    const telOmzet = (key: string, koepel: string | null, uzovi: string | null, omzet: number) => {
+      const doel = kanaalDoel(koepel, uzovi);
       doel.set(key, (doel.get(key) ?? 0) + omzet);
     };
     for (const cel of factuurCellen) {
-      telOmzet(cel.key, cel.koepel, cel.omzet);
-    }
-    // Toeslagen (zelfde facturen, extra regels) tellen mee in de omzetreeks —
-    // alleen ongefilterd: de toeslagen-export draagt geen vestiging.
-    const toeslagenMee = filters.locatie === "Alle locaties" ? (extra?.toeslagen ?? null) : null;
-    if (toeslagenMee) {
-      for (const cel of toeslagenMee.cellen) {
-        telOmzet(cel.key, cel.koepel, cel.omzet);
-      }
+      telOmzet(cel.key, cel.koepel, cel.uzovi, cel.omzet);
     }
     const omzetPerMaand = new Map<string, number>();
-    for (const bron of [omzetVerzPerMaand, omzetInfoPerMaand]) {
+    for (const bron of [omzetVecozoPerMaand, omzetSbPerMaand, omzetRmoPerMaand]) {
       for (const [key, omzet] of bron) {
         omzetPerMaand.set(key, (omzetPerMaand.get(key) ?? 0) + omzet);
       }
     }
+    // Groepslabel voor de koepel-uitsplitsingen: RMO/RMA apart van gewone DSW.
+    const koepelGroep = (cel: { koepel: string | null; uzovi: string | null }): string =>
+      isRmoRma(cel.uzovi) ? "RMO/RMA" : (cel.koepel ?? "Onbekend");
 
     const laatste = van(lastAgendaMonth.key);
     const vorige = van(prevAgendaMonth.key);
@@ -1260,10 +1275,14 @@ export function computeProductionSnapshot(
     ].filter((item) => item.value > 0);
 
     // ---- Financieel ----
-    const omzetLaatste = omzetVerzPerMaand.get(lastAgendaMonth.key) ?? 0;
-    const omzetVorige = omzetVerzPerMaand.get(prevAgendaMonth.key) ?? 0;
-    const omzetInfoLaatste = omzetInfoPerMaand.get(lastAgendaMonth.key) ?? 0;
-    const omzetInfoVorige = omzetInfoPerMaand.get(prevAgendaMonth.key) ?? 0;
+    const vecozoLaatste = omzetVecozoPerMaand.get(lastAgendaMonth.key) ?? 0;
+    const vecozoVorige = omzetVecozoPerMaand.get(prevAgendaMonth.key) ?? 0;
+    const sbLaatste = omzetSbPerMaand.get(lastAgendaMonth.key) ?? 0;
+    const sbVorige = omzetSbPerMaand.get(prevAgendaMonth.key) ?? 0;
+    const rmoLaatste = omzetRmoPerMaand.get(lastAgendaMonth.key) ?? 0;
+    const rmoVorige = omzetRmoPerMaand.get(prevAgendaMonth.key) ?? 0;
+    const omzetTotaalLaatste = vecozoLaatste + sbLaatste + rmoLaatste;
+    const omzetTotaalVorige = vecozoVorige + sbVorige + rmoVorige;
     const onderhandenTotaal = totaalRollup.onderhanden;
     // ">90 dagen": alles ouder dan drie volle maanden vóór de agenda-referentie.
     const drempel90 = agendaMonths[agendaMonths.length - 3].key;
@@ -1277,20 +1296,52 @@ export function computeProductionSnapshot(
       agendaFacts.clienten.length === 0 ? null : omzetGerealiseerdTotaal / agendaFacts.clienten.length;
     const trajectenTotaal = agendaFacts.trajecten ?? 0;
 
+    const verwachtUitbetaald = (bedrag: number, pct: number, pctLabel: string): LiveMetric["secondary"] => ({
+      label: `Verwacht uitbetaald (${pctLabel})`,
+      value: Math.round(bedrag * pct),
+      f: "eurK",
+    });
+    const verwachtTotaal = (vecozo: number, sb: number, rmo: number): number =>
+      Math.round((vecozo + sb) * UITBETALING_PCT + rmo);
+
+    // Gesleuteld op de demo-labels (vervangings-patroon); "Totale omzet" en
+    // "Omzet RMO/RMA" zijn productie-exclusieve kaarten zonder demo-slot.
     const financieelMetrics: Record<string, LiveMetric> = {
-      "Omzet verzekeraars": {
-        label: "Omzet verzekeraars",
-        value: Math.round(omzetLaatste),
-        prev: Math.round(omzetVorige),
+      "Totale omzet": {
+        label: "Totale omzet",
+        value: Math.round(omzetTotaalLaatste),
+        prev: Math.round(omzetTotaalVorige),
         f: "eurK",
-        windowLabel: `VGZ + DSW · ${maandLabel}`,
+        windowLabel: `behandelmaand ${maandLabel} · excl. toeslagen`,
+        secondary: {
+          label: "Verwacht uitbetaald (65% · RMO/RMA 100%)",
+          value: verwachtTotaal(vecozoLaatste, sbLaatste, rmoLaatste),
+          f: "eurK",
+        },
+      },
+      "Omzet verzekeraars": {
+        label: "Omzet Vecozo (VGZ + DSW)",
+        value: Math.round(vecozoLaatste),
+        prev: Math.round(vecozoVorige),
+        f: "eurK",
+        windowLabel: `behandelmaand ${maandLabel}`,
+        secondary: verwachtUitbetaald(vecozoLaatste, UITBETALING_PCT, "65%"),
       },
       "Omzet Infomedics": {
-        label: "Omzet Infomedics",
-        value: Math.round(omzetInfoLaatste),
-        prev: Math.round(omzetInfoVorige),
+        label: "Omzet servicebureau",
+        value: Math.round(sbLaatste),
+        prev: Math.round(sbVorige),
         f: "eurK",
-        windowLabel: `overige koepels · ${maandLabel}`,
+        windowLabel: `via Infomedics · behandelmaand ${maandLabel}`,
+        secondary: verwachtUitbetaald(sbLaatste, UITBETALING_PCT, "65%"),
+      },
+      "Omzet RMO/RMA": {
+        label: "Omzet RMO/RMA",
+        value: Math.round(rmoLaatste),
+        prev: Math.round(rmoVorige),
+        f: "eurK",
+        windowLabel: `via DSW · behandelmaand ${maandLabel}`,
+        secondary: verwachtUitbetaald(rmoLaatste, 1, "100%"),
       },
       "Onderhanden werk": {
         label: "Onderhanden werk",
@@ -1332,15 +1383,8 @@ export function computeProductionSnapshot(
     const omzetKoepels = new Map<string, number>();
     for (const cel of factuurCellen) {
       if (!agendaKeys.has(cel.key)) continue;
-      const label = cel.koepel ?? "Onbekend";
+      const label = koepelGroep(cel);
       omzetKoepels.set(label, (omzetKoepels.get(label) ?? 0) + cel.omzet);
-    }
-    if (toeslagenMee) {
-      for (const cel of toeslagenMee.cellen) {
-        if (!agendaKeys.has(cel.key)) continue;
-        const label = cel.koepel ?? "Onbekend";
-        omzetKoepels.set(label, (omzetKoepels.get(label) ?? 0) + cel.omzet);
-      }
     }
     const koepelsGesorteerd = [...omzetKoepels.entries()].sort((a, b) => b[1] - a[1]);
     const omzetPerVerzekeraar = koepelsGesorteerd.slice(0, 5).map(([label, omzet]) => ({
@@ -1359,6 +1403,40 @@ export function computeProductionSnapshot(
     const omzetPerLocatie = [...KNOWN_LOCATIES, "Onbekend"]
       .filter((loc) => (omzetLocaties.get(loc) ?? 0) > 0)
       .map((loc) => ({ label: loc, aantal: Math.round(omzetLocaties.get(loc) ?? 0) }));
+
+    // Maand × koepel / maand × vestiging binnen hetzelfde 12-maandsvenster —
+    // de kaarten hersommeren dit client-side voor het gekozen tijdvenster.
+    // Ongeaffronde bedragen: afronden gebeurt pas ná de som per venster.
+    const koepelMaand = new Map<string, number>();
+    const locatieMaand = new Map<string, number>();
+    const telVenster = (doel: Map<string, number>, key: string, groep: string, omzet: number) => {
+      if (!agendaKeys.has(key)) return;
+      const sleutel = `${key}|${groep}`;
+      doel.set(sleutel, (doel.get(sleutel) ?? 0) + omzet);
+    };
+    for (const cel of factuurCellen) {
+      telVenster(koepelMaand, cel.key, koepelGroep(cel), cel.omzet);
+      telVenster(locatieMaand, cel.key, cel.locatie ?? "Onbekend", cel.omzet);
+    }
+    const naarMaandRijen = (bron: Map<string, number>) =>
+      [...bron.entries()]
+        .map(([sleutel, omzet]) => {
+          const [key, groep] = sleutel.split("|");
+          return { key, groep, omzet };
+        })
+        // Totale orde (0 bij gelijke sleutel): stabiele sortering houdt de
+        // invoegvolgorde binnen een maand vast — meerdere groepen per maand.
+        .sort((a, b) => a.key.localeCompare(b.key));
+    const omzetKoepelMaand = naarMaandRijen(koepelMaand).map(({ key, groep, omzet }) => ({
+      key,
+      koepel: groep,
+      omzet,
+    }));
+    const omzetLocatieMaand = naarMaandRijen(locatieMaand).map(({ key, groep, omzet }) => ({
+      key,
+      loc: groep,
+      omzet,
+    }));
 
     const maandAfstand = (key: string): number =>
       Number(lastAgendaMonth.key.slice(0, 4)) * 12 +
@@ -1521,16 +1599,28 @@ export function computeProductionSnapshot(
       windowLabel: maandLabel,
     };
     cockpitKpis.omzetverz = {
-      value: Math.round(omzetLaatste),
-      prev: Math.round(omzetVorige),
-      spark: agendaMonths.map((month) => Math.round(omzetVerzPerMaand.get(month.key) ?? 0)),
-      windowLabel: maandLabel,
+      label: "Omzet Vecozo (VGZ + DSW)",
+      value: Math.round(vecozoLaatste),
+      prev: Math.round(vecozoVorige),
+      spark: agendaMonths.map((month) => Math.round(omzetVecozoPerMaand.get(month.key) ?? 0)),
+      windowLabel: `behandelmaand ${maandLabel}`,
+      secondary: verwachtUitbetaald(vecozoLaatste, UITBETALING_PCT, "65%"),
     };
     cockpitKpis.omzetinfo = {
-      value: Math.round(omzetInfoLaatste),
-      prev: Math.round(omzetInfoVorige),
-      spark: agendaMonths.map((month) => Math.round(omzetInfoPerMaand.get(month.key) ?? 0)),
-      windowLabel: maandLabel,
+      label: "Omzet servicebureau",
+      value: Math.round(sbLaatste),
+      prev: Math.round(sbVorige),
+      spark: agendaMonths.map((month) => Math.round(omzetSbPerMaand.get(month.key) ?? 0)),
+      windowLabel: `behandelmaand ${maandLabel}`,
+      secondary: verwachtUitbetaald(sbLaatste, UITBETALING_PCT, "65%"),
+    };
+    cockpitKpis.omzetrmo = {
+      label: "Omzet RMO/RMA",
+      value: Math.round(rmoLaatste),
+      prev: Math.round(rmoVorige),
+      spark: agendaMonths.map((month) => Math.round(omzetRmoPerMaand.get(month.key) ?? 0)),
+      windowLabel: `behandelmaand ${maandLabel}`,
+      secondary: verwachtUitbetaald(rmoLaatste, 1, "100%"),
     };
 
     // ---- Maandreeks verrijken (no-show-trend en omzetontwikkeling) ----
@@ -1544,7 +1634,9 @@ export function computeProductionSnapshot(
           : null;
       const binnenBereik = point.key >= bronVanMaand && point.key <= bronTotMaand;
       point.omzet = binnenBereik ? Math.round(omzetPerMaand.get(point.key) ?? 0) : null;
-      point.omzetInfomedics = binnenBereik ? Math.round(omzetInfoPerMaand.get(point.key) ?? 0) : null;
+      point.omzetVecozo = binnenBereik ? Math.round(omzetVecozoPerMaand.get(point.key) ?? 0) : null;
+      point.omzetServicebureau = binnenBereik ? Math.round(omzetSbPerMaand.get(point.key) ?? 0) : null;
+      point.omzetRmoRma = binnenBereik ? Math.round(omzetRmoPerMaand.get(point.key) ?? 0) : null;
     }
 
     // ---- Signaleringen uit de agenda ----
@@ -1623,10 +1715,13 @@ export function computeProductionSnapshot(
         tijdigAfgezegd: rollup.tijdigAfgezegd,
         directeUren: uren(rollup.directeMin),
         indirecteUren: uren(rollup.indirecteMin),
+        reisUren: uren(rollup.reisMin),
         totaleUren: uren(rollup.totaleMin),
         blokUren: uren(blokPerMaand.get(month.key) ?? 0),
         omzetGerealiseerd: Math.round(rollup.omzetGerealiseerd),
         onderhanden: Math.round(rollup.onderhanden),
+        online: rollup.online,
+        opLocatie: rollup.opLocatie,
       };
     });
 
@@ -1694,6 +1789,8 @@ export function computeProductionSnapshot(
         metrics: financieelMetrics,
         omzetPerVerzekeraar,
         omzetPerLocatie,
+        omzetKoepelMaand,
+        omzetLocatieMaand,
         onderhandenTotaal: Math.round(onderhandenTotaal),
         onderhandenOuderdom,
       },
@@ -1765,7 +1862,6 @@ export function computeProductionSnapshot(
         label: groep.label,
         aantal: Math.round(groep.aantal),
       })),
-      inOmzetVerwerkt: agendaSnapshot !== null && filters.locatie === "Alle locaties",
     };
   }
 

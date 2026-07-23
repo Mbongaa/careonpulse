@@ -33,9 +33,9 @@ const OPTIONAL_COLUMNS = [
   "Tijdig_afgezegd",
   "Tijdig_afgezegd_Redenen",
   "Verzekeringskoepel",
+  "Uzovi",
   "Prijs",
   "Factuurnummer",
-  "Factuurdatum",
   "Ondertekend",
   "Sessieverslagen",
 ];
@@ -304,14 +304,15 @@ export function parseAgendaExport(
     }
     celMap.set(celKey, cel);
 
-    // Gefactureerde omzet op factuurmaand (facturatie loopt in batches achter
-    // op de behandelmaand); zonder leesbare factuurdatum valt de omzet terug
-    // op de afspraakmaand.
+    // Gefactureerde omzet op BEHANDELMAAND (afspraakmaand) — de klant stuurt
+    // zijn maandoverzichten op behandelmaand; facturatie loopt in batches na
+    // (juni-werk wordt begin juli gefactureerd). Uzovi gaat mee zodat de
+    // RMO/RMA-regelingen (3355) van gewone DSW (7029) te scheiden zijn.
     if (prijs !== null && factuurNummer) {
-      const factuurMaand = (parseDutchDate(cell("Factuurdatum")) ?? datum).slice(0, 7);
       const koepel = cell("Verzekeringskoepel");
-      const factuurKey = `${factuurMaand}|${locatie ?? ""}|${koepel ?? ""}`;
-      const factuur = factuurMap.get(factuurKey) ?? { key: factuurMaand, locatie, koepel, omzet: 0 };
+      const uzovi = cell("Uzovi");
+      const factuurKey = `${maand}|${locatie ?? ""}|${koepel ?? ""}|${uzovi ?? ""}`;
+      const factuur = factuurMap.get(factuurKey) ?? { key: maand, locatie, koepel, uzovi, omzet: 0 };
       factuur.omzet += prijs;
       factuurMap.set(factuurKey, factuur);
     }

@@ -38,6 +38,8 @@ import { DEMO_MIDDELEN_STATE, FUNCTIE_OPTIES, TAAL_OPTIES, TEAM_SEED } from "../
 import { CAREON_ROUTES } from "../data/careon/careon-pages";
 import { PATIENTEN_METRICS } from "../data/careon/careon-patienten";
 import { PLANNING_METRICS } from "../data/careon/careon-planning";
+import { CAREON_MONTHLY } from "../data/careon/careon-shared-charts";
+import { sliceTimeframe, timeframeKeys } from "../data/careon/careon-timeframe";
 import type { CareonMetric } from "../data/careon/careon-types";
 import { formatCareonDelta, formatCareonValue } from "../lib/careon-format";
 import { isMiddelenState } from "../lib/careon-middelen/types";
@@ -548,6 +550,29 @@ check(
   new Set(TEAM_SEED.map((team) => `${team.locatie}::${team.naam}`)).size,
 );
 check("demo-seed draagt de teamstructuur", DEMO_MIDDELEN_STATE.teams, TEAM_SEED);
+
+// ---- Tijdvenster-toggle (per-grafiek venster op maandreeksen) ----
+check(
+  "tijdvenster: 12m = volledige reeks van 12",
+  sliceTimeframe(CAREON_MONTHLY, "12m").map((punt) => punt.m),
+  CAREON_MONTHLY.map((punt) => punt.m),
+);
+check(
+  "tijdvenster: 3m = laatste drie maanden",
+  sliceTimeframe(CAREON_MONTHLY, "3m").map((punt) => punt.m),
+  ["mei", "jun", "jul"],
+);
+check(
+  "tijdvenster: 1m = laatste maand",
+  sliceTimeframe(CAREON_MONTHLY, "1m").map((punt) => punt.m),
+  ["jul"],
+);
+check("tijdvenster: kortere reeks blijft heel", sliceTimeframe(["a", "b"], "6m"), ["a", "b"]);
+check(
+  "tijdvenster: sleutelselectie pakt laatste venster",
+  [...timeframeKeys(["2026-04", "2026-05", "2026-06"], "1m")],
+  ["2026-06"],
+);
 
 console.log(`\nverify-careon: ${passes} passed, ${failures} failed`);
 if (failures > 0) {

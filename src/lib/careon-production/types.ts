@@ -88,6 +88,8 @@ export interface LiveMetric {
   prevLabel?: string;
   /** Geen meetwaarde in dit venster: toon "—" i.p.v. een misleidende 0. */
   noData?: boolean;
+  /** Tweede waarde onder de hoofdwaarde (bijv. "Verwacht uitbetaald (65%)"). */
+  secondary?: { label: string; value: number; f: CareonKpiFormat };
 }
 
 export interface AantalGroep {
@@ -107,10 +109,14 @@ export interface ProductionMonthPoint {
   verwijzingen: number;
   /** No-show-percentage uit de agenda-export; null zonder agenda(-data die maand). */
   noshowPct: number | null;
-  /** Gefactureerde omzet (op factuurmaand) uit de agenda-export; null zonder agenda. */
+  /** Totale gefactureerde omzet per behandelmaand (excl. toeslagen); null zonder agenda. */
   omzet: number | null;
-  /** Deel van de omzet dat via Infomedics loopt (alles buiten VGZ en DSW — opgave klant). */
-  omzetInfomedics: number | null;
+  /** Rechtstreeks gedeclareerd via Vecozo: VGZ + DSW (opgave klant), excl. RMO/RMA. */
+  omzetVecozo: number | null;
+  /** Via het servicebureau (Infomedics): alle overige verzekeringskoepels. */
+  omzetServicebureau: number | null;
+  /** RMO/RMA-regelingen (asielzoekers/ontheemden, uitgevoerd door DSW) — Uzovi 3355. */
+  omzetRmoRma: number | null;
 }
 
 export interface ProductionAlert {
@@ -161,6 +167,12 @@ export interface ProductionAgendaSnapshot {
     metrics: Record<string, LiveMetric>;
     omzetPerVerzekeraar: AantalGroep[];
     omzetPerLocatie: AantalGroep[];
+    /** Behandelmaand × kanaal-groep binnen het 12-maandsvenster (excl. toeslagen;
+     * RMO/RMA als eigen groep) — bron voor de tijdvenster-toggle op "Omzet per
+     * verzekeraar". */
+    omzetKoepelMaand: { key: string; koepel: string; omzet: number }[];
+    /** Maand × vestiging — bron voor de tijdvenster-toggle op "Omzet per locatie". */
+    omzetLocatieMaand: { key: string; loc: string; omzet: number }[];
     onderhandenTotaal: number;
     onderhandenOuderdom: { label: string; bedrag: number; pct: number }[];
   };
@@ -174,10 +186,13 @@ export interface ProductionAgendaSnapshot {
     tijdigAfgezegd: number;
     directeUren: number;
     indirecteUren: number;
+    reisUren: number;
     totaleUren: number;
     blokUren: number;
     omzetGerealiseerd: number;
     onderhanden: number;
+    online: number;
+    opLocatie: number;
   }[];
   /** Per behandelaar (laatste 12 agenda-maanden), sleutel = naam. */
   behandelaarStats: Record<
@@ -222,8 +237,6 @@ export interface ProductionToeslagen {
   perCode: ToeslagCodeGroep[];
   /** € per verzekeringskoepel (afgerond). */
   perKoepel: AantalGroep[];
-  /** Toeslag-omzet telt mee in de omzet-KPI's (vereist agenda + geen locatiefilter). */
-  inOmzetVerwerkt: boolean;
 }
 
 /** Declaratie-gedeelte van de snapshot (alleen na declaratie-import). */
@@ -271,7 +284,18 @@ export interface ProductionSnapshot {
   records: ClientRecord[];
   monthly: ProductionMonthPoint[];
   /** Per cockpit-KPI-id (alleen live/proxy ids aanwezig). */
-  cockpitKpis: Record<string, { value: number; prev: number | null; spark: number[]; windowLabel?: string }>;
+  /** `label` overschrijft het demo-kaartlabel (bijv. "Omzet Vecozo (VGZ + DSW)"). */
+  cockpitKpis: Record<
+    string,
+    {
+      value: number;
+      prev: number | null;
+      spark: number[];
+      windowLabel?: string;
+      label?: string;
+      secondary?: { label: string; value: number; f: CareonKpiFormat };
+    }
+  >;
   cockpitSummary: { label: string; value: string }[];
   cockpitInsights: string[];
   patientenMetrics: Record<string, LiveMetric>;
@@ -411,11 +435,15 @@ export interface AgendaBlokCel {
   blokMin: number;
 }
 
-/** Gefactureerde omzet per (factuurmaand, vestiging, verzekeringskoepel). */
+/** Gefactureerde omzet per (behandelmaand, vestiging, verzekeringskoepel, Uzovi).
+ * De sleutel is de behandelmaand (afspraakdatum) — de klant stuurt zijn
+ * maandoverzichten op behandelmaand, niet op factuurmaand. Uzovi maakt de
+ * RMO/RMA-regelingen (3355) te onderscheiden van gewone DSW-verzekering (7029). */
 export interface AgendaFactuurCel {
   key: string;
   locatie: string | null;
   koepel: string | null;
+  uzovi: string | null;
   omzet: number;
 }
 
@@ -755,6 +783,10 @@ export function isAgendaFacts(value: unknown): value is AgendaFacts {
         isMonthKey((cel as Record<string, unknown>).key) &&
         isNullableString((cel as Record<string, unknown>).locatie) &&
         isNullableString((cel as Record<string, unknown>).koepel) &&
+        // Vereist sinds de RMO/RMA-splitsing: oudere aggregaten (zonder uzovi,
+        // gesleuteld op factuurmaand) worden afgekeurd zodat een her-import
+        // wordt afgedwongen in plaats van stilzwijgend verkeerde cijfers.
+        isNullableString((cel as Record<string, unknown>).uzovi) &&
         isFiniteNumber((cel as Record<string, unknown>).omzet),
     ) &&
     Array.isArray(facts.weekdagen) &&

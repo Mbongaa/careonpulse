@@ -690,6 +690,10 @@ const BUILDERS: Record<string, () => KpiDetailRow[]> = {
       extra: () => ({ verzekeraar: "Infomedics" }),
     }),
 
+  // Productie-exclusieve kaart "Totale omzet": demo-rijen zijn de som van de
+  // twee geauditeerde omzetkaarten (verz + info) — reconcilieert op 493.000.
+  omzettotaal: () => [...demoDetailRows("omzetverz"), ...demoDetailRows("omzetinfo")],
+
   outreach: () =>
     buildClientRows("outreach", {
       total: 114,

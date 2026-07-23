@@ -17,6 +17,7 @@ import {
   isWachtend,
   lastFullMonths,
   monthKeyOf,
+  UITBETALING_PCT,
   uitstroomDatum,
   wachtduurDagen,
 } from "./compute-snapshot";
@@ -416,10 +417,14 @@ function agendaMetric(snapshot: ProductionSnapshot, id: string): LiveMetric | nu
       return planning("Behandeluren");
     case "uren-indirect":
       return planning("Indirecte uren");
+    case "omzettotaal":
+      return financieel("Totale omzet");
     case "omzetverz":
       return financieel("Omzet verzekeraars");
     case "omzetinfo":
       return financieel("Omzet Infomedics");
+    case "omzetrmo":
+      return financieel("Omzet RMO/RMA");
     case "ohw":
       return financieel("Onderhanden werk");
     case "omzet-client":
@@ -491,13 +496,14 @@ function agendaTrend(snapshot: ProductionSnapshot, id: string): { labels: string
       return uitReeks((maand) => maand.directeUren);
     case "uren-indirect":
       return uitReeks((maand) => maand.indirecteUren);
+    case "omzettotaal":
+      return { labels: monthlyLabels, values: snapshot.monthly.map((point) => point.omzet ?? 0) };
     case "omzetverz":
-      return {
-        labels: monthlyLabels,
-        values: snapshot.monthly.map((point) => Math.round((point.omzet ?? 0) - (point.omzetInfomedics ?? 0))),
-      };
+      return { labels: monthlyLabels, values: snapshot.monthly.map((point) => point.omzetVecozo ?? 0) };
     case "omzetinfo":
-      return { labels: monthlyLabels, values: snapshot.monthly.map((point) => point.omzetInfomedics ?? 0) };
+      return { labels: monthlyLabels, values: snapshot.monthly.map((point) => point.omzetServicebureau ?? 0) };
+    case "omzetrmo":
+      return { labels: monthlyLabels, values: snapshot.monthly.map((point) => point.omzetRmoRma ?? 0) };
     case "omzet-client":
     case "omzet-traject":
       return uitReeks((maand) => maand.omzetGerealiseerd);
@@ -529,10 +535,19 @@ const MAAND_COLUMNS: KpiDetailColumn[] = [
 ];
 
 const OMZET_COLUMNS: KpiDetailColumn[] = [
-  { key: "maand", header: "Factuurmaand" },
-  { key: "omzetVerz", header: "VGZ + DSW", format: "eur", align: "right" },
-  { key: "omzetInfo", header: "Via Infomedics", format: "eur", align: "right" },
+  { key: "maand", header: "Behandelmaand" },
+  { key: "omzetVecozo", header: "Vecozo (VGZ + DSW)", format: "eur", align: "right" },
+  { key: "omzetSb", header: "Servicebureau", format: "eur", align: "right" },
+  { key: "omzetRmo", header: "RMO/RMA", format: "eur", align: "right", hideOnMobile: true },
   { key: "totaal", header: "Totaal", format: "eur", align: "right" },
+  // Volledige berekening zichtbaar: (Vecozo + servicebureau) × 65% + RMO/RMA × 100%.
+  {
+    key: "verwacht",
+    header: "Verwacht uitbetaald (65% · RMO 100%)",
+    format: "eur",
+    align: "right",
+    hideOnMobile: true,
+  },
 ];
 
 const KOEPEL_COLUMNS: KpiDetailColumn[] = [
@@ -570,11 +585,15 @@ function omzetTabel(snapshot: ProductionSnapshot): AggDetail | null {
     .map((point) => ({
       key: point.key,
       maand: point.m,
-      omzetVerz: Math.round((point.omzet ?? 0) - (point.omzetInfomedics ?? 0)),
-      omzetInfo: point.omzetInfomedics ?? 0,
+      omzetVecozo: point.omzetVecozo ?? 0,
+      omzetSb: point.omzetServicebureau ?? 0,
+      omzetRmo: point.omzetRmoRma ?? 0,
       totaal: point.omzet ?? 0,
+      verwacht: Math.round(
+        ((point.omzetVecozo ?? 0) + (point.omzetServicebureau ?? 0)) * UITBETALING_PCT + (point.omzetRmoRma ?? 0),
+      ),
     }));
-  return rows.length > 0 ? { columns: OMZET_COLUMNS, eenheid: "factuurmaanden", rows } : null;
+  return rows.length > 0 ? { columns: OMZET_COLUMNS, eenheid: "behandelmaanden", rows } : null;
 }
 
 function koepelTabel(snapshot: ProductionSnapshot): AggDetail | null {
@@ -622,8 +641,10 @@ const AGG_BUILDERS: Record<string, (snapshot: ProductionSnapshot) => AggDetail |
   "uren-productief": maandTabel,
   "uren-behandel": maandTabel,
   "uren-indirect": maandTabel,
+  omzettotaal: omzetTabel,
   omzetverz: omzetTabel,
   omzetinfo: omzetTabel,
+  omzetrmo: omzetTabel,
   "omzet-client": maandTabel,
   "omzet-traject": maandTabel,
   ohw: ouderdomTabel,

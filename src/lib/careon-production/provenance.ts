@@ -60,6 +60,7 @@ export const CAREON_PROVENANCE: Record<string, PageProvenance> = {
       "Dossiers niet compleet": "proxy",
       "Omzet verzekeraars": "demo",
       "Omzet Infomedics": "demo",
+      "Omzet RMO/RMA": "demo",
       "Outreachende cliënten": "proxy",
       Cliënttevredenheid: "demo",
       "Instroom & uitstroom": "live",
@@ -187,8 +188,13 @@ export const CAREON_PROVENANCE: Record<string, PageProvenance> = {
   },
   financieel: {
     widgets: {
+      // "Totale omzet" en "Omzet RMO/RMA" zijn productie-exclusieve kaarten
+      // (klantformaat FACTURATIE.xlsx) — in demo-modus renderen ze niet, maar
+      // de registratie bewaakt de herkomst-sleutels (verify:careon).
+      "Totale omzet": "demo",
       "Omzet verzekeraars": "demo",
       "Omzet Infomedics": "demo",
+      "Omzet RMO/RMA": "demo",
       "Onderhanden werk": "demo",
       "Openstaande declaraties": "demo",
       "Afgekeurde declaraties": "demo",
@@ -236,6 +242,7 @@ export const AGENDA_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
     "No-show trend": "live",
     "Omzet verzekeraars": "live",
     "Omzet Infomedics": "proxy",
+    "Omzet RMO/RMA": "live",
     Omzetontwikkeling: "live",
   },
   signaleringen: {
@@ -264,8 +271,10 @@ export const AGENDA_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
     Sessievormen: "live",
   },
   financieel: {
+    "Totale omzet": "live",
     "Omzet verzekeraars": "live",
     "Omzet Infomedics": "proxy",
+    "Omzet RMO/RMA": "live",
     "Onderhanden werk": "proxy",
     "Gem. omzet / cliënt": "live",
     "Gem. omzet / traject": "live",
@@ -357,7 +366,7 @@ export const AGENDA_PROXY_NOTES: Record<string, string> = {
     "Ouderdom van het onderhanden werk (nog niet gefactureerde sessiewaarde) — geen declaratiestatus.",
   Productiviteit: "Directe tijd als aandeel van de totale geregistreerde sessietijd (laatste 12 agenda-maanden).",
   "Omzet Infomedics":
-    "Conform opgave van de instelling: alleen VGZ en DSW declareren direct; alle overige gefactureerde omzet loopt via Infomedics. Splitsing op de verzekeringskoepel van de factuur.",
+    "Conform opgave van de instelling: alleen VGZ en DSW declareren rechtstreeks via Vecozo; alle overige koepels lopen via het servicebureau (Infomedics). RMO/RMA (Uzovi 3355) is datagedreven afgesplitst; de kanaal-indeling zelf blijft een opgave, geen exportveld. Per behandelmaand, excl. toeslagen.",
 };
 
 export function widgetSource(pageId: string, widgetId: string, caps?: ProvenanceCaps): WidgetSource {
