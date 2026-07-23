@@ -38,6 +38,8 @@ const OPTIONAL_COLUMNS = [
   "AGB code verwijzer",
   "COV Uzovi",
   "Einddatum",
+  "Zorgtraject Start Datum",
+  "Zorgtraject Eind Datum",
   "Wachtlijst Label",
   "Pre Wachtlijst Status",
   "Pre Wachtlijst Label",
@@ -372,6 +374,10 @@ export function parseClientExport(fileName: string, text: string): ParseExportRe
       voorgesteldZorgvraagtype: voorgesteldRaw ? (voorgesteldRaw.split(" - ")[0]?.trim() ?? null) : null,
       verwijzerAgb: cell("AGB code verwijzer"),
       covUzovi: cell("COV Uzovi"),
+      // Traject-datums: de échte aanmelding/uitstroom; episodes kunnen
+      // her-registraties binnen een lopend traject zijn.
+      trajectStart: parseDutchDate(cell("Zorgtraject Start Datum")),
+      trajectEind: parseDutchDate(cell("Zorgtraject Eind Datum")),
       // Kolom "Einddatum" (polis) — niet te verwarren met "Episode einddatum".
       polisEinde: parseDutchDate(cell("Einddatum")),
       wachtlijst: cell("Wachtlijst Status") === "Ja",

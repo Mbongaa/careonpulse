@@ -15,7 +15,26 @@ gekoppeld worden (kaart "Agenda- en verwijzersexport koppelen"):
   facturen staan als de sessies; ze tellen mee in de omzetcijfers (alleen
   ongefilterd — de export draagt geen vestiging) en voeden het
   Toeslagen-paneel op Financieel. De export bevat cliëntnamen (geen ID's):
-  die worden bij het parsen alleen geteld en nooit bewaard.
+  die worden bij het parsen alleen geteld en nooit bewaard;
+- het **declaratie-totaaloverzicht** (declaration total) — per factuur het
+  gedeclareerde bedrag, het toegekende totaalbedrag en creditnota's. Voedt
+  Openstaande declaraties, "Tekort op toekenning", Declaraties >90 dgn, de
+  échte ouderdom van openstaand en het Declaratiestatus-paneel (toekennings-
+  graad per debiteur) + de live signalering "Declaraties >90 dagen open".
+  Particuliere debiteuren (persoonsnamen) worden samengevoegd tot
+  "Particulier"; factuurnummers zijn per debiteur-administratie gesleuteld
+  (de ZVW- en WMO-reeksen overlappen).
+
+**Omzet-splitsing (opgave klant)**: alleen VGZ en DSW declareren direct; alle
+overige omzet loopt via Infomedics. "Omzet verzekeraars" = VGZ + DSW,
+"Omzet Infomedics" = alle overige koepels — gesplitst op de
+verzekeringskoepel van de factuur, zichtbaar in beide KPI's en als gestapelde
+reeksen in de Omzetontwikkeling-chart.
+
+**KPI-drilldowns**: kaarten zijn overal klikbaar. Cliëntgebonden drilldowns
+tonen echte pseudonieme records; agenda-/declaratie-gedreven drilldowns tonen
+een live kop + trend + een geaggregeerde maand- of debiteurentabel (losse
+afspraakregels worden uit privacy-oogpunt niet bewaard).
 
 Widgets zonder EPD-bron blijven demo-data tonen en zijn als zodanig gemarkeerd.
 

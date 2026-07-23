@@ -34,6 +34,7 @@ export function CareonSourceBadge({
     agendaToekomst: production?.agenda?.vooruitblik != null,
     verwijzers: production?.verwijzerNetwerk != null,
     toeslagen: production?.toeslagen != null,
+    declaraties: production?.declaraties != null,
   };
   const source = widgetSource(page, widget, caps);
   let note = "Berekend uit de geïmporteerde EPD-export.";

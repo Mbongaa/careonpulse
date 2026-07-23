@@ -1,8 +1,11 @@
 "use client";
 
+import { CareonBarList } from "@/app/(main)/dashboard/_components/careon/careon-bar-list";
+import { CareonChartCard } from "@/app/(main)/dashboard/_components/careon/careon-chart-card";
 import { CareonLiveBanner } from "@/app/(main)/dashboard/_components/careon/careon-live-banner";
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
+import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import { BEHANDELAREN, CASELOAD_NORM } from "@/data/careon/careon-behandelaren";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 
@@ -19,6 +22,8 @@ function voetnoot(isProduction: boolean, metAgenda: boolean): string {
   }
   return `Caseload = actieve cliënten per behandelaar uit de EPD-export; rood boven de norm van ${CASELOAD_NORM}. Consulten, no-show, productiviteit, omzet, ROM en tevredenheid volgen zodra de agenda-, declaratie- en ROM-exports gekoppeld zijn.`;
 }
+
+const nlFmt = new Intl.NumberFormat("nl-NL");
 
 export function BehandelarenContent() {
   const { filters, production } = useCareon();
@@ -54,6 +59,24 @@ export function BehandelarenContent() {
         <FunctiemixPanel />
         <TeamBezettingPanel />
       </div>
+
+      {/* Productie-exclusief (agenda-import): inzet per ZPM-beroepcode. */}
+      {production?.agenda?.beroepen && (
+        <CareonChartCard
+          title="Inzet per ZPM-beroep"
+          sub="Sessies en directe uren per beroepcode · hele export"
+          titleBadge={<CareonSourceBadge page="behandelaren" widget="Beroepsmix" />}
+          footer="Beroepcodes (BP) uit de agenda-export; tussen haakjes de behandelaren met de meeste sessies onder de code. Officiële ZPM-beroepslabels volgen na bevestiging van de instelling."
+        >
+          <CareonBarList
+            items={production.agenda.beroepen.slice(0, 8).map((beroep) => ({
+              label: `${beroep.code}${beroep.behandelaars.length > 0 ? ` (${beroep.behandelaars.join(", ")})` : ""}`,
+              value: beroep.sessies,
+              display: `${nlFmt.format(beroep.sessies)} sessies · ${nlFmt.format(beroep.directeUren)} u`,
+            }))}
+          />
+        </CareonChartCard>
+      )}
     </div>
   );
 }

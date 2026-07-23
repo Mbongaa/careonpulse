@@ -25,14 +25,15 @@ export function FinancieelContent() {
   const { production } = useCareon();
   const financieel = production?.agenda?.financieel;
   const toeslagen = production?.toeslagen;
+  const declaraties = production?.declaraties;
 
   // Vervangings-patroon: agenda-metrics zijn gesleuteld op de demo-labels.
-  // Agenda-gedreven kaarten linken niet naar de KPI-drilldown — er worden
-  // geen losse factuur-/afspraakregels bewaard, alleen aggregaten.
+  // Alle kaarten linken naar hun KPI-drilldown; agenda-/declaratie-gedreven
+  // drilldowns tonen daar de geaggregeerde maand- of debiteurentabel.
   const metrics = FINANCIEEL_METRICS.map((metric) => {
     const live = financieel?.metrics[metric.label];
     if (live) {
-      return { metric: live, detailId: undefined };
+      return { metric: live, detailId: metric.detailId };
     }
     return { metric, detailId: metric.detailId };
   });
@@ -63,23 +64,46 @@ export function FinancieelContent() {
         tone: "accent" as const,
       }));
 
-  const ouderdomItems = financieel
-    ? financieel.onderhandenOuderdom.map((row, index) => ({
-        label: row.label,
-        value: row.pct,
-        display: `${row.pct}% · € ${nl.format(row.bedrag)}`,
-        tone: index === financieel.onderhandenOuderdom.length - 1 ? ("bad" as const) : ("default" as const),
-      }))
-    : DECLARATIE_OUDERDOM.map((row, index) => ({
-        label: row.label,
-        value: row.pct,
-        display: `${row.pct}%`,
-        tone: index === DECLARATIE_OUDERDOM.length - 1 ? ("bad" as const) : ("default" as const),
-      }));
+  let ouderdomItems = DECLARATIE_OUDERDOM.map((row, index) => ({
+    label: row.label,
+    value: row.pct,
+    display: `${row.pct}%`,
+    tone: index === DECLARATIE_OUDERDOM.length - 1 ? ("bad" as const) : ("default" as const),
+  }));
+  if (declaraties) {
+    // Echte ouderdom van openstaande (niet-toegekende) declaratiebedragen.
+    ouderdomItems = declaraties.ouderdom.map((row, index) => ({
+      label: row.label,
+      value: row.pct,
+      display: `${row.pct}% · € ${nl.format(row.bedrag)}`,
+      tone: index === declaraties.ouderdom.length - 1 ? ("bad" as const) : ("default" as const),
+    }));
+  } else if (financieel) {
+    ouderdomItems = financieel.onderhandenOuderdom.map((row, index) => ({
+      label: row.label,
+      value: row.pct,
+      display: `${row.pct}% · € ${nl.format(row.bedrag)}`,
+      tone: index === financieel.onderhandenOuderdom.length - 1 ? ("bad" as const) : ("default" as const),
+    }));
+  }
+
+  let ouderdomTitel = "Ouderdom openstaande declaraties";
+  let ouderdomSub = `€ ${nl.format(OPENSTAAND_TOTAAL)} totaal openstaand`;
+  if (declaraties) {
+    ouderdomSub = `€ ${nl.format(declaraties.openstaand)} openstaand (nog niet toegekend)`;
+  } else if (financieel) {
+    ouderdomTitel = "Ouderdom onderhanden werk";
+    ouderdomSub = `€ ${nl.format(financieel.onderhandenTotaal)} nog niet gefactureerd`;
+  }
 
   const ouder90 = financieel?.onderhandenOuderdom[financieel.onderhandenOuderdom.length - 1];
   let ouderdomFooter = FINANCIEEL_NOTE;
-  if (financieel) {
+  if (declaraties) {
+    ouderdomFooter =
+      declaraties.openstaand90.facturen > 0
+        ? `€ ${nl.format(declaraties.openstaand90.bedrag)} (${nl.format(declaraties.openstaand90.facturen)} facturen) staat langer dan 90 dagen open zonder volledige toekenning — zie Signaleringen.`
+        : "Geen declaraties ouder dan 90 dagen zonder toekenning.";
+  } else if (financieel) {
     ouderdomFooter =
       ouder90 && ouder90.bedrag > 0
         ? `€ ${nl.format(ouder90.bedrag)} aan sessiewaarde wacht al langer dan 90 dagen op facturatie. Declaratiestatus (Vecozo/afgekeurd) vereist de declaratie-export.`
@@ -124,18 +148,35 @@ export function FinancieelContent() {
         </CareonChartCard>
 
         <CareonChartCard
-          title={financieel ? "Ouderdom onderhanden werk" : "Ouderdom openstaande declaraties"}
-          sub={
-            financieel
-              ? `€ ${nl.format(financieel.onderhandenTotaal)} nog niet gefactureerd`
-              : `€ ${nl.format(OPENSTAAND_TOTAAL)} totaal openstaand`
-          }
+          title={ouderdomTitel}
+          sub={ouderdomSub}
           className="lg:col-span-7"
           titleBadge={<CareonSourceBadge page="financieel" widget="Ouderdom openstaande declaraties" />}
           footer={ouderdomFooter}
         >
           <CareonBarList max={100} items={ouderdomItems} />
         </CareonChartCard>
+
+        {/* Productie-exclusief: rendert alleen na de declaratie-import. */}
+        {declaraties && (
+          <CareonChartCard
+            title="Declaratiestatus"
+            sub={`€ ${nl.format(declaraties.gefactureerd)} gedeclareerd · ${declaraties.toekenningsPct}% toegekend · € ${nl.format(declaraties.gecrediteerd)} gecrediteerd`}
+            className="lg:col-span-7"
+            titleBadge={<CareonSourceBadge page="financieel" widget="Declaratiestatus" />}
+            footer={`${nl.format(declaraties.status.volledig)} facturen volledig toegekend, ${nl.format(declaraties.status.deels)} deels (tekort € ${nl.format(declaraties.tekortDeels)}), ${nl.format(declaraties.status.zonder)} nog zonder toekenning.${declaraties.dekking ? ` Dekking: € ${nl.format(declaraties.gefactureerd)} van € ${nl.format(declaraties.dekking.agendaGefactureerd)} gefactureerd (${declaraties.dekking.pct}%) — een deel van de Vurans-facturen ontbreekt in dit overzicht.` : ""} Het locatiefilter is hier niet van toepassing.`}
+          >
+            <CareonBarList
+              max={100}
+              items={declaraties.perKoepel.slice(0, 6).map((row) => ({
+                label: `${row.label} · € ${nl.format(row.gefactureerd)}`,
+                value: row.pct,
+                display: `${row.pct}% toegekend${row.openstaand > 0 ? ` · € ${nl.format(row.openstaand)} open` : ""}`,
+                tone: row.pct < 80 ? ("bad" as const) : ("default" as const),
+              }))}
+            />
+          </CareonChartCard>
+        )}
 
         {/* Productie-exclusief: rendert alleen na de toeslagen-import. */}
         {toeslagen && (

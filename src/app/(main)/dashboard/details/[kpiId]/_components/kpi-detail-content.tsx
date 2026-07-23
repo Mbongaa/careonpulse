@@ -20,6 +20,7 @@ import type { CareonMetricLike } from "@/data/careon/careon-types";
 import {
   hasProductionDetailRows,
   PRODUCTION_DETAIL_ROWS,
+  productionAggDetail,
   productionDetailMetric,
   productionDetailTrend,
 } from "@/lib/careon-production/detail-rows";
@@ -37,13 +38,19 @@ export function KpiDetailContent({ kpiId }: Readonly<{ kpiId: string }>) {
   const router = useRouter();
   const { filters, kpis, factor, production } = useCareon();
 
-  const liveRows = production && entry && hasProductionDetailRows(entry.id, production);
+  // Agenda-/declaratie-gedreven kaarten hebben (bewust) geen losse records:
+  // hun detailtabel toont de eerlijke aggregaten per maand of per debiteur.
+  const aggDetail = production && entry ? productionAggDetail(production, entry.id) : null;
+  const liveRows = production && entry && (hasProductionDetailRows(entry.id, production) || aggDetail !== null);
 
   // Records: in productie de echte (al op vestiging gefilterde) ClientRecords,
   // anders de deterministische demo-set met client-side locatiefilter.
   const rows = useMemo(() => {
     if (!entry) {
       return [];
+    }
+    if (aggDetail) {
+      return aggDetail.rows;
     }
     if (production && hasProductionDetailRows(entry.id, production)) {
       return PRODUCTION_DETAIL_ROWS[entry.id](production);
@@ -53,7 +60,7 @@ export function KpiDetailContent({ kpiId }: Readonly<{ kpiId: string }>) {
       return demo;
     }
     return demo.filter((row) => !row.loc || row.loc === filters.locatie);
-  }, [entry, production, filters.locatie]);
+  }, [entry, production, filters.locatie, aggDetail]);
 
   if (!entry) {
     return null;
@@ -82,14 +89,22 @@ export function KpiDetailContent({ kpiId }: Readonly<{ kpiId: string }>) {
   const showTrend = !production || liveTrend !== null;
 
   // Productie-rijen dragen EPD-deeplinks — dan verschijnt de dossierkolom.
-  const columns =
-    liveRows && rows.some((row) => typeof row.dossierUrl === "string" && row.dossierUrl.startsWith("https://"))
-      ? [...entry.columns, DOSSIER_LINK_COLUMN]
-      : entry.columns;
+  // Geaggregeerde drilldowns brengen hun eigen kolommen mee.
+  let columns = entry.columns;
+  if (aggDetail) {
+    columns = aggDetail.columns;
+  } else if (
+    liveRows &&
+    rows.some((row) => typeof row.dossierUrl === "string" && row.dossierUrl.startsWith("https://"))
+  ) {
+    columns = [...entry.columns, DOSSIER_LINK_COLUMN];
+  }
 
   const teamNote =
     !production && filters.team !== "Alle teams" ? " · teamfilter niet van toepassing op deze detailweergave" : "";
-  const caption = `${nl.format(rows.length)} records · ${filters.locatie}${teamNote}`;
+  const caption = aggDetail
+    ? `${nl.format(rows.length)} ${aggDetail.eenheid} · geaggregeerd (losse afspraakregels worden uit privacy-oogpunt niet bewaard)`
+    : `${nl.format(rows.length)} records · ${filters.locatie}${teamNote}`;
   const waitNote = production && !liveRows ? DETAIL_WAIT_NOTES[entry.page] : undefined;
 
   return (

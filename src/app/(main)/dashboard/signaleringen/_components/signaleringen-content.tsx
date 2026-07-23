@@ -26,6 +26,7 @@ export function SignaleringenContent() {
     agendaToekomst: production?.agenda?.vooruitblik != null,
     verwijzers: production?.verwijzerNetwerk != null,
     toeslagen: production?.toeslagen != null,
+    declaraties: production?.declaraties != null,
   };
   const wachtOpData = production
     ? CAREON_ALERTS.filter((alert) => widgetSource("signaleringen", alert.titel, caps) === "demo")

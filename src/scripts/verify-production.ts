@@ -26,22 +26,31 @@ import { computeProductionSnapshot } from "../lib/careon-production/compute-snap
 import {
   hasProductionDetailRows,
   PRODUCTION_DETAIL_ROWS,
+  productionAggDetail,
   productionDetailMetric,
   productionDetailTrend,
 } from "../lib/careon-production/detail-rows";
 import { parseAgendaExport } from "../lib/careon-production/parse-agenda";
+import { parseDeclaratiesExport } from "../lib/careon-production/parse-declaraties";
 import { diagnoseGroepVanCode, parseClientExport, parseDutchDate } from "../lib/careon-production/parse-export";
 import { parseToeslagenExport } from "../lib/careon-production/parse-toeslagen";
 import { parseVerwijzersExport } from "../lib/careon-production/parse-verwijzers";
 import {
   AGENDA_PROVENANCE,
   CAREON_PROVENANCE,
+  DECLARATIES_PROVENANCE,
   pageLiveCounts,
   TOESLAGEN_PROVENANCE,
   VERWIJZERS_PROVENANCE,
   widgetSource,
 } from "../lib/careon-production/provenance";
-import { isAgendaFacts, isProductionState, isToeslagenFacts, isVerwijzersFacts } from "../lib/careon-production/types";
+import {
+  isAgendaFacts,
+  isDeclaratiesFacts,
+  isProductionState,
+  isToeslagenFacts,
+  isVerwijzersFacts,
+} from "../lib/careon-production/types";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -842,14 +851,19 @@ check(
   50,
 );
 check(
-  "agenda-snap: cockpit no-show juni 50% (1/2), mei 0%",
+  "agenda-snap: no-show juni 50%; mei zonder noemer (1 sessie, 1 afgezegd) → null",
   [snapAgenda.cockpitKpis.noshow.value, snapAgenda.cockpitKpis.noshow.prev],
-  [50, 0],
+  [50, null],
 );
 check(
-  "agenda-snap: cockpit omzet juni/mei (factuurmaand)",
+  "agenda-snap: cockpit omzet juni/mei (factuurmaand, VGZ = direct)",
   [snapAgenda.cockpitKpis.omzetverz.value, snapAgenda.cockpitKpis.omzetverz.prev],
   [100, 150],
+);
+check(
+  "agenda-snap: Infomedics-deel 0 (alle fixture-facturen VGZ)",
+  [snapAgenda.cockpitKpis.omzetinfo.value, snapAgenda.monthly[11].omzetInfomedics],
+  [0, 0],
 );
 check(
   "agenda-snap: maandreeks draagt no-show en omzet",
@@ -1004,12 +1018,16 @@ check(
 check(
   "overlay: planning telling zonder/met agenda",
   [pageLiveCounts("planning").live, pageLiveCounts("planning", { agenda: true }).live],
-  [1, 11],
+  [1, 12],
 );
 check(
-  "overlay: financieel telling zonder/met agenda",
-  [pageLiveCounts("financieel").live, pageLiveCounts("financieel", { agenda: true }).live],
-  [0, 9],
+  "overlay: financieel telling zonder/met agenda/met declaraties",
+  [
+    pageLiveCounts("financieel").live,
+    pageLiveCounts("financieel", { agenda: true }).live,
+    pageLiveCounts("financieel", { agenda: true, declaraties: true }).live,
+  ],
+  [0, 10, 12],
 );
 check(
   "overlay: agenda-signaleringstitels niet langer demo",
@@ -1128,9 +1146,14 @@ const snapToeslag = computeProductionSnapshot(state, { locatie: "Alle locaties" 
   toeslagen: toeslagenFixture,
 });
 check(
-  "toeslag-merge: cockpit omzet juni/mei (agenda + toeslagen)",
+  "toeslag-merge: cockpit omzet juni/mei (VGZ-toeslag bij direct)",
   [snapToeslag.cockpitKpis.omzetverz.value, snapToeslag.cockpitKpis.omzetverz.prev],
-  [469, 244],
+  [469, 150],
+);
+check(
+  "toeslag-merge: CZ-toeslag telt bij Infomedics-deel",
+  [snapToeslag.cockpitKpis.omzetinfo.value, snapToeslag.cockpitKpis.omzetinfo.prev],
+  [0, 94],
 );
 if (!snapToeslag.agenda) {
   throw new Error("toeslag-merge: agenda-snapshot ontbreekt");
@@ -1214,7 +1237,7 @@ if (fs.existsSync(realPath)) {
     REFERENCE,
   );
   check("echt: actieve cliënten", realSnap.cockpitKpis.actief.value, 767);
-  check("echt: aanmeldingen juni", realSnap.cockpitKpis.aanmeldingen.value, 104);
+  check("echt: aanmeldingen juni (zorgtraject-start)", realSnap.cockpitKpis.aanmeldingen.value, 164);
   check("echt: gesloten juni", realSnap.cockpitKpis.gesloten.value, 39);
   check("echt: outreach S04", realSnap.cockpitKpis.outreach.value, 52);
   check("echt: wachtlijst totaal", realSnap.dossiersProductie.wachtlijst.totaal, 72);
@@ -1340,7 +1363,7 @@ if (fs.existsSync(realPath)) {
   // KPI-drilldowns over de echte export: tellingen matchen de kaartwaarden.
   check("echt: drill actief rows", PRODUCTION_DETAIL_ROWS.actief(realSnap).length, 767);
   check("echt: drill wachtlijst rows", PRODUCTION_DETAIL_ROWS["wachtlijst-totaal"](realSnap).length, 72);
-  check("echt: drill aanmeldingen rows", PRODUCTION_DETAIL_ROWS.aanmeldingen(realSnap).length, 104);
+  check("echt: drill aanmeldingen rows (zorgtraject-start)", PRODUCTION_DETAIL_ROWS.aanmeldingen(realSnap).length, 164);
   check(
     "echt: drill zonder-behandelaar rows",
     PRODUCTION_DETAIL_ROWS["zonder-behandelaar"](realSnap).length,
@@ -1433,15 +1456,54 @@ if (fs.existsSync(nieuwClientPath) && fs.existsSync(nieuwAgendaPath) && fs.exist
   const nieuwAgendaSnap = nieuwSnap.agenda;
   check("nieuw: actieve cliënten (open traject wint bij dubbele id)", nieuwSnap.cockpitKpis.actief.value, 975);
   check(
+    "nieuw: aanmeldingen juni/mei op zorgtraject-start (echte instroom)",
+    [nieuwSnap.cockpitKpis.aanmeldingen.value, nieuwSnap.cockpitKpis.aanmeldingen.prev],
+    [191, 149],
+  );
+  check("nieuw: uitstroom juni op zorgtraject-eind", nieuwSnap.cockpitKpis.gesloten.value, 54);
+  check(
+    "nieuw: drill aanmeldingen volgt de nieuwe definitie",
+    PRODUCTION_DETAIL_ROWS.aanmeldingen(nieuwSnap).length,
+    191,
+  );
+  check("nieuw: populatieprofiel (gem/mediaan leeftijd, vrouw%, dossierduur)", nieuwSnap.populatieProfiel, {
+    n: 975,
+    gemLeeftijd: 37.5,
+    mediaanLeeftijd: 35,
+    vrouwPct: 59,
+    gemDuurDagen: 144,
+    mediaanDuurDagen: 120,
+  });
+  check(
+    "nieuw: sessievormen — online meeste no-shows, op locatie meeste afzeggingen",
+    nieuwAgendaSnap.vormen?.map((vorm) => [vorm.vorm, vorm.sessies, vorm.noShowPct, vorm.afzegPct]),
+    [
+      ["online", 3455, 1.8, 5.3],
+      ["locatie", 4882, 1.1, 10],
+      ["overig", 7536, 0.2, 1.4],
+    ],
+  );
+  check(
+    "nieuw: beroepsmix — grootste code BP29",
+    [nieuwAgendaSnap.beroepen?.[0]?.code, nieuwAgendaSnap.beroepen?.[0]?.sessies],
+    ["BP29", 5022],
+  );
+  check(
     "nieuw: no-show KPI juni (echt, sessie-basis)",
     [nieuwSnap.cockpitKpis.noshow.value, nieuwSnap.cockpitKpis.noshow.prev],
     [0.8, 0.2],
   );
   check(
-    "nieuw: omzet KPI juni/mei (factuurmaand)",
+    "nieuw: omzet-KPI juni/mei — VGZ + DSW direct",
     [nieuwSnap.cockpitKpis.omzetverz.value, nieuwSnap.cockpitKpis.omzetverz.prev],
-    [552012, 648395],
+    [381214, 316644],
   );
+  check(
+    "nieuw: omzet-KPI juni/mei — via Infomedics (overige koepels)",
+    [nieuwSnap.cockpitKpis.omzetinfo.value, nieuwSnap.cockpitKpis.omzetinfo.prev],
+    [170798, 331751],
+  );
+  check("nieuw: maandreeks totaal = direct + Infomedics (juni 552012)", nieuwSnap.monthly[11].omzet, 552012);
   check(
     "nieuw: planning juni (afspraken, no-shows, afgezegd, behandeluren)",
     [
@@ -1505,6 +1567,243 @@ if (fs.existsSync(nieuwClientPath) && fs.existsSync(nieuwAgendaPath) && fs.exist
   check("nieuw: actief zonder vestiging", nieuwSnap.meta.zonderVestiging, 27);
 } else {
   console.log("(nieuwe exports niet aanwezig — sanity-pass Exports EPD overgeslagen)");
+}
+
+// ==== Declaratie-totaaloverzicht: parser, status en financieel-overrides ====
+
+const DECLARATIE_HEADER =
+  'Regelnummer;Administratienummer;Kostenplaats;Dagboek;Dagboektype;Factuurnummer;Factuurdatum;Debiteurennr.;Debiteurennaam;"Omschrijving kop";"Bedrag ex BTW";BTW;"BTW code";"Totaal bedrag";"Toegekend totaalbedrag";"Debet / credit";Grootboeknummer;Periode;Jaar;"Credit voor"';
+const declaratiesCsv = [
+  DECLARATIE_HEADER,
+  "1;;;;;F100;01-04-2026;200001;VGZ;F100;298,94;0,00;;298,94;298,94;D;;04;2026;",
+  '2;;;;;F101;01-03-2026;200002;"De heer GEHEIM";F101;150,00;0,00;;150,00;0,00;D;;03;2026;',
+  "3;;;;;F102;10-06-2026;200003;CZ;F102;1.000,00;0,00;;1.000,00;600,00;D;;06;2026;",
+  "4;;;;;F103;15-06-2026;200003;CZ;F103;-100,00;0,00;;-100,00;0,00;C;;06;2026;F102",
+  "5;;;;;F102;10-06-2026;200003;CZ;F102;500,00;0,00;;500,00;400,00;D;;06;2026;",
+  "6;;;;;F104;;200004;CZ;F104;10,00;0,00;;10,00;0,00;D;;06;2026;",
+].join("\n");
+const declaratiesParse = parseDeclaratiesExport("declaraties-fixture.csv", declaratiesCsv, "2026-07-14T09:00:00.000Z");
+check("declaraties: ok", declaratiesParse.ok, true);
+const declaratiesFixture = declaratiesParse.facts;
+if (!declaratiesFixture) {
+  throw new Error("declaraties-fixture parse faalde");
+}
+check(
+  "declaraties: rijen/overgeslagen (rij zonder datum)",
+  [declaratiesFixture.totalRows, declaratiesFixture.skippedRows],
+  [6, 1],
+);
+check("declaraties: deelfacturen samengevoegd (3 facturen)", declaratiesFixture.facturen.length, 3);
+check(
+  "declaraties: privacy — persoonsnaam wordt Particulier",
+  JSON.stringify(declaratiesFixture).includes("GEHEIM"),
+  false,
+);
+check(
+  "declaraties: particulier-label aanwezig",
+  declaratiesFixture.facturen.find((factuur) => factuur.nummer === "F101")?.koepel,
+  "Particulier",
+);
+const f102 = declaratiesFixture.facturen.find((factuur) => factuur.nummer === "F102");
+check(
+  "declaraties: deelfactuur-som + gekoppelde creditnota",
+  [f102?.bedrag, f102?.toegekend, f102?.gecrediteerd],
+  [1500, 1000, 100],
+);
+check("declaraties: guard accepteert aggregaat", isDeclaratiesFacts(declaratiesFixture), true);
+check(
+  "declaraties: verkeerde kaart (toeslagen) doorverwezen",
+  parseDeclaratiesExport("toeslagen.csv", toeslagenCsv).error?.includes("toeslagen-export"),
+  true,
+);
+
+const snapDeclaraties = computeProductionSnapshot(state, { locatie: "Alle locaties" }, REFERENCE, {
+  agenda: agendaFacts,
+  declaraties: declaratiesFixture,
+});
+const declSnap = snapDeclaraties.declaraties;
+if (!declSnap) {
+  throw new Error("declaraties-snapshot ontbreekt");
+}
+check(
+  "declaraties-snap: totalen (gefactureerd, toegekend, gecrediteerd, openstaand)",
+  [declSnap.gefactureerd, declSnap.toegekend, declSnap.gecrediteerd, declSnap.openstaand],
+  [1949, 1299, 100, 550],
+);
+check("declaraties-snap: toekenningsgraad", declSnap.toekenningsPct, 67);
+check("declaraties-snap: status (volledig/deels/zonder)", declSnap.status, { volledig: 1, deels: 1, zonder: 1 });
+check("declaraties-snap: tekort op deels-toegekend", declSnap.tekortDeels, 500);
+check("declaraties-snap: openstaand >90 dgn (Particulier-factuur van 01-03)", declSnap.openstaand90, {
+  bedrag: 150,
+  facturen: 1,
+});
+check(
+  "declaraties-snap: ouderdom (30-60 = 400, >90 = 150)",
+  declSnap.ouderdom.map((bucket) => bucket.bedrag),
+  [0, 400, 0, 150],
+);
+check(
+  "declaraties-snap: per koepel gesorteerd op gefactureerd",
+  declSnap.perKoepel.map((row) => [row.label, row.pct]),
+  [
+    ["CZ", 67],
+    ["VGZ", 100],
+    ["Particulier", 0],
+  ],
+);
+if (!snapDeclaraties.agenda) {
+  throw new Error("declaraties-snap: agenda-snapshot ontbreekt");
+}
+check(
+  "declaraties-snap: financieel-overrides (openstaand, tekort, >90 dgn)",
+  [
+    snapDeclaraties.agenda.financieel.metrics["Openstaande declaraties"].value,
+    snapDeclaraties.agenda.financieel.metrics["Afgekeurde declaraties"].value,
+    snapDeclaraties.agenda.financieel.metrics["Afgekeurde declaraties"].label,
+    snapDeclaraties.agenda.financieel.metrics["Declaraties >90 dgn"].value,
+  ],
+  [550, 500, "Tekort op toekenning", 150],
+);
+check(
+  "declaraties-snap: signalering >90 dagen open",
+  snapDeclaraties.signaleringen.find((alert) => alert.titel === "Declaraties >90 dagen open")?.n,
+  1,
+);
+check(
+  "declaraties-provenance: flips met cap",
+  [
+    widgetSource("financieel", "Openstaande declaraties"),
+    widgetSource("financieel", "Openstaande declaraties", { declaraties: true }),
+    widgetSource("financieel", "Afgekeurde declaraties", { declaraties: true }),
+    widgetSource("signaleringen", "Declaraties >90 dagen open", { declaraties: true }),
+  ],
+  ["demo", "live", "proxy", "live"],
+);
+check(
+  "declaraties-provenance: register alleen financieel + signaleringen",
+  Object.keys(DECLARATIES_PROVENANCE).sort(),
+  ["financieel", "signaleringen"],
+);
+check(
+  "declaraties-snap: zonder declaraties blijft snapshot leeg",
+  computeProductionSnapshot(state, { locatie: "Alle locaties" }, REFERENCE).declaraties,
+  null,
+);
+
+// ==== Geaggregeerde KPI-drilldowns (kaarten overal klikbaar) ====
+// Agenda-/declaratie-gedreven kaarten hebben geen losse records; hun detail-
+// pagina toont een live kop + trend + de geaggregeerde maand-/debiteurentabel.
+const aggAfspraken = productionAggDetail(snapAgenda, "afspraken");
+if (!aggAfspraken) {
+  throw new Error("agg-drill: afspraken-aggregaat ontbreekt");
+}
+check(
+  "agg-drill: afspraken → maandtabel (12 maanden, nieuwste eerst)",
+  [aggAfspraken.rows.length, aggAfspraken.rows[0].key, aggAfspraken.rows[0].sessies],
+  [12, "2026-06", 2],
+);
+check("agg-drill: kop volgt live planning-metric", productionDetailMetric(snapAgenda, "afspraken")?.value, 2);
+const aggTrend = productionDetailTrend(snapAgenda, "afspraken");
+if (!aggTrend) {
+  throw new Error("agg-drill: afspraken-trend ontbreekt");
+}
+check("agg-drill: trend volgt maandreeks (laatste = juni)", aggTrend.values.slice(-1), [2]);
+check("agg-drill: no-show-kop in procenten", productionDetailMetric(snapAgenda, "noshow")?.f, "pct");
+const aggOmzet = productionAggDetail(snapToeslag, "omzetverz");
+if (!aggOmzet) {
+  throw new Error("agg-drill: omzet-aggregaat ontbreekt");
+}
+check(
+  "agg-drill: omzet → factuurmaandtabel met VGZ+DSW-splitsing",
+  [aggOmzet.rows[0].key, aggOmzet.rows[0].omzetVerz, aggOmzet.rows[0].totaal],
+  ["2026-06", 469, 469],
+);
+const aggOpenstaand = productionAggDetail(snapDeclaraties, "openstaand");
+if (!aggOpenstaand) {
+  throw new Error("agg-drill: openstaand-aggregaat ontbreekt");
+}
+check("agg-drill: openstaand → debiteurentabel", aggOpenstaand.rows.length, 3);
+check(
+  "agg-drill: zonder agenda geen aggregaat (demo-fallback + wachtnoot)",
+  [productionAggDetail(snap, "afspraken"), productionAggDetail(snapAgenda, "openstaand")],
+  [null, null],
+);
+
+// ==== Populatieprofiel, sessievormen, beroepsmix, dekking ====
+check("populatie: fixture-profiel (8 actieve cliënten)", snap.populatieProfiel, {
+  n: 8,
+  gemLeeftijd: 34.3,
+  mediaanLeeftijd: 34,
+  vrouwPct: 38,
+  gemDuurDagen: 74,
+  mediaanDuurDagen: 47,
+});
+check(
+  "vormen: no-show excl. afzeggingen per vorm (fixture)",
+  snapAgenda.agenda?.vormen?.map((vorm) => [vorm.vorm, vorm.sessies, vorm.noShowPct, vorm.afzegPct]),
+  [
+    ["online", 2, 0, 50],
+    ["locatie", 2, 50, 0],
+  ],
+);
+check("beroepen: fixture zonder Beroep-kolom → null (paneel verbergt zich)", snapAgenda.agenda?.beroepen, null);
+check("dekking: declaraties t.o.v. agenda-facturatie (mechaniek)", snapDeclaraties.declaraties?.dekking, {
+  agendaGefactureerd: 250,
+  pct: 780,
+});
+
+// ---- Optionele sanity-pass op het echte declaratie-totaaloverzicht ----
+const echteDeclaratiesPath = path.join(exportsDir, "declaration_total_20260722_1345.csv");
+if (fs.existsSync(echteDeclaratiesPath)) {
+  const echteDeclaraties = parseDeclaratiesExport(
+    "declaration_total_20260722_1345.csv",
+    fs.readFileSync(echteDeclaratiesPath, "utf8"),
+    "2026-07-22T09:00:00.000Z",
+  );
+  const echteDeclFacts = echteDeclaraties.facts;
+  if (!echteDeclFacts) {
+    throw new Error("echt declaratie-overzicht parse faalde");
+  }
+  check("echt declaraties: rijen/overgeslagen", [echteDeclFacts.totalRows, echteDeclFacts.skippedRows], [277, 0]);
+  check("echt declaraties: facturen (ZVW/WMO-reeksen apart gehouden)", echteDeclFacts.facturen.length, 269);
+  const echtDeclSnap = computeProductionSnapshot(
+    { fileName: "x.csv", importedAt: "2026-07-22T09:00:00.000Z", records: multiline.records },
+    { locatie: "Alle locaties" },
+    new Date(Date.UTC(2026, 6, 22)),
+    { declaraties: echteDeclFacts },
+  ).declaraties;
+  if (!echtDeclSnap) {
+    throw new Error("echt declaraties-snapshot ontbreekt");
+  }
+  check(
+    "echt declaraties: totalen (onafhankelijk berekend)",
+    [echtDeclSnap.gefactureerd, echtDeclSnap.toegekend, echtDeclSnap.openstaand],
+    [2507381, 2299918, 194543],
+  );
+  check("echt declaraties: toekenningsgraad 92%", echtDeclSnap.toekenningsPct, 92);
+  check("echt declaraties: openstaand >90 dgn", echtDeclSnap.openstaand90, { bedrag: 23922, facturen: 39 });
+  check(
+    "echt declaraties: status telt op tot alle facturen",
+    echtDeclSnap.status.volledig + echtDeclSnap.status.deels + echtDeclSnap.status.zonder,
+    269,
+  );
+  check(
+    "echt declaraties: VGZ-toekenningsgraad laag (64%)",
+    echtDeclSnap.perKoepel.find((row) => row.label === "VGZ")?.pct,
+    64,
+  );
+  check(
+    "echt declaraties: gemeenten aanwezig (Maashorst/Oss = WMO)",
+    ["Maashorst", "Oss"].filter((naam) => !echtDeclSnap.perKoepel.some((row) => row.label === naam)),
+    [],
+  );
+  check(
+    "echt declaraties: geen persoonsnamen in aggregaat",
+    ["Erdogan", "Weijters", "Dobrev"].filter((naam) => JSON.stringify(echteDeclFacts).includes(naam)),
+    [],
+  );
+} else {
+  console.log("(declaratie-totaaloverzicht niet aanwezig — sanity-pass overgeslagen)");
 }
 
 // ---- Optionele sanity-pass op de echte toeslagen-export ----

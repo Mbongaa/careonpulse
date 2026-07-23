@@ -4,7 +4,9 @@ import { getLocalStorageValue, setLocalStorageValue } from "@/lib/local-storage.
 
 import {
   type AgendaFacts,
+  type DeclaratiesFacts,
   isAgendaFacts,
+  isDeclaratiesFacts,
   isProductionState,
   isToeslagenFacts,
   isVerwijzersFacts,
@@ -142,11 +144,34 @@ export function loadToeslagenFacts(): ToeslagenFacts | null {
   }
 }
 
+const DECLARATIES_KEY = "careon-declaraties-v1";
+
+export function saveDeclaratiesFacts(facts: DeclaratiesFacts): boolean {
+  try {
+    window.localStorage.setItem(DECLARATIES_KEY, JSON.stringify(facts));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function loadDeclaratiesFacts(): DeclaratiesFacts | null {
+  const raw = getLocalStorageValue(DECLARATIES_KEY);
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isDeclaratiesFacts(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function clearAuxFacts(): void {
   try {
     window.localStorage.removeItem(AGENDA_KEY);
     window.localStorage.removeItem(VERWIJZERS_KEY);
     window.localStorage.removeItem(TOESLAGEN_KEY);
+    window.localStorage.removeItem(DECLARATIES_KEY);
   } catch {
     // localStorage niet beschikbaar — niets te wissen.
   }

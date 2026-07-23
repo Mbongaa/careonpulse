@@ -22,15 +22,15 @@ export function PlanningContent() {
   const agenda = production?.agenda ?? null;
 
   // Vervangings-patroon: agenda-metrics zijn gesleuteld op de demo-labels.
-  // Agenda-gedreven kaarten linken niet naar de KPI-drilldown — de import
-  // bewaart alleen aggregaten, dus er zijn geen echte afspraakregels om te tonen.
+  // Alle kaarten linken naar hun KPI-drilldown; agenda-gedreven drilldowns
+  // tonen daar de geaggregeerde maandtabel (er bestaan geen losse regels).
   const metrics = PLANNING_METRICS.map((metric) => {
     if (production && metric.label === "Gem. wachttijd (wkn)") {
       return { metric: { ...production.gemWachttijdWkn }, detailId: metric.detailId };
     }
     const live = agenda?.planningMetrics[metric.label];
     if (live) {
-      return { metric: live, detailId: undefined, demoLabel: metric.label };
+      return { metric: live, detailId: metric.detailId };
     }
     return { metric, detailId: metric.detailId };
   });
@@ -77,17 +77,39 @@ export function PlanningContent() {
       {agenda && (
         <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">
           <CareonChartCard
-            title="Online vs. op locatie"
-            sub="Sessies · laatste 12 maanden"
-            titleBadge={<CareonSourceBadge page="planning" widget="No-show per weekdag" />}
+            title="Sessievormen & uitval"
+            sub={agenda.vormen ? "No-show en afzeggingen per vorm · hele export" : "Sessies · laatste 12 maanden"}
+            titleBadge={<CareonSourceBadge page="planning" widget="Sessievormen" />}
+            footer={
+              agenda.vormen
+                ? "Op-locatie-afspraken worden het vaakst tijdig afgezegd; online kent juist de meeste no-shows."
+                : undefined
+            }
           >
-            <CareonBarList
-              items={agenda.modality.map((row) => ({
-                label: row.name,
-                value: row.value,
-                display: nl.format(row.value),
-              }))}
-            />
+            {agenda.vormen ? (
+              <div className="flex flex-col gap-2">
+                {agenda.vormen.map((vorm) => (
+                  <div key={vorm.vorm} className="rounded-lg border bg-muted/30 px-3 py-2">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="truncate font-medium text-sm">{vorm.label}</p>
+                      <p className="text-muted-foreground text-xs tabular-nums">{nl.format(vorm.sessies)} sessies</p>
+                    </div>
+                    <p className="text-muted-foreground text-xs tabular-nums">
+                      no-show {String(vorm.noShowPct).replace(".", ",")}% · afgezegd{" "}
+                      {String(vorm.afzegPct).replace(".", ",")}%
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <CareonBarList
+                items={agenda.modality.map((row) => ({
+                  label: row.name,
+                  value: row.value,
+                  display: nl.format(row.value),
+                }))}
+              />
+            )}
           </CareonChartCard>
           <CareonChartCard
             title="Afzegredenen"

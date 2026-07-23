@@ -25,6 +25,7 @@ export function CareonLiveBanner({ page }: Readonly<{ page: string }>) {
     agendaToekomst: production.agenda?.vooruitblik != null,
     verwijzers: production.verwijzerNetwerk != null,
     toeslagen: production.toeslagen != null,
+    declaraties: production.declaraties != null,
   });
   // UTC, net als de referentiedatum van de snapshot: anders kan de banner
   // "1 aug" tonen naast KPI's die (correct) op het juni-venster staan.

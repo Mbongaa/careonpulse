@@ -22,12 +22,14 @@ const omzetConfig = {
 } satisfies ChartConfig;
 
 const omzetAgendaConfig = {
-  omzetVerz: { label: "Gefactureerd", color: "var(--chart-1)" },
+  omzetVerz: { label: "VGZ + DSW (direct)", color: "var(--chart-1)" },
+  omzetInfo: { label: "Via Infomedics", color: "var(--chart-2)" },
 } satisfies ChartConfig;
 
 // Stacked monthly revenue chart, shared by Directiecockpit and Financieel.
-// In productie mét agenda-import: gefactureerde omzet per factuurmaand uit de
-// agenda-export (één reeks; Infomedics vereist de declaratie-export).
+// In productie mét agenda-import: gefactureerde omzet per factuurmaand,
+// gesplitst conform opgave klant — VGZ + DSW declareren direct, alle overige
+// omzet loopt via Infomedics.
 export function CareonOmzetChart({
   className,
   height = "h-56",
@@ -38,14 +40,19 @@ export function CareonOmzetChart({
   const data = agendaActief
     ? production.monthly.map((point) => ({
         m: point.m,
-        omzetVerz: point.omzet === null ? null : Math.round(point.omzet / 1000),
+        omzetVerz: point.omzet === null ? null : Math.round((point.omzet - (point.omzetInfomedics ?? 0)) / 1000),
+        omzetInfo: point.omzetInfomedics === null ? null : Math.round(point.omzetInfomedics / 1000),
       }))
     : CAREON_MONTHLY;
 
   return (
     <CareonChartCard
       title="Omzetontwikkeling"
-      sub={agendaActief ? "Gefactureerd per factuurmaand · x € 1.000" : "Verzekeraars + Infomedics · x € 1.000"}
+      sub={
+        agendaActief
+          ? "Per factuurmaand · VGZ + DSW direct, rest via Infomedics · x € 1.000"
+          : "Verzekeraars + Infomedics · x € 1.000"
+      }
       className={className}
       titleBadge={<CareonSourceBadge page={provenancePage} widget="Omzetontwikkeling" />}
       footer={
@@ -65,9 +72,7 @@ export function CareonOmzetChart({
           <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
           <ChartLegend verticalAlign="top" content={<ChartLegendContent className="mb-4 justify-end" />} />
           <Bar dataKey="omzetVerz" stackId="omzet" fill="var(--color-omzetVerz)" radius={[0, 0, 4, 4]} />
-          {!agendaActief && (
-            <Bar dataKey="omzetInfo" stackId="omzet" fill="var(--color-omzetInfo)" radius={[4, 4, 0, 0]} />
-          )}
+          <Bar dataKey="omzetInfo" stackId="omzet" fill="var(--color-omzetInfo)" radius={[4, 4, 0, 0]} />
         </BarChart>
       </ChartContainer>
     </CareonChartCard>

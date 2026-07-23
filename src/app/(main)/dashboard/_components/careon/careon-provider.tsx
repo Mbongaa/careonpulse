@@ -9,11 +9,13 @@ import type { CareonFilters, CareonKpi, CareonKpiOverrides, CareonSource } from 
 import { computeProductionSnapshot, KNOWN_LOCATIES } from "@/lib/careon-production/compute-snapshot";
 import {
   fetchRemoteAgendaFacts,
+  fetchRemoteDeclaratiesFacts,
   fetchRemoteProductionState,
   fetchRemoteToeslagenFacts,
   fetchRemoteVerwijzersFacts,
   type PushResult,
   pushRemoteAgendaFacts,
+  pushRemoteDeclaratiesFacts,
   pushRemoteProductionState,
   pushRemoteToeslagenFacts,
   pushRemoteVerwijzersFacts,
@@ -23,10 +25,12 @@ import {
   clearProductionState,
   hasProductionOptOut,
   loadAgendaFacts,
+  loadDeclaratiesFacts,
   loadProductionState,
   loadToeslagenFacts,
   loadVerwijzersFacts,
   saveAgendaFacts,
+  saveDeclaratiesFacts,
   saveProductionState,
   saveToeslagenFacts,
   saveVerwijzersFacts,
@@ -34,6 +38,7 @@ import {
 } from "@/lib/careon-production/storage.client";
 import type {
   AgendaFacts,
+  DeclaratiesFacts,
   ProductionSnapshot,
   ProductionState,
   ToeslagenFacts,
@@ -66,6 +71,7 @@ interface CareonContextValue {
   activateAgenda: (facts: AgendaFacts) => Promise<ActivationResult>;
   activateVerwijzers: (facts: VerwijzersFacts) => Promise<ActivationResult>;
   activateToeslagen: (facts: ToeslagenFacts) => Promise<ActivationResult>;
+  activateDeclaraties: (facts: DeclaratiesFacts) => Promise<ActivationResult>;
   /** Beschikbare locatiefilter-opties (productie: alleen vestigingen uit de data). */
   locatieOpties: string[];
 }
@@ -102,6 +108,7 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
   const [agendaFacts, setAgendaFacts] = useState<AgendaFacts | null>(null);
   const [verwijzersFacts, setVerwijzersFacts] = useState<VerwijzersFacts | null>(null);
   const [toeslagenFacts, setToeslagenFacts] = useState<ToeslagenFacts | null>(null);
+  const [declaratiesFacts, setDeclaratiesFacts] = useState<DeclaratiesFacts | null>(null);
 
   // Zodra de gebruiker zelf een bron kiest (import, csv, api, herstel demo)
   // mag een nog lopende remote-fetch die keuze niet meer overschrijven.
@@ -119,12 +126,14 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
     const storedAgenda = loadAgendaFacts();
     const storedVerwijzers = loadVerwijzersFacts();
     const storedToeslagen = loadToeslagenFacts();
+    const storedDeclaraties = loadDeclaratiesFacts();
     if (stored) {
       setProductionState(stored);
       setSourceState(productionSource(stored));
       if (storedAgenda) setAgendaFacts(storedAgenda);
       if (storedVerwijzers) setVerwijzersFacts(storedVerwijzers);
       if (storedToeslagen) setToeslagenFacts(storedToeslagen);
+      if (storedDeclaraties) setDeclaratiesFacts(storedDeclaraties);
     } else if (hasProductionOptOut()) {
       return;
     }
@@ -156,6 +165,12 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
         saveToeslagenFacts(remote);
       }
     });
+    void fetchRemoteDeclaratiesFacts().then((remote) => {
+      if (remote && !cancelled && !userChoseSourceRef.current && isNieuwer(remote, storedDeclaraties)) {
+        setDeclaratiesFacts(remote);
+        saveDeclaratiesFacts(remote);
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -181,6 +196,7 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
     setAgendaFacts(null);
     setVerwijzersFacts(null);
     setToeslagenFacts(null);
+    setDeclaratiesFacts(null);
     clearProductionState();
     clearAuxFacts();
   }, []);
@@ -242,6 +258,13 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
     return { persisted, sync };
   }, []);
 
+  const activateDeclaraties = useCallback(async (facts: DeclaratiesFacts): Promise<ActivationResult> => {
+    setDeclaratiesFacts(facts);
+    const persisted = saveDeclaratiesFacts(facts);
+    const sync = await pushRemoteDeclaratiesFacts(facts);
+    return { persisted, sync };
+  }, []);
+
   const isProduction = source.mode === "productie" && productionState !== null;
 
   // Productie filtert echt op vestiging; de demo-schaalfactor blijft een
@@ -257,10 +280,15 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
             productionState,
             { locatie: filters.locatie },
             new Date(productionState.importedAt),
-            { agenda: agendaFacts, verwijzers: verwijzersFacts, toeslagen: toeslagenFacts },
+            {
+              agenda: agendaFacts,
+              verwijzers: verwijzersFacts,
+              toeslagen: toeslagenFacts,
+              declaraties: declaratiesFacts,
+            },
           )
         : null,
-    [isProduction, productionState, filters.locatie, agendaFacts, verwijzersFacts, toeslagenFacts],
+    [isProduction, productionState, filters.locatie, agendaFacts, verwijzersFacts, toeslagenFacts, declaratiesFacts],
   );
 
   // Locatiefilter-opties: demo toont de geauditeerde lijst; productie alleen
@@ -323,6 +351,7 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
       activateAgenda,
       activateVerwijzers,
       activateToeslagen,
+      activateDeclaraties,
       locatieOpties,
     }),
     [
@@ -341,6 +370,7 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
       activateAgenda,
       activateVerwijzers,
       activateToeslagen,
+      activateDeclaraties,
       locatieOpties,
     ],
   );

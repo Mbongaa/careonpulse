@@ -1,11 +1,13 @@
 import { cleanCell, mergeQuotedLines, normalizeVestiging, parseDutchDate, splitLine } from "./parse-export";
 import type {
+  AgendaBeroepCel,
   AgendaBlokCel,
   AgendaCel,
   AgendaClientFact,
   AgendaFacts,
   AgendaFactuurCel,
   AgendaToekomstCel,
+  AgendaVormCel,
   AgendaWeekdagCel,
   ImportWarning,
   ParseAgendaResult,
@@ -138,6 +140,8 @@ export function parseAgendaExport(
   const clientMap = new Map<string, AgendaClientFact>();
   const afzegRedenen = new Map<string, number>();
   const sessieTypen = new Map<string, number>();
+  const vormMap = new Map<string, AgendaVormCel>();
+  const beroepMap = new Map<string, AgendaBeroepCel>();
 
   // Peildatum: rijen ná deze dag zijn GEPLANDE afspraken. Ze blijven buiten
   // alle historische aggregaten (een geplande sessie draagt al een geprijsde
@@ -314,10 +318,26 @@ export function parseAgendaExport(
 
     const dag = weekdagVanIso(datum);
     const weekdagKey = `${dag}|${locatie ?? ""}`;
-    const weekdag = weekdagMap.get(weekdagKey) ?? { dag, locatie, sessies: 0, noShows: 0 };
+    const weekdag = weekdagMap.get(weekdagKey) ?? { dag, locatie, sessies: 0, noShows: 0, tijdigAfgezegd: 0 };
     weekdag.sessies += 1;
     if (noShow) weekdag.noShows += 1;
+    if (tijdigAfgezegd) weekdag.tijdigAfgezegd = (weekdag.tijdigAfgezegd ?? 0) + 1;
     weekdagMap.set(weekdagKey, weekdag);
+
+    const vormCel = vormMap.get(vorm) ?? { vorm, sessies: 0, noShows: 0, tijdigAfgezegd: 0 };
+    vormCel.sessies += 1;
+    if (noShow) vormCel.noShows += 1;
+    if (tijdigAfgezegd) vormCel.tijdigAfgezegd += 1;
+    vormMap.set(vorm, vormCel);
+
+    const beroepCode = cell("Beroep");
+    if (beroepCode) {
+      const beroepKey = `${beroepCode}|${behandelaar ?? ""}`;
+      const beroepCel = beroepMap.get(beroepKey) ?? { code: beroepCode, behandelaar, sessies: 0, directeMin: 0 };
+      beroepCel.sessies += 1;
+      beroepCel.directeMin += directeMin;
+      beroepMap.set(beroepKey, beroepCel);
+    }
 
     if (sessieNaam) {
       sessieTypen.set(sessieNaam, (sessieTypen.get(sessieNaam) ?? 0) + 1);
@@ -406,6 +426,8 @@ export function parseAgendaExport(
           }
         : null,
     trajecten: trajectIds.size,
+    vormen: [...vormMap.values()],
+    beroepen: [...beroepMap.values()],
   };
 
   return { ok: true, facts, warnings };

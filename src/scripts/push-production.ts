@@ -17,6 +17,7 @@
  */
 
 import { parseAgendaExport } from "../lib/careon-production/parse-agenda";
+import { parseDeclaratiesExport } from "../lib/careon-production/parse-declaraties";
 import { parseClientExport } from "../lib/careon-production/parse-export";
 import { parseToeslagenExport } from "../lib/careon-production/parse-toeslagen";
 import { parseVerwijzersExport } from "../lib/careon-production/parse-verwijzers";
@@ -177,6 +178,17 @@ async function main() {
     "careon_verwijzers_state",
     (name, text) => parseVerwijzersExport(name, text, importedAt),
     (facts) => `${facts.contacten.length} verwijzers`,
+  );
+
+  await pushAux(
+    "Declaratie-aggregaat",
+    /^declaration_total.*\.csv$/i,
+    "careon_declaraties_state",
+    (name, text) => parseDeclaratiesExport(name, text, importedAt),
+    (facts) =>
+      `${facts.facturen.length} facturen, € ${Math.round(
+        facts.facturen.reduce((sum, factuur) => sum + factuur.bedrag, 0),
+      )} gedeclareerd`,
   );
 
   await pushAux(

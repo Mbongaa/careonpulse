@@ -115,6 +115,7 @@ export const CAREON_PROVENANCE: Record<string, PageProvenance> = {
       "Wachttijd-trend": "live",
       Zorgvorm: "proxy",
       "Vraagt aandacht": "live",
+      Populatieprofiel: "live",
     },
   },
   planning: {
@@ -130,6 +131,8 @@ export const CAREON_PROVENANCE: Record<string, PageProvenance> = {
       "Gem. wachttijd (wkn)": "live",
       Urenverdeling: "demo",
       "No-show per weekdag": "demo",
+      // Productie-exclusief paneel (geen demo-tegenhanger); flipt via agenda-cap.
+      Sessievormen: "demo",
     },
   },
   behandelaren: {
@@ -223,6 +226,8 @@ export interface ProvenanceCaps {
   verwijzers?: boolean;
   /** Toeslagen-export (declared surcharges) gekoppeld. */
   toeslagen?: boolean;
+  /** Declaratie-totaaloverzicht gekoppeld. */
+  declaraties?: boolean;
 }
 
 export const AGENDA_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
@@ -230,6 +235,7 @@ export const AGENDA_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
     "No-show": "live",
     "No-show trend": "live",
     "Omzet verzekeraars": "live",
+    "Omzet Infomedics": "proxy",
     Omzetontwikkeling: "live",
   },
   signaleringen: {
@@ -255,9 +261,11 @@ export const AGENDA_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
     "Indirecte uren": "live",
     Urenverdeling: "live",
     "No-show per weekdag": "live",
+    Sessievormen: "live",
   },
   financieel: {
     "Omzet verzekeraars": "live",
+    "Omzet Infomedics": "proxy",
     "Onderhanden werk": "proxy",
     "Gem. omzet / cliënt": "live",
     "Gem. omzet / traject": "live",
@@ -269,6 +277,7 @@ export const AGENDA_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
   },
   behandelaren: {
     Behandelaren: "live",
+    Beroepsmix: "live",
   },
   dossiers: {
     "Sessie zonder sessieverslag (agenda)": "live",
@@ -314,6 +323,24 @@ export const TOESLAGEN_PROVENANCE: Record<string, Record<string, WidgetSource>> 
   },
 };
 
+export const DECLARATIES_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
+  financieel: {
+    "Openstaande declaraties": "live",
+    "Afgekeurde declaraties": "proxy",
+    "Declaraties >90 dgn": "live",
+    "Ouderdom openstaande declaraties": "live",
+    Declaratiestatus: "live",
+  },
+  signaleringen: {
+    "Declaraties >90 dagen open": "live",
+  },
+};
+
+export const DECLARATIES_PROXY_NOTES: Record<string, string> = {
+  "Afgekeurde declaraties":
+    "Tekort op toekenning: verschil tussen gefactureerd en toegekend op deels-toegekende facturen. Of dit afwijzing of nabetaling wordt, vereist de Vecozo-retourinformatie.",
+};
+
 // Proxy-toelichtingen voor de agenda-afleidingen (zelfde mechaniek als PROXY_NOTES).
 export const AGENDA_PROXY_NOTES: Record<string, string> = {
   "Agenda-bezetting":
@@ -329,6 +356,8 @@ export const AGENDA_PROXY_NOTES: Record<string, string> = {
   "Ouderdom openstaande declaraties":
     "Ouderdom van het onderhanden werk (nog niet gefactureerde sessiewaarde) — geen declaratiestatus.",
   Productiviteit: "Directe tijd als aandeel van de totale geregistreerde sessietijd (laatste 12 agenda-maanden).",
+  "Omzet Infomedics":
+    "Conform opgave van de instelling: alleen VGZ en DSW declareren direct; alle overige gefactureerde omzet loopt via Infomedics. Splitsing op de verzekeringskoepel van de factuur.",
 };
 
 export function widgetSource(pageId: string, widgetId: string, caps?: ProvenanceCaps): WidgetSource {
@@ -338,6 +367,10 @@ export function widgetSource(pageId: string, widgetId: string, caps?: Provenance
   }
   if (caps?.toeslagen) {
     const override = TOESLAGEN_PROVENANCE[pageId]?.[widgetId];
+    if (override) return override;
+  }
+  if (caps?.declaraties) {
+    const override = DECLARATIES_PROVENANCE[pageId]?.[widgetId];
     if (override) return override;
   }
   if (caps?.agendaToekomst) {

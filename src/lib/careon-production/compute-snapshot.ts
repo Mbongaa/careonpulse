@@ -7,9 +7,11 @@ import type {
   AantalGroep,
   AgendaFacts,
   ClientRecord,
+  DeclaratiesFacts,
   LiveMetric,
   ProductionAgendaSnapshot,
   ProductionAlert,
+  ProductionDeclaraties,
   ProductionMonthPoint,
   ProductionSnapshot,
   ProductionState,
@@ -68,6 +70,17 @@ export function daysBetween(fromIso: string, toIso: string): number {
   const from = Date.UTC(Number(fromIso.slice(0, 4)), Number(fromIso.slice(5, 7)) - 1, Number(fromIso.slice(8, 10)));
   const to = Date.UTC(Number(toIso.slice(0, 4)), Number(toIso.slice(5, 7)) - 1, Number(toIso.slice(8, 10)));
   return Math.round((to - from) / 86_400_000);
+}
+
+/** Aanmelddatum: zorgtraject-start (echte aanmelding); fallback episode-start
+ * — episodes kunnen her-registraties binnen een lopend traject zijn. */
+export function instroomDatum(record: ClientRecord): string | null {
+  return record.trajectStart ?? record.episodeStart;
+}
+
+/** Uitstroomdatum: zorgtraject-eind; fallback episode-eind. */
+export function uitstroomDatum(record: ClientRecord): string | null {
+  return record.trajectEind ?? record.episodeEind;
 }
 
 export function activeAt(record: ClientRecord, iso: string): boolean {
@@ -252,6 +265,7 @@ export interface SnapshotExtra {
   agenda?: AgendaFacts | null;
   verwijzers?: VerwijzersFacts | null;
   toeslagen?: ToeslagenFacts | null;
+  declaraties?: DeclaratiesFacts | null;
 }
 
 export function computeProductionSnapshot(
@@ -269,8 +283,8 @@ export function computeProductionSnapshot(
   const months = lastFullMonths(referenceIso, 12);
   const lastMonth = months[months.length - 1];
 
-  const startsPerMaand = groupCount(records, (record) => monthKeyOf(record.episodeStart));
-  const eindesPerMaand = groupCount(records, (record) => monthKeyOf(record.episodeEind));
+  const startsPerMaand = groupCount(records, (record) => monthKeyOf(instroomDatum(record)));
+  const eindesPerMaand = groupCount(records, (record) => monthKeyOf(uitstroomDatum(record)));
   const verwijzingenPerMaand = groupCount(records, (record) => monthKeyOf(record.verwijsdatum));
 
   const monthly: ProductionMonthPoint[] = months.map((month) => ({
@@ -283,6 +297,7 @@ export function computeProductionSnapshot(
     // Agenda-velden worden verderop ingevuld wanneer een agenda-import aanwezig is.
     noshowPct: null,
     omzet: null,
+    omzetInfomedics: null,
   }));
 
   const actieveClienten = records.filter((record) => activeAt(record, referenceIso));
@@ -474,7 +489,7 @@ export function computeProductionSnapshot(
     .sort((a, b) => b.clienten - a.clienten);
 
   const afsluitingenPerBehandelaar = groupCount(
-    records.filter((record) => monthKeyOf(record.episodeEind) === lastMonth.key),
+    records.filter((record) => monthKeyOf(uitstroomDatum(record)) === lastMonth.key),
     (record) => record.behandelaar,
   );
 
@@ -1083,16 +1098,30 @@ export function computeProductionSnapshot(
       blokPerMaand.set(blok.key, (blokPerMaand.get(blok.key) ?? 0) + blok.blokMin);
     }
     const factuurCellen = agendaFacts.facturatie.filter((cel) => inFilter(cel.locatie));
-    const omzetPerMaand = new Map<string, number>();
+    // Opgave klant: alleen VGZ en DSW declareren direct; alle overige omzet
+    // loopt via Infomedics. De splitsing volgt de verzekeringskoepel op de factuur.
+    const DIRECTE_KOEPELS = new Set(["VGZ", "DSW"]);
+    const omzetVerzPerMaand = new Map<string, number>();
+    const omzetInfoPerMaand = new Map<string, number>();
+    const telOmzet = (key: string, koepel: string | null, omzet: number) => {
+      const doel = koepel !== null && DIRECTE_KOEPELS.has(koepel) ? omzetVerzPerMaand : omzetInfoPerMaand;
+      doel.set(key, (doel.get(key) ?? 0) + omzet);
+    };
     for (const cel of factuurCellen) {
-      omzetPerMaand.set(cel.key, (omzetPerMaand.get(cel.key) ?? 0) + cel.omzet);
+      telOmzet(cel.key, cel.koepel, cel.omzet);
     }
     // Toeslagen (zelfde facturen, extra regels) tellen mee in de omzetreeks —
     // alleen ongefilterd: de toeslagen-export draagt geen vestiging.
     const toeslagenMee = filters.locatie === "Alle locaties" ? (extra?.toeslagen ?? null) : null;
     if (toeslagenMee) {
       for (const cel of toeslagenMee.cellen) {
-        omzetPerMaand.set(cel.key, (omzetPerMaand.get(cel.key) ?? 0) + cel.omzet);
+        telOmzet(cel.key, cel.koepel, cel.omzet);
+      }
+    }
+    const omzetPerMaand = new Map<string, number>();
+    for (const bron of [omzetVerzPerMaand, omzetInfoPerMaand]) {
+      for (const [key, omzet] of bron) {
+        omzetPerMaand.set(key, (omzetPerMaand.get(key) ?? 0) + omzet);
       }
     }
 
@@ -1101,8 +1130,12 @@ export function computeProductionSnapshot(
     const blokLaatste = blokPerMaand.get(lastAgendaMonth.key) ?? 0;
     const blokVorige = blokPerMaand.get(prevAgendaMonth.key) ?? 0;
     const uren = (minuten: number) => Math.round(minuten / 60);
-    const noshowPctVan = (rollup: Rollup): number | null =>
-      rollup.sessies === 0 ? null : round1((rollup.noShows / rollup.sessies) * 100);
+    // No-show gemeten over doorgegane + gemiste afspraken: tijdig afgezegde
+    // afspraken tellen niet mee in de noemer (die zijn immers niet "gemist").
+    const noshowPctVan = (rollup: Rollup): number | null => {
+      const noemer = rollup.sessies - rollup.tijdigAfgezegd;
+      return noemer <= 0 ? null : round1((rollup.noShows / noemer) * 100);
+    };
     const vulling = (rollup: Rollup, blokMin: number): number | null => {
       const totaal = rollup.totaleMin + blokMin;
       return totaal === 0 ? null : Math.round((rollup.totaleMin / totaal) * 100);
@@ -1175,11 +1208,14 @@ export function computeProductionSnapshot(
     const WEEKDAG_LABELS = ["zo", "ma", "di", "wo", "do", "vr", "za"];
     const weekdagCellen = agendaFacts.weekdagen.filter((cel) => inFilter(cel.locatie));
     const noshowWeekdagen = [1, 2, 3, 4, 5, 6, 0].map((dag) => {
-      const sessies = weekdagCellen.filter((cel) => cel.dag === dag).reduce((sum, cel) => sum + cel.sessies, 0);
-      const noShows = weekdagCellen.filter((cel) => cel.dag === dag).reduce((sum, cel) => sum + cel.noShows, 0);
+      const cellenVanDag = weekdagCellen.filter((cel) => cel.dag === dag);
+      const sessies = cellenVanDag.reduce((sum, cel) => sum + cel.sessies, 0);
+      const noShows = cellenVanDag.reduce((sum, cel) => sum + cel.noShows, 0);
+      const afgezegd = cellenVanDag.reduce((sum, cel) => sum + (cel.tijdigAfgezegd ?? 0), 0);
+      const noemer = sessies - afgezegd;
       return {
         dag: WEEKDAG_LABELS[dag],
-        pct: sessies === 0 ? 0 : round1((noShows / sessies) * 100),
+        pct: noemer <= 0 ? 0 : round1((noShows / noemer) * 100),
         sessies,
       };
     });
@@ -1224,8 +1260,10 @@ export function computeProductionSnapshot(
     ].filter((item) => item.value > 0);
 
     // ---- Financieel ----
-    const omzetLaatste = omzetPerMaand.get(lastAgendaMonth.key) ?? 0;
-    const omzetVorige = omzetPerMaand.get(prevAgendaMonth.key) ?? 0;
+    const omzetLaatste = omzetVerzPerMaand.get(lastAgendaMonth.key) ?? 0;
+    const omzetVorige = omzetVerzPerMaand.get(prevAgendaMonth.key) ?? 0;
+    const omzetInfoLaatste = omzetInfoPerMaand.get(lastAgendaMonth.key) ?? 0;
+    const omzetInfoVorige = omzetInfoPerMaand.get(prevAgendaMonth.key) ?? 0;
     const onderhandenTotaal = totaalRollup.onderhanden;
     // ">90 dagen": alles ouder dan drie volle maanden vóór de agenda-referentie.
     const drempel90 = agendaMonths[agendaMonths.length - 3].key;
@@ -1245,7 +1283,14 @@ export function computeProductionSnapshot(
         value: Math.round(omzetLaatste),
         prev: Math.round(omzetVorige),
         f: "eurK",
-        windowLabel: `gefactureerd in ${maandLabel}`,
+        windowLabel: `VGZ + DSW · ${maandLabel}`,
+      },
+      "Omzet Infomedics": {
+        label: "Omzet Infomedics",
+        value: Math.round(omzetInfoLaatste),
+        prev: Math.round(omzetInfoVorige),
+        f: "eurK",
+        windowLabel: `overige koepels · ${maandLabel}`,
       },
       "Onderhanden werk": {
         label: "Onderhanden werk",
@@ -1344,9 +1389,10 @@ export function computeProductionSnapshot(
       statsAccu.set(cel.behandelaar, acc);
     }
     for (const [naam, acc] of statsAccu) {
+      const noemer = acc.sessies - acc.tijdigAfgezegd;
       behandelaarStats[naam] = {
         sessies: acc.sessies,
-        noShowPct: acc.sessies >= 10 ? round1((acc.noShows / acc.sessies) * 100) : null,
+        noShowPct: noemer >= 10 ? round1((acc.noShows / noemer) * 100) : null,
         directeUren: uren(acc.directeMin),
         totaleUren: uren(acc.totaleMin),
         omzet: Math.round(acc.omzetGerealiseerd),
@@ -1477,7 +1523,13 @@ export function computeProductionSnapshot(
     cockpitKpis.omzetverz = {
       value: Math.round(omzetLaatste),
       prev: Math.round(omzetVorige),
-      spark: agendaMonths.map((month) => Math.round(omzetPerMaand.get(month.key) ?? 0)),
+      spark: agendaMonths.map((month) => Math.round(omzetVerzPerMaand.get(month.key) ?? 0)),
+      windowLabel: maandLabel,
+    };
+    cockpitKpis.omzetinfo = {
+      value: Math.round(omzetInfoLaatste),
+      prev: Math.round(omzetInfoVorige),
+      spark: agendaMonths.map((month) => Math.round(omzetInfoPerMaand.get(month.key) ?? 0)),
       windowLabel: maandLabel,
     };
 
@@ -1486,9 +1538,13 @@ export function computeProductionSnapshot(
     const bronTotMaand = agendaFacts.bronTot.slice(0, 7);
     for (const point of monthly) {
       const rollup = perMaand.get(point.key);
-      point.noshowPct = rollup && rollup.sessies > 0 ? round1((rollup.noShows / rollup.sessies) * 100) : null;
+      point.noshowPct =
+        rollup && rollup.sessies - rollup.tijdigAfgezegd > 0
+          ? round1((rollup.noShows / (rollup.sessies - rollup.tijdigAfgezegd)) * 100)
+          : null;
       const binnenBereik = point.key >= bronVanMaand && point.key <= bronTotMaand;
       point.omzet = binnenBereik ? Math.round(omzetPerMaand.get(point.key) ?? 0) : null;
+      point.omzetInfomedics = binnenBereik ? Math.round(omzetInfoPerMaand.get(point.key) ?? 0) : null;
     }
 
     // ---- Signaleringen uit de agenda ----
@@ -1557,6 +1613,23 @@ export function computeProductionSnapshot(
       });
     }
 
+    const maandreeks = agendaMonths.map((month) => {
+      const rollup = van(month.key);
+      return {
+        key: month.key,
+        label: `${month.label} '${month.key.slice(2, 4)}`,
+        sessies: rollup.sessies,
+        noShows: rollup.noShows,
+        tijdigAfgezegd: rollup.tijdigAfgezegd,
+        directeUren: uren(rollup.directeMin),
+        indirecteUren: uren(rollup.indirecteMin),
+        totaleUren: uren(rollup.totaleMin),
+        blokUren: uren(blokPerMaand.get(month.key) ?? 0),
+        omzetGerealiseerd: Math.round(rollup.omzetGerealiseerd),
+        onderhanden: Math.round(rollup.onderhanden),
+      };
+    });
+
     agendaSnapshot = {
       meta: {
         fileName: agendaFacts.fileName,
@@ -1569,6 +1642,47 @@ export function computeProductionSnapshot(
         maandKey: lastAgendaMonth.key,
       },
       planningMetrics,
+      maandreeks,
+      vormen:
+        agendaFacts.vormen && agendaFacts.vormen.length > 0
+          ? ["online", "locatie", "overig"]
+              .map((vorm) => agendaFacts.vormen?.find((cel) => cel.vorm === vorm))
+              .filter((cel): cel is NonNullable<typeof cel> => cel !== undefined && cel !== null)
+              .map((cel) => ({
+                vorm: cel.vorm,
+                label:
+                  { online: "Online", locatie: "Op locatie", overig: "Overig (MDO, telefonisch, …)" }[cel.vorm] ??
+                  cel.vorm,
+                sessies: cel.sessies,
+                noShowPct:
+                  cel.sessies - cel.tijdigAfgezegd > 0
+                    ? round1((cel.noShows / (cel.sessies - cel.tijdigAfgezegd)) * 100)
+                    : 0,
+                afzegPct: cel.sessies > 0 ? round1((cel.tijdigAfgezegd / cel.sessies) * 100) : 0,
+              }))
+          : null,
+      beroepen: (() => {
+        if (!agendaFacts.beroepen || agendaFacts.beroepen.length === 0) return null;
+        const perCode = new Map<string, { sessies: number; directeMin: number; namen: Map<string, number> }>();
+        for (const cel of agendaFacts.beroepen) {
+          const acc = perCode.get(cel.code) ?? { sessies: 0, directeMin: 0, namen: new Map<string, number>() };
+          acc.sessies += cel.sessies;
+          acc.directeMin += cel.directeMin;
+          if (cel.behandelaar) acc.namen.set(cel.behandelaar, (acc.namen.get(cel.behandelaar) ?? 0) + cel.sessies);
+          perCode.set(cel.code, acc);
+        }
+        return [...perCode.entries()]
+          .map(([code, acc]) => ({
+            code,
+            sessies: acc.sessies,
+            directeUren: uren(acc.directeMin),
+            behandelaars: [...acc.namen.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 3)
+              .map(([naam]) => naam),
+          }))
+          .sort((a, b) => b.sessies - a.sessies);
+      })(),
       noshowWeekdagen,
       urenverdeling,
       bezettingPerLocatie,
@@ -1654,6 +1768,164 @@ export function computeProductionSnapshot(
       inOmzetVerwerkt: agendaSnapshot !== null && filters.locatie === "Alle locaties",
     };
   }
+
+  // ---- Declaratie-totaaloverzicht: toekenning, openstaand en ouderdom ----
+  // De export draagt geen vestiging — cijfers zijn instellingsbreed en worden
+  // niet door het locatiefilter beïnvloed (gedocumenteerd in het paneel).
+  const declaratiesFacts = extra?.declaraties ?? null;
+  let declaraties: ProductionDeclaraties | null = null;
+  if (declaratiesFacts && declaratiesFacts.facturen.length > 0) {
+    const openVan = (factuur: (typeof declaratiesFacts.facturen)[number]): number =>
+      Math.max(0, factuur.bedrag - factuur.toegekend - factuur.gecrediteerd);
+    const gefactureerd = declaratiesFacts.facturen.reduce((sum, factuur) => sum + factuur.bedrag, 0);
+    const toegekend = declaratiesFacts.facturen.reduce((sum, factuur) => sum + factuur.toegekend, 0);
+    const gecrediteerd =
+      declaratiesFacts.facturen.reduce((sum, factuur) => sum + factuur.gecrediteerd, 0) +
+      declaratiesFacts.losseCredits.bedrag;
+    const openstaand = declaratiesFacts.facturen.reduce((sum, factuur) => sum + openVan(factuur), 0);
+    const ouder90 = declaratiesFacts.facturen.filter(
+      (factuur) => openVan(factuur) > 0.01 && daysBetween(factuur.datum, referenceIso) > 90,
+    );
+    const deelsToegekend = declaratiesFacts.facturen.filter(
+      (factuur) => factuur.toegekend > 0.01 && factuur.toegekend < factuur.bedrag - 0.01,
+    );
+    const tekortDeels = deelsToegekend.reduce((sum, factuur) => sum + (factuur.bedrag - factuur.toegekend), 0);
+
+    const koepelAccu = new Map<string, { gefactureerd: number; toegekend: number; openstaand: number }>();
+    for (const factuur of declaratiesFacts.facturen) {
+      const accu = koepelAccu.get(factuur.koepel) ?? { gefactureerd: 0, toegekend: 0, openstaand: 0 };
+      accu.gefactureerd += factuur.bedrag;
+      accu.toegekend += factuur.toegekend;
+      accu.openstaand += openVan(factuur);
+      koepelAccu.set(factuur.koepel, accu);
+    }
+    const perKoepel = [...koepelAccu.entries()]
+      .map(([label, accu]) => ({
+        label,
+        gefactureerd: Math.round(accu.gefactureerd),
+        toegekend: Math.round(accu.toegekend),
+        openstaand: Math.round(accu.openstaand),
+        pct: accu.gefactureerd === 0 ? 0 : Math.round((accu.toegekend / accu.gefactureerd) * 100),
+      }))
+      .sort((a, b) => b.gefactureerd - a.gefactureerd);
+
+    const ouderdomBucketsDef = [
+      { label: "Binnen 30 dagen", test: (dagen: number) => dagen <= 30 },
+      { label: "30-60 dagen", test: (dagen: number) => dagen > 30 && dagen <= 60 },
+      { label: "60-90 dagen", test: (dagen: number) => dagen > 60 && dagen <= 90 },
+      { label: "Ouder dan 90 dagen", test: (dagen: number) => dagen > 90 },
+    ];
+    const ouderdom = ouderdomBucketsDef.map(({ label, test }) => {
+      const bedrag = declaratiesFacts.facturen
+        .filter((factuur) => openVan(factuur) > 0.01 && test(daysBetween(factuur.datum, referenceIso)))
+        .reduce((sum, factuur) => sum + openVan(factuur), 0);
+      return {
+        label,
+        bedrag: Math.round(bedrag),
+        pct: openstaand === 0 ? 0 : Math.round((bedrag / openstaand) * 100),
+      };
+    });
+
+    declaraties = {
+      meta: {
+        fileName: declaratiesFacts.fileName,
+        importedAt: declaratiesFacts.importedAt,
+        bronVan: declaratiesFacts.bronVan,
+        bronTot: declaratiesFacts.bronTot,
+      },
+      gefactureerd: Math.round(gefactureerd),
+      toegekend: Math.round(toegekend),
+      gecrediteerd: Math.round(gecrediteerd),
+      openstaand: Math.round(openstaand),
+      toekenningsPct: gefactureerd === 0 ? 0 : Math.round((toegekend / gefactureerd) * 100),
+      openstaand90: {
+        bedrag: Math.round(ouder90.reduce((sum, factuur) => sum + openVan(factuur), 0)),
+        facturen: ouder90.length,
+      },
+      status: {
+        volledig: declaratiesFacts.facturen.filter((factuur) => factuur.toegekend >= factuur.bedrag - 0.01).length,
+        deels: deelsToegekend.length,
+        zonder: declaratiesFacts.facturen.filter((factuur) => factuur.toegekend <= 0.01).length,
+      },
+      tekortDeels: Math.round(tekortDeels),
+      perKoepel,
+      ouderdom,
+      facturen: declaratiesFacts.facturen.length,
+      // Dekking t.o.v. de agenda-facturatie (incl. toeslagen), instellingsbreed.
+      dekking: agendaFacts
+        ? (() => {
+            const agendaGefactureerd =
+              agendaFacts.facturatie.reduce((sum, cel) => sum + cel.omzet, 0) +
+              (extra?.toeslagen?.cellen.reduce((sum, cel) => sum + cel.omzet, 0) ?? 0);
+            return {
+              agendaGefactureerd: Math.round(agendaGefactureerd),
+              pct: agendaGefactureerd === 0 ? 0 : Math.round((gefactureerd / agendaGefactureerd) * 100),
+            };
+          })()
+        : null,
+    };
+
+    // Financieel-metrics (vervangings-patroon; vereist agenda voor de metric-map).
+    if (agendaSnapshot) {
+      agendaSnapshot.financieel.metrics["Openstaande declaraties"] = {
+        label: "Openstaande declaraties",
+        value: declaraties.openstaand,
+        prev: null,
+        f: "eurK",
+        betterLow: true,
+        windowLabel: "nog niet toegekend",
+      };
+      agendaSnapshot.financieel.metrics["Afgekeurde declaraties"] = {
+        label: "Tekort op toekenning",
+        value: declaraties.tekortDeels,
+        prev: null,
+        f: "eurK",
+        betterLow: true,
+        windowLabel: "deels toegekende facturen",
+      };
+      agendaSnapshot.financieel.metrics["Declaraties >90 dgn"] = {
+        label: "Declaraties >90 dgn",
+        value: declaraties.openstaand90.bedrag,
+        prev: null,
+        f: "eurK",
+        betterLow: true,
+        windowLabel: "openstaand",
+      };
+    }
+
+    if (declaraties.openstaand90.facturen > 0) {
+      signaleringen.push({
+        sev: "middel",
+        titel: "Declaraties >90 dagen open",
+        unit: "facturen",
+        detail: `${nl.format(declaraties.openstaand90.facturen)} facturen (€ ${nl.format(declaraties.openstaand90.bedrag)}) staan langer dan 90 dagen open zonder (volledige) toekenning.`,
+        n: declaraties.openstaand90.facturen,
+        page: "financieel",
+      });
+    }
+  }
+
+  // ---- Populatieprofiel (actieve cliënten binnen het locatiefilter) ----
+  const leeftijden = actieveClienten
+    .map((record) => record.leeftijd)
+    .filter((leeftijd): leeftijd is number => leeftijd !== null && leeftijd >= 0 && leeftijd <= 110)
+    .sort((a, b) => a - b);
+  const dossierDuren = actieveClienten
+    .filter((record) => record.episodeStart !== null)
+    .map((record) => daysBetween(record.episodeStart as string, referenceIso))
+    .sort((a, b) => a - b);
+  const vrouwen = actieveClienten.filter((record) => record.geslacht === "Vrouw").length;
+  const gemiddelde = (waarden: number[]) =>
+    waarden.length === 0 ? null : round1(waarden.reduce((sum, w) => sum + w, 0) / waarden.length);
+  const populatieProfiel = {
+    n: actiefNu,
+    gemLeeftijd: gemiddelde(leeftijden),
+    mediaanLeeftijd: mediaan(leeftijden),
+    vrouwPct: actiefNu === 0 ? null : Math.round((vrouwen / actiefNu) * 100),
+    gemDuurDagen:
+      dossierDuren.length === 0 ? null : Math.round(dossierDuren.reduce((sum, d) => sum + d, 0) / dossierDuren.length),
+    mediaanDuurDagen: mediaan(dossierDuren),
+  };
 
   return {
     meta: {
@@ -1760,5 +2032,7 @@ export function computeProductionSnapshot(
     agenda: agendaSnapshot,
     verwijzerNetwerk,
     toeslagen,
+    declaraties,
+    populatieProfiel,
   };
 }

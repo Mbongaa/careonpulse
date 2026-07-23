@@ -2,7 +2,9 @@
 
 import {
   type AgendaFacts,
+  type DeclaratiesFacts,
   isAgendaFacts,
+  isDeclaratiesFacts,
   isProductionState,
   isToeslagenFacts,
   isVerwijzersFacts,
@@ -109,4 +111,12 @@ export function fetchRemoteToeslagenFacts(): Promise<ToeslagenFacts | null> {
 
 export function pushRemoteToeslagenFacts(facts: ToeslagenFacts): Promise<PushResult> {
   return pushAuxState("/api/careon/toeslagen", facts);
+}
+
+export function fetchRemoteDeclaratiesFacts(): Promise<DeclaratiesFacts | null> {
+  return fetchAuxState("/api/careon/declaraties", isDeclaratiesFacts);
+}
+
+export function pushRemoteDeclaratiesFacts(facts: DeclaratiesFacts): Promise<PushResult> {
+  return pushAuxState("/api/careon/declaraties", facts);
 }

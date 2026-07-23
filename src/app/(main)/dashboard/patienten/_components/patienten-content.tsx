@@ -9,6 +9,7 @@ import { careonDetailHref } from "@/data/careon/careon-kpi-details";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 import { PATIENTEN_METRICS } from "@/data/careon/careon-patienten";
 
+import { PopulatieProfielPanel } from "./populatie-profiel-panel";
 import { TreeknormPanel } from "./treeknorm-panel";
 import { VraagtAandachtPanel } from "./vraagt-aandacht";
 import { WachttijdTrendPanel } from "./wachttijd-trend-panel";
@@ -45,6 +46,8 @@ export function PatientenContent() {
         <VraagtAandachtPanel className="lg:col-span-4" />
         {/* Productie-exclusief (geen demo-tegenhanger): rendert null in demo. */}
         <WachttijdTrendPanel className="lg:col-span-12" />
+        {/* Productie-exclusief: statistisch populatieprofiel (rendert null in demo). */}
+        <PopulatieProfielPanel className="lg:col-span-12" />
       </div>
     </div>
   );

@@ -8,13 +8,16 @@
 // verify-scripts, waar de alias niet resolvet voor runtime-imports.
 
 import type { KpiDetailRow } from "../../data/careon/careon-detail-records";
+import type { KpiDetailColumn } from "../../data/careon/careon-kpi-details";
 import {
   activeAt,
   daysBetween,
+  instroomDatum,
   isBehandelingsfase,
   isWachtend,
   lastFullMonths,
   monthKeyOf,
+  uitstroomDatum,
   wachtduurDagen,
 } from "./compute-snapshot";
 import type { ClientRecord, LiveMetric, ProductionSnapshot } from "./types";
@@ -131,11 +134,11 @@ export const PRODUCTION_DETAIL_ROWS: Record<string, (snapshot: ProductionSnapsho
     const months = lastFullMonths(snapshot.meta.referenceDate, 12);
     const lastKey = months[months.length - 1].key;
     return snapshot.records
-      .filter((record) => monthKeyOf(record.episodeStart) === lastKey)
-      .sort((a, b) => (b.episodeStart ?? "").localeCompare(a.episodeStart ?? ""))
+      .filter((record) => monthKeyOf(instroomDatum(record)) === lastKey)
+      .sort((a, b) => (instroomDatum(b) ?? "").localeCompare(instroomDatum(a) ?? ""))
       .map((record) =>
         clientRow(record, {
-          datum: record.episodeStart ?? "—",
+          datum: instroomDatum(record) ?? "—",
           verwijzer: record.verwijzer ?? "—",
           status: isWachtend(record) ? "Op wachtlijst" : "In zorg",
         }),
@@ -146,11 +149,11 @@ export const PRODUCTION_DETAIL_ROWS: Record<string, (snapshot: ProductionSnapsho
     const months = lastFullMonths(snapshot.meta.referenceDate, 12);
     const lastKey = months[months.length - 1].key;
     return snapshot.records
-      .filter((record) => monthKeyOf(record.episodeEind) === lastKey)
-      .sort((a, b) => (b.episodeEind ?? "").localeCompare(a.episodeEind ?? ""))
+      .filter((record) => monthKeyOf(uitstroomDatum(record)) === lastKey)
+      .sort((a, b) => (uitstroomDatum(b) ?? "").localeCompare(uitstroomDatum(a) ?? ""))
       .map((record) =>
         clientRow(record, {
-          datum: record.episodeEind ?? "—",
+          datum: uitstroomDatum(record) ?? "—",
           // De export bevat geen afsluitreden.
           reden: "—",
         }),
@@ -375,6 +378,61 @@ export function productionDetailMetric(snapshot: ProductionSnapshot, id: string)
         f: "pct",
       };
     default:
+      return agendaMetric(snapshot, id);
+  }
+}
+
+// Agenda-/financieel-gedreven kaarten: de kop volgt de live metric van de
+// betreffende pagina (zelfde vervangings-patroon, gesleuteld op demo-labels).
+function agendaMetric(snapshot: ProductionSnapshot, id: string): LiveMetric | null {
+  const agenda = snapshot.agenda;
+  if (!agenda) return null;
+  const planning = (label: string) => agenda.planningMetrics[label] ?? null;
+  const financieel = (label: string) => agenda.financieel.metrics[label] ?? null;
+  switch (id) {
+    case "afspraken":
+      return planning("Afspraken deze maand");
+    case "noshow": {
+      const kpi = snapshot.cockpitKpis.noshow;
+      if (!kpi) return null;
+      return {
+        label: "No-show",
+        value: kpi.value,
+        prev: kpi.prev,
+        f: "pct",
+        betterLow: true,
+        windowLabel: kpi.windowLabel,
+      };
+    }
+    case "geannuleerd":
+      return planning("Geannuleerd");
+    case "bezetting":
+      return planning("Agenda-bezetting");
+    case "uren-beschikbaar":
+      return planning("Beschikbare uren");
+    case "uren-productief":
+      return planning("Productieve uren");
+    case "uren-behandel":
+      return planning("Behandeluren");
+    case "uren-indirect":
+      return planning("Indirecte uren");
+    case "omzetverz":
+      return financieel("Omzet verzekeraars");
+    case "omzetinfo":
+      return financieel("Omzet Infomedics");
+    case "ohw":
+      return financieel("Onderhanden werk");
+    case "omzet-client":
+      return financieel("Gem. omzet / cliënt");
+    case "omzet-traject":
+      return financieel("Gem. omzet / traject");
+    case "openstaand":
+      return financieel("Openstaande declaraties");
+    case "afgekeurd":
+      return financieel("Afgekeurde declaraties");
+    case "declaraties90":
+      return financieel("Declaraties >90 dgn");
+    default:
       return null;
   }
 }
@@ -397,8 +455,187 @@ export function productionDetailTrend(
       return spark.length === labels.length ? { labels, values: spark } : null;
     }
     default:
+      return agendaTrend(snapshot, id);
+  }
+}
+
+// Agenda-gedreven trends: maandreeks (planning) en omzetsplitsing (financieel).
+function agendaTrend(snapshot: ProductionSnapshot, id: string): { labels: string[]; values: number[] } | null {
+  const agenda = snapshot.agenda;
+  if (!agenda) return null;
+  const reeks = agenda.maandreeks;
+  const reeksLabels = reeks.map((maand) => maand.label.split(" ")[0]);
+  const uitReeks = (veld: (maand: (typeof reeks)[number]) => number) =>
+    reeks.length > 0 ? { labels: reeksLabels, values: reeks.map(veld) } : null;
+  const monthlyLabels = snapshot.monthly.map((point) => point.m);
+  switch (id) {
+    case "afspraken":
+      return uitReeks((maand) => maand.sessies);
+    case "noshow":
+      return {
+        labels: monthlyLabels,
+        values: snapshot.monthly.map((point) => point.noshowPct ?? 0),
+      };
+    case "geannuleerd":
+      return uitReeks((maand) => maand.tijdigAfgezegd);
+    case "bezetting":
+      return uitReeks((maand) => {
+        const totaal = maand.totaleUren + maand.blokUren;
+        return totaal === 0 ? 0 : Math.round((maand.totaleUren / totaal) * 100);
+      });
+    case "uren-beschikbaar":
+      return uitReeks((maand) => maand.blokUren);
+    case "uren-productief":
+      return uitReeks((maand) => maand.totaleUren);
+    case "uren-behandel":
+      return uitReeks((maand) => maand.directeUren);
+    case "uren-indirect":
+      return uitReeks((maand) => maand.indirecteUren);
+    case "omzetverz":
+      return {
+        labels: monthlyLabels,
+        values: snapshot.monthly.map((point) => Math.round((point.omzet ?? 0) - (point.omzetInfomedics ?? 0))),
+      };
+    case "omzetinfo":
+      return { labels: monthlyLabels, values: snapshot.monthly.map((point) => point.omzetInfomedics ?? 0) };
+    case "omzet-client":
+    case "omzet-traject":
+      return uitReeks((maand) => maand.omzetGerealiseerd);
+    default:
       return null;
   }
+}
+
+// ---- Geaggregeerde drilldown-tabellen ----
+// Voor agenda-/declaratie-gedreven kaarten bestaan er (bewust) geen losse
+// records; de detailtabel toont dan de eerlijke aggregaten — per maand of per
+// verzekeringskoepel — in plaats van demo-voorbeeldrijen.
+
+export interface AggDetail {
+  columns: KpiDetailColumn[];
+  rows: KpiDetailRow[];
+  /** Eenheid voor de tabel-caption ("maanden", "koepels", …). */
+  eenheid: string;
+}
+
+const MAAND_COLUMNS: KpiDetailColumn[] = [
+  { key: "maand", header: "Maand" },
+  { key: "sessies", header: "Afspraken", format: "int", align: "right" },
+  { key: "noShows", header: "No-shows", format: "int", align: "right" },
+  { key: "tijdigAfgezegd", header: "Afgezegd", format: "int", align: "right", hideOnMobile: true },
+  { key: "directeUren", header: "Behandeluren", format: "int", align: "right", hideOnMobile: true },
+  { key: "totaleUren", header: "Geregistreerd (u)", format: "int", align: "right", hideOnMobile: true },
+  { key: "blokUren", header: "Afwezig (u)", format: "int", align: "right", hideOnMobile: true },
+];
+
+const OMZET_COLUMNS: KpiDetailColumn[] = [
+  { key: "maand", header: "Factuurmaand" },
+  { key: "omzetVerz", header: "VGZ + DSW", format: "eur", align: "right" },
+  { key: "omzetInfo", header: "Via Infomedics", format: "eur", align: "right" },
+  { key: "totaal", header: "Totaal", format: "eur", align: "right" },
+];
+
+const KOEPEL_COLUMNS: KpiDetailColumn[] = [
+  { key: "koepel", header: "Debiteur" },
+  { key: "gefactureerd", header: "Gedeclareerd", format: "eur", align: "right" },
+  { key: "toegekend", header: "Toegekend", format: "eur", align: "right" },
+  { key: "openstaand", header: "Openstaand", format: "eur", align: "right" },
+  { key: "pct", header: "Toegekend %", format: "pct0", align: "right" },
+];
+
+function maandTabel(snapshot: ProductionSnapshot): AggDetail | null {
+  const agenda = snapshot.agenda;
+  if (!agenda || agenda.maandreeks.length === 0) return null;
+  return {
+    columns: MAAND_COLUMNS,
+    eenheid: "maanden",
+    rows: [...agenda.maandreeks].reverse().map((maand) => ({
+      key: maand.key,
+      maand: maand.label,
+      sessies: maand.sessies,
+      noShows: maand.noShows,
+      tijdigAfgezegd: maand.tijdigAfgezegd,
+      directeUren: maand.directeUren,
+      totaleUren: maand.totaleUren,
+      blokUren: maand.blokUren,
+    })),
+  };
+}
+
+function omzetTabel(snapshot: ProductionSnapshot): AggDetail | null {
+  if (!snapshot.agenda) return null;
+  const rows = [...snapshot.monthly]
+    .filter((point) => point.omzet !== null)
+    .reverse()
+    .map((point) => ({
+      key: point.key,
+      maand: point.m,
+      omzetVerz: Math.round((point.omzet ?? 0) - (point.omzetInfomedics ?? 0)),
+      omzetInfo: point.omzetInfomedics ?? 0,
+      totaal: point.omzet ?? 0,
+    }));
+  return rows.length > 0 ? { columns: OMZET_COLUMNS, eenheid: "factuurmaanden", rows } : null;
+}
+
+function koepelTabel(snapshot: ProductionSnapshot): AggDetail | null {
+  const declaraties = snapshot.declaraties;
+  if (!declaraties) return null;
+  return {
+    columns: KOEPEL_COLUMNS,
+    eenheid: "debiteuren",
+    rows: declaraties.perKoepel.map((row) => ({
+      key: row.label,
+      koepel: row.label,
+      gefactureerd: row.gefactureerd,
+      toegekend: row.toegekend,
+      openstaand: row.openstaand,
+      pct: row.pct,
+    })),
+  };
+}
+
+function ouderdomTabel(snapshot: ProductionSnapshot): AggDetail | null {
+  const agenda = snapshot.agenda;
+  if (!agenda) return null;
+  return {
+    columns: [
+      { key: "bucket", header: "Ouderdom (afspraakmaand)" },
+      { key: "bedrag", header: "Nog niet gefactureerd", format: "eur", align: "right" },
+      { key: "pct", header: "Aandeel", format: "pct0", align: "right" },
+    ],
+    eenheid: "categorieën",
+    rows: agenda.financieel.onderhandenOuderdom.map((bucket) => ({
+      key: bucket.label,
+      bucket: bucket.label,
+      bedrag: bucket.bedrag,
+      pct: bucket.pct,
+    })),
+  };
+}
+
+const AGG_BUILDERS: Record<string, (snapshot: ProductionSnapshot) => AggDetail | null> = {
+  afspraken: maandTabel,
+  noshow: maandTabel,
+  geannuleerd: maandTabel,
+  bezetting: maandTabel,
+  "uren-beschikbaar": maandTabel,
+  "uren-productief": maandTabel,
+  "uren-behandel": maandTabel,
+  "uren-indirect": maandTabel,
+  omzetverz: omzetTabel,
+  omzetinfo: omzetTabel,
+  "omzet-client": maandTabel,
+  "omzet-traject": maandTabel,
+  ohw: ouderdomTabel,
+  openstaand: koepelTabel,
+  afgekeurd: koepelTabel,
+  declaraties90: koepelTabel,
+};
+
+/** Geaggregeerde detailtabel voor agenda-/declaratie-gedreven kaarten (of null). */
+export function productionAggDetail(snapshot: ProductionSnapshot, id: string): AggDetail | null {
+  const builder = AGG_BUILDERS[id];
+  return builder ? builder(snapshot) : null;
 }
 
 export function hasProductionDetailRows(id: string, snapshot?: ProductionSnapshot | null): boolean {

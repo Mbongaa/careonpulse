@@ -2,13 +2,14 @@
 
 import { type DragEvent, type ReactNode, useRef, useState } from "react";
 
-import { CalendarDays, CheckCircle2, Euro, ShieldCheck, Stethoscope, TriangleAlert } from "lucide-react";
+import { CalendarDays, CheckCircle2, Euro, FileCheck2, ShieldCheck, Stethoscope, TriangleAlert } from "lucide-react";
 
 import { type ActivationResult, useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { parseAgendaExport } from "@/lib/careon-production/parse-agenda";
+import { parseDeclaratiesExport } from "@/lib/careon-production/parse-declaraties";
 import { parseToeslagenExport } from "@/lib/careon-production/parse-toeslagen";
 import { parseVerwijzersExport } from "@/lib/careon-production/parse-verwijzers";
 import type { ImportWarning } from "@/lib/careon-production/types";
@@ -181,11 +182,13 @@ function ImportSlot({
 }
 
 export function AanvullendeExportsCard() {
-  const { isProduction, production, activateAgenda, activateVerwijzers, activateToeslagen } = useCareon();
+  const { isProduction, production, activateAgenda, activateVerwijzers, activateToeslagen, activateDeclaraties } =
+    useCareon();
 
   const agendaMeta = production?.agenda?.meta;
   const netwerk = production?.verwijzerNetwerk;
   const toeslagen = production?.toeslagen;
+  const declaraties = production?.declaraties;
 
   const datumNl = (iso: string) =>
     new Date(`${iso}T00:00:00Z`).toLocaleDateString("nl-NL", {
@@ -317,6 +320,42 @@ export function AanvullendeExportsCard() {
                   ],
                   warnings: parsed.warnings,
                   activeer: () => activateToeslagen(facts),
+                },
+              };
+            }}
+          />
+          <ImportSlot
+            titel="Declaratie-totaaloverzicht"
+            hint="ZSG-formaat: Regelnummer;…;Factuurnummer;…;Totaal bedrag;Toegekend totaalbedrag;…"
+            icoon={<FileCheck2 className="size-4 text-violet-600 dark:text-violet-400" />}
+            actief={
+              declaraties
+                ? `Gekoppeld: ${declaraties.meta.fileName} — ${nl.format(declaraties.facturen)} facturen, ${declaraties.toekenningsPct}% toegekend, € ${nl.format(declaraties.openstaand)} openstaand.`
+                : null
+            }
+            disabled={!isProduction}
+            parseFile={(file, text) => {
+              const parsed = parseDeclaratiesExport(file.name, text);
+              if (!parsed.ok || !parsed.facts) {
+                return { error: parsed.error ?? "Bestand kon niet worden gelezen.", preview: null };
+              }
+              const facts = parsed.facts;
+              const gefactureerd = facts.facturen.reduce((sum, factuur) => sum + factuur.bedrag, 0);
+              const toegekend = facts.facturen.reduce((sum, factuur) => sum + factuur.toegekend, 0);
+              return {
+                error: null,
+                preview: {
+                  fileName: file.name,
+                  samenvatting: [
+                    { label: "facturen", waarde: nl.format(facts.facturen.length) },
+                    { label: "gedeclareerd", waarde: `€ ${nl.format(Math.round(gefactureerd))}` },
+                    {
+                      label: "toegekend",
+                      waarde: `${gefactureerd === 0 ? 0 : Math.round((toegekend / gefactureerd) * 100)}%`,
+                    },
+                  ],
+                  warnings: parsed.warnings,
+                  activeer: () => activateDeclaraties(facts),
                 },
               };
             }}

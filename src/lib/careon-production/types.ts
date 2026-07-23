@@ -46,6 +46,10 @@ export interface ClientRecord {
   verwijzerAgb?: string | null;
   /** COV-verzekeringscheck (Uzovi-code) — aanwezigheid = check uitgevoerd. */
   covUzovi?: string | null;
+  /** Zorgtraject-datums: de échte aanmelding/uitstroom (episodes kunnen
+   * her-registraties binnen een traject zijn); fallback = episode-datums. */
+  trajectStart?: string | null;
+  trajectEind?: string | null;
   /** Einddatum van de gecontroleerde polis (ISO) — verlopen = declaratierisico. */
   polisEinde?: string | null;
   wachtlijst: boolean;
@@ -105,6 +109,8 @@ export interface ProductionMonthPoint {
   noshowPct: number | null;
   /** Gefactureerde omzet (op factuurmaand) uit de agenda-export; null zonder agenda. */
   omzet: number | null;
+  /** Deel van de omzet dat via Infomedics loopt (alles buiten VGZ en DSW — opgave klant). */
+  omzetInfomedics: number | null;
 }
 
 export interface ProductionAlert {
@@ -158,11 +164,30 @@ export interface ProductionAgendaSnapshot {
     onderhandenTotaal: number;
     onderhandenOuderdom: { label: string; bedrag: number; pct: number }[];
   };
+  /** Maandreeks (laatste 12 agenda-maanden, binnen het locatiefilter) — bron
+   * voor de geaggregeerde KPI-drilldowns (er bestaan geen losse afspraakregels). */
+  maandreeks: {
+    key: string;
+    label: string;
+    sessies: number;
+    noShows: number;
+    tijdigAfgezegd: number;
+    directeUren: number;
+    indirecteUren: number;
+    totaleUren: number;
+    blokUren: number;
+    omzetGerealiseerd: number;
+    onderhanden: number;
+  }[];
   /** Per behandelaar (laatste 12 agenda-maanden), sleutel = naam. */
   behandelaarStats: Record<
     string,
     { sessies: number; noShowPct: number | null; directeUren: number; totaleUren: number; omzet: number }
   >;
+  /** Sessies per vorm incl. uitval (instellingsbreed; null bij ouder aggregaat). */
+  vormen: { vorm: string; label: string; sessies: number; noShowPct: number; afzegPct: number }[] | null;
+  /** Inzet per ZPM-beroepcode (12 mnd historisch; null bij ouder aggregaat). */
+  beroepen: { code: string; sessies: number; directeUren: number; behandelaars: string[] }[] | null;
   /** Actieve, niet-wachtende cliënten zonder gehouden afspraak in >30/>60 dagen. */
   contact: { z30: number; z60: number };
   /** Laatste gehouden afspraak (ISO) per cliënt-ID — bron voor de contact-drilldowns. */
@@ -199,6 +224,27 @@ export interface ProductionToeslagen {
   perKoepel: AantalGroep[];
   /** Toeslag-omzet telt mee in de omzet-KPI's (vereist agenda + geen locatiefilter). */
   inOmzetVerwerkt: boolean;
+}
+
+/** Declaratie-gedeelte van de snapshot (alleen na declaratie-import). */
+export interface ProductionDeclaraties {
+  meta: { fileName: string; importedAt: string; bronVan: string; bronTot: string };
+  gefactureerd: number;
+  toegekend: number;
+  gecrediteerd: number;
+  openstaand: number;
+  /** Toegekend als % van gefactureerd (afgerond). */
+  toekenningsPct: number;
+  openstaand90: { bedrag: number; facturen: number };
+  /** Facturen naar toekenningsstatus. */
+  status: { volledig: number; deels: number; zonder: number };
+  /** Tekort op deels-toegekende facturen (gefactureerd − toegekend). */
+  tekortDeels: number;
+  perKoepel: { label: string; gefactureerd: number; toegekend: number; openstaand: number; pct: number }[];
+  ouderdom: { label: string; bedrag: number; pct: number }[];
+  facturen: number;
+  /** Dekking t.o.v. de agenda-facturatie (null zonder agenda-import). */
+  dekking: { agendaGefactureerd: number; pct: number } | null;
 }
 
 export interface ProductionVerwijzerNetwerk {
@@ -308,6 +354,17 @@ export interface ProductionSnapshot {
   verwijzerNetwerk: ProductionVerwijzerNetwerk | null;
   /** Alleen gevuld na een toeslagen-import. */
   toeslagen: ProductionToeslagen | null;
+  /** Alleen gevuld na een declaratie-import. */
+  declaraties: ProductionDeclaraties | null;
+  /** Populatieprofiel van de actieve cliënten (binnen het locatiefilter). */
+  populatieProfiel: {
+    n: number;
+    gemLeeftijd: number | null;
+    mediaanLeeftijd: number | null;
+    vrouwPct: number | null;
+    gemDuurDagen: number | null;
+    mediaanDuurDagen: number | null;
+  };
 }
 
 export interface ProductionState {
@@ -368,6 +425,24 @@ export interface AgendaWeekdagCel {
   locatie: string | null;
   sessies: number;
   noShows: number;
+  /** Optioneel (oudere aggregaten missen dit): tijdig afgezegd per weekdag. */
+  tijdigAfgezegd?: number;
+}
+
+/** Sessies per vorm (online / op locatie / overig) — instellingsbreed. */
+export interface AgendaVormCel {
+  vorm: "online" | "locatie" | "overig";
+  sessies: number;
+  noShows: number;
+  tijdigAfgezegd: number;
+}
+
+/** Historische sessies per (ZPM-beroepcode × behandelaar). */
+export interface AgendaBeroepCel {
+  code: string;
+  behandelaar: string | null;
+  sessies: number;
+  directeMin: number;
 }
 
 /** Contactfeiten per cliënt — alleen het EPD-cliënt-ID, nooit een naam. */
@@ -438,6 +513,10 @@ export interface AgendaFacts {
   toekomst?: AgendaToekomst | null;
   /** Unieke zorgtrajecten in de historische sessies (basis voor omzet/traject). */
   trajecten?: number;
+  /** Sessies per vorm (optioneel — oudere aggregaten missen dit). */
+  vormen?: AgendaVormCel[];
+  /** Sessies per (beroepcode × behandelaar) (optioneel). */
+  beroepen?: AgendaBeroepCel[];
 }
 
 export interface ParseAgendaResult {
@@ -492,6 +571,45 @@ export interface ParseToeslagenResult {
   ok: boolean;
   error?: string;
   facts: ToeslagenFacts | null;
+  warnings: ImportWarning[];
+}
+
+// ---- Declaratie-totaaloverzicht (declaration total) ----
+// Per factuur: gedeclareerd bedrag, toegekend totaalbedrag en creditnota's.
+// Debiteuren zijn verzekeraars/gemeenten; privépersonen (particuliere
+// facturen) worden bij het parsen samengevoegd tot "Particulier" — namen
+// worden nooit bewaard. Debiteurennummers worden niet gelezen.
+
+export interface DeclaratieFactuur {
+  /** Factuurnummer — koppelt aan de agenda- en toeslagen-exports. */
+  nummer: string;
+  /** Factuurdatum (ISO) — basis voor de ouderdom van openstaande bedragen. */
+  datum: string;
+  /** Debiteur: verzekeringskoepel, gemeente of "Particulier". */
+  koepel: string;
+  bedrag: number;
+  toegekend: number;
+  /** Som van creditnota's die naar deze factuur verwijzen (positief getal). */
+  gecrediteerd: number;
+}
+
+export interface DeclaratiesFacts {
+  fileName: string;
+  importedAt: string;
+  totalRows: number;
+  skippedRows: number;
+  /** Bereik van de factuurdatums (ISO). */
+  bronVan: string;
+  bronTot: string;
+  facturen: DeclaratieFactuur[];
+  /** Creditnota's zonder herleidbare doelfactuur (aantal, som als positief bedrag). */
+  losseCredits: { aantal: number; bedrag: number };
+}
+
+export interface ParseDeclaratiesResult {
+  ok: boolean;
+  error?: string;
+  facts: DeclaratiesFacts | null;
   warnings: ImportWarning[];
 }
 
@@ -670,7 +788,29 @@ export function isAgendaFacts(value: unknown): value is AgendaFacts {
     Array.isArray(facts.sessieTypen) &&
     (facts.peildatum === undefined || isIsoDay(facts.peildatum)) &&
     (facts.toekomst === undefined || facts.toekomst === null || isAgendaToekomst(facts.toekomst)) &&
-    (facts.trajecten === undefined || isFiniteNumber(facts.trajecten))
+    (facts.trajecten === undefined || isFiniteNumber(facts.trajecten)) &&
+    (facts.vormen === undefined ||
+      (Array.isArray(facts.vormen) &&
+        facts.vormen.every(
+          (cel: unknown) =>
+            typeof cel === "object" &&
+            cel !== null &&
+            typeof (cel as Record<string, unknown>).vorm === "string" &&
+            isFiniteNumber((cel as Record<string, unknown>).sessies) &&
+            isFiniteNumber((cel as Record<string, unknown>).noShows) &&
+            isFiniteNumber((cel as Record<string, unknown>).tijdigAfgezegd),
+        ))) &&
+    (facts.beroepen === undefined ||
+      (Array.isArray(facts.beroepen) &&
+        facts.beroepen.every(
+          (cel: unknown) =>
+            typeof cel === "object" &&
+            cel !== null &&
+            typeof (cel as Record<string, unknown>).code === "string" &&
+            isNullableString((cel as Record<string, unknown>).behandelaar) &&
+            isFiniteNumber((cel as Record<string, unknown>).sessies) &&
+            isFiniteNumber((cel as Record<string, unknown>).directeMin),
+        )))
   );
 }
 
@@ -730,6 +870,37 @@ export function isToeslagenFacts(value: unknown): value is ToeslagenFacts {
         isFiniteNumber((groep as Record<string, unknown>).omzet) &&
         isFiniteNumber((groep as Record<string, unknown>).clienten),
     )
+  );
+}
+
+export function isDeclaratiesFacts(value: unknown): value is DeclaratiesFacts {
+  if (typeof value !== "object" || value === null) return false;
+  const facts = value as Record<string, unknown>;
+  return (
+    typeof facts.fileName === "string" &&
+    typeof facts.importedAt === "string" &&
+    Number.isFinite(Date.parse(facts.importedAt)) &&
+    isFiniteNumber(facts.totalRows) &&
+    isFiniteNumber(facts.skippedRows) &&
+    isIsoDay(facts.bronVan) &&
+    isIsoDay(facts.bronTot) &&
+    Array.isArray(facts.facturen) &&
+    facts.facturen.length > 0 &&
+    facts.facturen.every(
+      (factuur: unknown) =>
+        typeof factuur === "object" &&
+        factuur !== null &&
+        typeof (factuur as Record<string, unknown>).nummer === "string" &&
+        isIsoDay((factuur as Record<string, unknown>).datum) &&
+        typeof (factuur as Record<string, unknown>).koepel === "string" &&
+        isFiniteNumber((factuur as Record<string, unknown>).bedrag) &&
+        isFiniteNumber((factuur as Record<string, unknown>).toegekend) &&
+        isFiniteNumber((factuur as Record<string, unknown>).gecrediteerd),
+    ) &&
+    typeof facts.losseCredits === "object" &&
+    facts.losseCredits !== null &&
+    isFiniteNumber((facts.losseCredits as Record<string, unknown>).aantal) &&
+    isFiniteNumber((facts.losseCredits as Record<string, unknown>).bedrag)
   );
 }
 
