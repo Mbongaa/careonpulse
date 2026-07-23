@@ -6,6 +6,8 @@ import {
   AssistantRuntimeProvider,
   type ChatModelRunOptions,
   type ChatModelRunResult,
+  type ThreadAssistantMessagePart,
+  type ToolCallMessagePart,
   useAuiState,
   useLocalRuntime,
   useRemoteThreadListRuntime,
@@ -13,6 +15,7 @@ import {
 } from "@assistant-ui/react";
 import { Activity, BarChart3, Brain, ChevronUp, Loader2, PanelLeft, Printer, X, Zap } from "lucide-react";
 
+import { useCareonMiddelen } from "@/app/(main)/dashboard/_components/careon/careon-middelen-provider";
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
 import { Thread } from "@/components/assistant-ui/thread";
 import { ThreadList, type ThreadListLabels } from "@/components/assistant-ui/thread-list";
@@ -31,9 +34,16 @@ import {
   type AssistantResponse,
   resolveAssistantResponse,
 } from "@/data/careon/careon-assistant";
+import { BEHANDELAREN } from "@/data/careon/careon-behandelaren";
+import { CAREON_LOCATIONS } from "@/data/careon/careon-filters";
 import { COCKPIT_KPIS } from "@/data/careon/careon-kpis";
 import { CAREON_MONTHLY } from "@/data/careon/careon-shared-charts";
 import type { CareonFilters, CareonKpi, CareonSource } from "@/data/careon/careon-types";
+import {
+  executeMiddelenTool,
+  type MiddelenActieApi,
+  type MiddelenBron,
+} from "@/lib/careon-middelen/assistant-executor";
 import { buildProductionAssistantFacts } from "@/lib/careon-production/assistant-facts";
 import type { ProductionSnapshot } from "@/lib/careon-production/types";
 import { cn } from "@/lib/utils";
@@ -68,6 +78,71 @@ const THREAD_LIST_LABELS: ThreadListLabels = {
 };
 
 type ReasoningStyle = "standaard" | "diep";
+
+// Maximaal aantal model→tools→model-rondes binnen één beurt (handoff 11).
+const MAX_ACTIE_RONDES = 4;
+
+const OFFLINE_ACTIE_NOTICE =
+  "Wijzigingen uitvoeren (zoals middelen toewijzen of inventaris aanpassen) kan alleen met een actieve live AI-koppeling. In deze lokale preview kunt u de registratie handmatig bijwerken op de pagina Medewerkers & middelen (Organisatie → Medewerkers & middelen).";
+
+// Conservatieve detectie van een actieverzoek in het deterministische pad:
+// een actiewerkwoord én een middelen-onderwerp, zonder lees-signaalwoorden —
+// dan leggen we uit dat acties live AI vereisen in plaats van een los
+// kernantwoord te tonen. Alleen relevant zonder geconfigureerde key.
+const ACTIE_WOORDEN = /\b(voeg|verwijder|wijzig|verander|geef|neem|registreer|noteer|zet|update|hernoem|ken)\b/i;
+const MIDDELEN_WOORDEN =
+  /\b(middel(en)?|laptops?|telefoons?|tankpas(sen)?|sleutels?|toegang|auto'?s?|inventaris|behandelkamers?|boeken|diagnostiek|teamtags?|notities?|functie|taal|talen|medewerkers?|teams?|locaties?)\b/i;
+const LEES_WOORDEN = /\b(overzicht|inzicht|analyse|hoeveel|wat|welke|wie|waar|toon|laat|status|rapport)\b/i;
+
+function lijktMiddelenActie(text: string): boolean {
+  return ACTIE_WOORDEN.test(text) && MIDDELEN_WOORDEN.test(text) && !LEES_WOORDEN.test(text);
+}
+
+// NDJSON-events van de live route (zie /api/assistant): tekst-tokens,
+// complete tool-aanroepen en een afsluitende done-regel.
+type LiveEvent =
+  | { t: "text"; d: string }
+  | { t: "tool"; id: string; name: string; args: string }
+  | { t: "done"; reason: "stop" | "tool_calls" };
+
+async function* readWireEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<LiveEvent> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  let done = false;
+  while (!done) {
+    const chunk = await reader.read();
+    done = chunk.done;
+    if (!chunk.value) continue;
+    buffered += decoder.decode(chunk.value, { stream: true });
+    const lines = buffered.split("\n");
+    buffered = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        yield JSON.parse(line) as LiveEvent;
+      } catch {
+        // Misvormde regel — negeren.
+      }
+    }
+  }
+}
+
+// Registratie-grounding voor de live route: zo kan het model zowel vragen
+// over middelen beantwoorden als namen/locaties correct resolven vóór een
+// actie. Compact gehouden en afgekapt ruim onder de context-limiet.
+function middelenGrounding(ctx: { api: MiddelenActieApi; bron: MiddelenBron }): string {
+  const state = ctx.api.getState();
+  const geregistreerd = new Set(state.medewerkers.map((rij) => rij.naam));
+  return JSON.stringify({
+    toelichting:
+      "Handmatig bijgehouden registratie (geen EPD-data): uitgegeven middelen, functie, talen en teamtags per medewerker plus inventaris per locatie. Aanpasbaar via de actie-tools.",
+    medewerkers: state.medewerkers.slice(0, 150),
+    bronMedewerkersZonderRegistratie: ctx.bron.medewerkers.filter((naam) => !geregistreerd.has(naam)).slice(0, 150),
+    teams: state.teams ?? [],
+    inventaris: state.inventaris,
+  });
+}
 
 // Below this width the canvas lives in a bottom drawer instead of the inline
 // pane; must match the `lg:` classes on the workspace grid.
@@ -229,6 +304,31 @@ export function AssistentContent() {
   const turnContextRef = useRef({ kpis, filters, source, production });
   turnContextRef.current = { kpis, filters, source, production };
 
+  // Middelen-registratie + databron-kandidaten voor assistent-acties
+  // (handoff 11): zelfde bron-afleiding als de pagina Medewerkers & middelen.
+  const middelen = useCareonMiddelen();
+  const middelenBron = useMemo<MiddelenBron>(
+    () =>
+      production
+        ? {
+            medewerkers: production.dossiersProductie.medewerkers.map((medewerker) => medewerker.naam),
+            locaties: [
+              ...new Set(
+                production.records
+                  .map((record) => record.vestiging)
+                  .filter((vestiging): vestiging is string => vestiging !== null),
+              ),
+            ].sort((a, b) => a.localeCompare(b, "nl")),
+          }
+        : {
+            medewerkers: BEHANDELAREN.map((behandelaar) => behandelaar.naam),
+            locaties: CAREON_LOCATIONS.filter((locatie) => locatie !== "Alle locaties"),
+          },
+    [production],
+  );
+  const middelenRef = useRef({ api: middelen, bron: middelenBron });
+  middelenRef.current = { api: middelen, bron: middelenBron };
+
   const runTurn = useCallback(async function* run(options: ChatModelRunOptions): AsyncGenerator<ChatModelRunResult> {
     const { text, intentHint } = latestUserTurn(options.messages);
     if (!text) {
@@ -251,53 +351,175 @@ export function AssistentContent() {
           messageKey,
         });
 
+      // Zonder live AI kan de assistent geen wijzigingen uitvoeren — leg dat
+      // uit in plaats van een los deterministisch kernantwoord te tonen.
+      if (!aiLiveRef.current && lijktMiddelenActie(text)) {
+        setCanvas((prev) => ({ ...prev, pending: false, stage: prev.artifact ? "ready" : "idle" }));
+        for (let index = STREAM_CHUNK; index < OFFLINE_ACTIE_NOTICE.length; index += STREAM_CHUNK) {
+          yield runResult(OFFLINE_ACTIE_NOTICE.slice(0, index), {});
+          await sleepFrame(STREAM_FRAME_MS, options.abortSignal);
+        }
+        yield runResult(OFFLINE_ACTIE_NOTICE, {}, true);
+        return;
+      }
+
       // Live path: stream the answer from the server-side OpenAI route. The
       // artifact/canvas stays deterministic — only the narrative is generated.
+      // Actiepad (handoff 11): het model kan middelen-tools aanroepen; die
+      // voeren we hier client-side uit op de provider-mutators en het
+      // tussentranscript gaat als `steps` terug voor de vervolgronde.
       if (aiLiveRef.current) {
+        const liveParts: ThreadAssistantMessagePart[] = [];
+        let toolsUsed = false;
+        const liveCustom = () => (toolsUsed ? {} : { visualPending: true });
+        const afgebrokenNaActies: ThreadAssistantMessagePart = {
+          type: "text",
+          text: "\n\nDe verbinding met de AI-dienst viel weg; de hierboven uitgevoerde wijzigingen zijn wel opgeslagen.",
+        };
         try {
-          const res = await fetch("/api/assistant", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-careon-assistant": "1" },
-            signal: options.abortSignal,
-            body: JSON.stringify({
-              question: text,
-              style: reasoningRef.current,
-              context: buildGrounding(response, turnContextRef.current),
-              history: historyFromMessages(options.messages),
-            }),
-          });
-          if (res.ok && res.body) {
-            setCanvas((prev) => ({ ...prev, pending: true, stage: "assembling" }));
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder();
-            let streamed = "";
-            let done = false;
-            while (!done) {
-              const chunk = await reader.read();
-              done = chunk.done;
-              if (chunk.value) {
-                streamed += decoder.decode(chunk.value, { stream: true });
-                yield runResult(streamed, { visualPending: true });
+          const grounding = [
+            buildGrounding(response, turnContextRef.current),
+            "",
+            "MEDEWERKERS & MIDDELEN (handmatige registratie, JSON):",
+            middelenGrounding(middelenRef.current),
+          ].join("\n");
+          const steps: unknown[] = [];
+          let klaar = false;
+
+          for (let ronde = 0; ronde < MAX_ACTIE_RONDES && !klaar; ronde += 1) {
+            const res = await fetch("/api/assistant", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-careon-assistant": "1" },
+              signal: options.abortSignal,
+              body: JSON.stringify({
+                question: text,
+                style: reasoningRef.current,
+                context: grounding,
+                history: historyFromMessages(options.messages),
+                steps,
+                tools: true,
+              }),
+            });
+            if (!res.ok || !res.body) {
+              if (!toolsUsed) throw new Error("AI-dienst niet beschikbaar");
+              liveParts.push(afgebrokenNaActies);
+              yield { content: [...liveParts], status: { type: "complete", reason: "stop" }, metadata: { custom: {} } };
+              return;
+            }
+            if (ronde === 0) setCanvas((prev) => ({ ...prev, pending: true, stage: "assembling" }));
+
+            let rondeTekst = "";
+            const rondeCalls: { id: string; name: string; args: string }[] = [];
+            let reden: "stop" | "tool_calls" = "stop";
+            for await (const event of readWireEvents(res.body)) {
+              if (event.t === "text") {
+                rondeTekst += event.d;
+                yield {
+                  content: [...liveParts, { type: "text", text: rondeTekst }],
+                  metadata: { custom: liveCustom() },
+                };
+              } else if (event.t === "tool") {
+                rondeCalls.push({ id: event.id, name: event.name, args: event.args });
+              } else {
+                reden = event.reason;
               }
             }
-            if (streamed.trim()) {
-              commitCanvas();
-              yield runResult(
-                streamed,
-                {
+            if (rondeTekst) liveParts.push({ type: "text", text: rondeTekst });
+
+            if (reden !== "tool_calls" || rondeCalls.length === 0) {
+              klaar = true;
+              break;
+            }
+
+            // Acties uitvoeren: de canvas-belofte vervalt (dit is een
+            // actiebeurt, geen artefact-antwoord); elke aanroep toont een
+            // tool-kaart die na uitvoering het resultaat draagt.
+            if (!toolsUsed) {
+              toolsUsed = true;
+              setCanvas((prev) => ({ ...prev, pending: false, stage: prev.artifact ? "ready" : "idle" }));
+            }
+            steps.push({
+              role: "assistant",
+              content: rondeTekst || null,
+              tool_calls: rondeCalls.map((call) => ({
+                id: call.id,
+                type: "function",
+                function: { name: call.name, arguments: call.args },
+              })),
+            });
+            for (const call of rondeCalls) {
+              let args: ToolCallMessagePart["args"] = {};
+              let parseFout = false;
+              try {
+                const parsed: unknown = JSON.parse(call.args);
+                if (typeof parsed === "object" && parsed !== null) args = parsed as ToolCallMessagePart["args"];
+                else parseFout = true;
+              } catch {
+                parseFout = true;
+              }
+              const index =
+                liveParts.push({
+                  type: "tool-call",
+                  toolCallId: call.id,
+                  toolName: call.name,
+                  args,
+                  argsText: call.args,
+                }) - 1;
+              yield { content: [...liveParts], metadata: { custom: liveCustom() } };
+              const resultaat = parseFout
+                ? { status: "fout" as const, melding: "Ongeldige tool-argumenten (geen geldige JSON)." }
+                : executeMiddelenTool(call.name, args, middelenRef.current.api, middelenRef.current.bron);
+              liveParts[index] = {
+                ...(liveParts[index] as ToolCallMessagePart),
+                result: resultaat,
+                isError: resultaat.status === "fout",
+              };
+              yield { content: [...liveParts], metadata: { custom: liveCustom() } };
+              steps.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(resultaat) });
+            }
+          }
+
+          if (!klaar) {
+            liveParts.push({
+              type: "text",
+              text: "\n\nMaximaal aantal actierondes bereikt — controleer het resultaat op de pagina Medewerkers & middelen.",
+            });
+          }
+
+          if (toolsUsed) {
+            yield { content: [...liveParts], status: { type: "complete", reason: "stop" }, metadata: { custom: {} } };
+            return;
+          }
+
+          const totaleTekst = liveParts.map((part) => (part.type === "text" ? part.text : "")).join("");
+          if (totaleTekst.trim()) {
+            commitCanvas();
+            yield {
+              content: [...liveParts],
+              status: { type: "complete", reason: "stop" },
+              metadata: {
+                custom: {
                   artifact: response.artifact,
                   artifactKey: messageKey,
                   cite: turnContextRef.current.production
                     ? liveProductionCite(turnContextRef.current.production.meta.fileName)
                     : LIVE_CITE,
                 },
-                true,
-              );
-              return;
-            }
+              },
+            };
+            return;
           }
+          // Leeg live-antwoord zonder acties — door naar het deterministische pad.
         } catch (error) {
           if (options.abortSignal.aborted) throw error;
+          if (toolsUsed) {
+            // Nooit terugvallen op het deterministische standaardantwoord
+            // nadat er acties zijn uitgevoerd — dat zou de actie-samenvatting
+            // vervangen door een los kernantwoord over een ander onderwerp.
+            liveParts.push(afgebrokenNaActies);
+            yield { content: [...liveParts], status: { type: "complete", reason: "stop" }, metadata: { custom: {} } };
+            return;
+          }
           // Live route failed — continue into the deterministic fallback.
         }
       }

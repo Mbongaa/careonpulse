@@ -26,32 +26,11 @@ export const MIDDEL_ICONS: Record<MiddelType, LucideIcon> = {
   toegang: DoorOpen,
 };
 
-// Gecureerde keuzelijsten: vrije invoer versplintert de statistieken
-// ("Turks" vs "turks" vs "Turkish"), dus functie is een vaste lijst en talen
-// zijn vaste opties plus een expliciete vrije toevoeging.
-export const FUNCTIE_OPTIES = [
-  "Basispsycholoog",
-  "GZ-psycholoog",
-  "Klinisch psycholoog",
-  "Psychotherapeut",
-  "Psychiater",
-  "Verpleegkundig specialist GGZ",
-  "SPV",
-  "Basisarts",
-  "Overig",
-] as const;
-
-export const TAAL_OPTIES = [
-  "Nederlands",
-  "Engels",
-  "Turks",
-  "Arabisch",
-  "Farsi/Dari",
-  "Koerdisch",
-  "Berbers",
-  "Pools",
-  "Oekraïens",
-] as const;
+// Gecureerde keuzelijsten (functie/talen) staan UI-vrij in de types-module
+// zodat de server-side assistent-route ze kan gebruiken; hier re-exporteren
+// voor de bestaande UI-imports. Relatief pad: de verify-scripts draaien via
+// ts-node zonder de @/-alias op runtime-imports.
+export { FUNCTIE_OPTIES, TAAL_OPTIES } from "../../lib/careon-middelen/types";
 
 // Teamstructuur zoals de klant (TGC Groep) haar aanleverde op 2026-07-20:
 // teams per Vektis-locatie (De Zorgpoort = TGC Eindhoven, nog niet in de
@@ -148,11 +127,12 @@ export const DEMO_MIDDELEN_STATE: MiddelenState = {
       notitie: "Officemanager Tilburg",
     },
   ],
-  // Behandelkamers volgen ~ de locatieschaal (0,44/0,34/0,22 van 32 kamers).
+  // Behandelkamers volgen ~ de locatieschaal (0,44/0,34/0,22 van 32 kamers);
+  // laptops = voorraad (niet uitgegeven), zelfde schaalverhouding op 36 stuks.
   inventaris: [
-    { locatie: "Tilburg", behandelkamers: 14, boeken: 240, diagnostiek: 36 },
-    { locatie: "Breda", behandelkamers: 11, boeken: 175, diagnostiek: 27 },
-    { locatie: "Roermond", behandelkamers: 7, boeken: 110, diagnostiek: 18 },
+    { locatie: "Tilburg", behandelkamers: 14, boeken: 240, diagnostiek: 36, laptops: 16 },
+    { locatie: "Breda", behandelkamers: 11, boeken: 175, diagnostiek: 27, laptops: 12 },
+    { locatie: "Roermond", behandelkamers: 7, boeken: 110, diagnostiek: 18, laptops: 8 },
   ],
   teams: TEAM_SEED,
   updatedAt: SEED_UPDATED_AT,

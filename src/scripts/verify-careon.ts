@@ -42,7 +42,9 @@ import { CAREON_MONTHLY } from "../data/careon/careon-shared-charts";
 import { sliceTimeframe, timeframeKeys } from "../data/careon/careon-timeframe";
 import type { CareonMetric } from "../data/careon/careon-types";
 import { formatCareonDelta, formatCareonValue } from "../lib/careon-format";
-import { isMiddelenState } from "../lib/careon-middelen/types";
+import { executeMiddelenTool, isMiddelenTool, type MiddelenActieApi } from "../lib/careon-middelen/assistant-executor";
+import { DESTRUCTIEVE_TOOLS, MIDDELEN_TOOL_NAMES, MIDDELEN_TOOLS } from "../lib/careon-middelen/assistant-tools";
+import { isMiddelenState, type MiddelenState } from "../lib/careon-middelen/types";
 import { CAREON_PROVENANCE } from "../lib/careon-production/provenance";
 
 let failures = 0;
@@ -550,6 +552,198 @@ check(
   new Set(TEAM_SEED.map((team) => `${team.locatie}::${team.naam}`)).size,
 );
 check("demo-seed draagt de teamstructuur", DEMO_MIDDELEN_STATE.teams, TEAM_SEED);
+
+// ---- Assistent-acties (handoff 11): tools ↔ executor ↔ registratie ----
+
+check(
+  "assistent-tools: schema's dekken exact de toolnamen",
+  MIDDELEN_TOOLS.map((tool) => tool.function.name).sort(),
+  [...MIDDELEN_TOOL_NAMES].sort(),
+);
+check(
+  "assistent-tools: elke tool heeft een executor-handler",
+  MIDDELEN_TOOL_NAMES.every((name) => isMiddelenTool(name)),
+  true,
+);
+check("assistent-tools: onbekende tool wordt geweigerd", isMiddelenTool("verwijder_alles"), false);
+check(
+  "assistent-tools: destructieve tools vereisen de bevestigd-parameter",
+  DESTRUCTIEVE_TOOLS.every((name) => {
+    const schema = MIDDELEN_TOOLS.find((tool) => tool.function.name === name);
+    const params = schema?.function.parameters as { required?: string[] } | undefined;
+    return params?.required?.includes("bevestigd") ?? false;
+  }),
+  true,
+);
+check(
+  "middelen seed: laptops-voorraad op elke demo-locatie",
+  DEMO_MIDDELEN_STATE.inventaris.every((rij) => (rij.laptops ?? 0) > 0),
+  true,
+);
+
+// Executor-rooktest tegen een mock-api met provider-semantiek (upsert per
+// medewerker), gestart vanaf de demo-seed.
+function maakTestApi(): { api: MiddelenActieApi; state: () => MiddelenState } {
+  let state: MiddelenState = JSON.parse(JSON.stringify(DEMO_MIDDELEN_STATE)) as MiddelenState;
+  const patch = (
+    naam: string,
+    fn: (rij: MiddelenState["medewerkers"][number]) => MiddelenState["medewerkers"][number],
+  ) => {
+    const bestaand = state.medewerkers.some((rij) => rij.naam === naam);
+    state = bestaand
+      ? { ...state, medewerkers: state.medewerkers.map((rij) => (rij.naam === naam ? fn(rij) : rij)) }
+      : { ...state, medewerkers: [...state.medewerkers, fn({ naam, middelen: [] })] };
+  };
+  const api: MiddelenActieApi = {
+    getState: () => state,
+    setMiddel: (naam, middel, aanwezig) =>
+      patch(naam, (rij) => ({
+        ...rij,
+        middelen: aanwezig ? [...new Set([...rij.middelen, middel])] : rij.middelen.filter((m) => m !== middel),
+      })),
+    setFunctie: (naam, functie) => patch(naam, (rij) => ({ ...rij, functie: functie === "" ? undefined : functie })),
+    setTaal: (naam, taal, aanwezig) =>
+      patch(naam, (rij) => ({
+        ...rij,
+        talen: aanwezig ? [...new Set([...(rij.talen ?? []), taal])] : (rij.talen ?? []).filter((t) => t !== taal),
+      })),
+    setTeamTag: (naam, team, aanwezig) =>
+      patch(naam, (rij) => ({
+        ...rij,
+        teams: aanwezig ? [...new Set([...(rij.teams ?? []), team])] : (rij.teams ?? []).filter((t) => t !== team),
+      })),
+    setNotitie: (naam, notitie) => patch(naam, (rij) => ({ ...rij, notitie: notitie === "" ? undefined : notitie })),
+    addPersoon: (naam) => {
+      if (state.medewerkers.some((rij) => rij.naam.toLowerCase() === naam.toLowerCase())) return false;
+      state = { ...state, medewerkers: [...state.medewerkers, { naam, handmatig: true, middelen: [] }] };
+      return true;
+    },
+    removePersoon: (naam) => {
+      state = { ...state, medewerkers: state.medewerkers.filter((rij) => rij.naam !== naam) };
+    },
+    addTeam: (locatie, naam) => {
+      if ((state.teams ?? []).some((t) => t.locatie === locatie && t.naam.toLowerCase() === naam.toLowerCase())) {
+        return false;
+      }
+      state = { ...state, teams: [...(state.teams ?? []), { naam, locatie }] };
+      return true;
+    },
+    removeTeam: (locatie, naam) => {
+      state = { ...state, teams: (state.teams ?? []).filter((t) => !(t.locatie === locatie && t.naam === naam)) };
+    },
+    setInventarisVeld: (locatie, veld, aantal) => {
+      const bestaand = state.inventaris.some((rij) => rij.locatie === locatie);
+      state = bestaand
+        ? {
+            ...state,
+            inventaris: state.inventaris.map((rij) => (rij.locatie === locatie ? { ...rij, [veld]: aantal } : rij)),
+          }
+        : {
+            ...state,
+            inventaris: [
+              ...state.inventaris,
+              { locatie, behandelkamers: 0, boeken: 0, diagnostiek: 0, [veld]: aantal },
+            ],
+          };
+    },
+    addLocatie: (locatie) => {
+      if (state.inventaris.some((rij) => rij.locatie.toLowerCase() === locatie.toLowerCase())) return false;
+      state = {
+        ...state,
+        inventaris: [...state.inventaris, { locatie, handmatig: true, behandelkamers: 0, boeken: 0, diagnostiek: 0 }],
+      };
+      return true;
+    },
+    removeLocatie: (locatie) => {
+      state = { ...state, inventaris: state.inventaris.filter((rij) => rij.locatie !== locatie) };
+    },
+  };
+  return { api, state: () => state };
+}
+
+const TEST_BRON = { medewerkers: BEHANDELAREN.map((rij) => rij.naam), locaties: CAREON_LOCATION_KEUZES };
+const actieTest = maakTestApi();
+check(
+  "assistent-actie: laptop toewijzen aan P. Hendriks",
+  executeMiddelenTool(
+    "wijzig_middel",
+    { naam: "P. Hendriks", middel: "laptop", actie: "toewijzen" },
+    actieTest.api,
+    TEST_BRON,
+  ).status,
+  "ok",
+);
+check(
+  "assistent-actie: registratie draagt de nieuwe laptop",
+  actieTest
+    .state()
+    .medewerkers.find((rij) => rij.naam === "P. Hendriks")
+    ?.middelen.includes("laptop"),
+  true,
+);
+check(
+  "assistent-actie: dubbele toewijzing is geen wijziging",
+  executeMiddelenTool(
+    "wijzig_middel",
+    { naam: "P. Hendriks", middel: "laptop", actie: "toewijzen" },
+    actieTest.api,
+    TEST_BRON,
+  ).status,
+  "geen_wijziging",
+);
+check(
+  "assistent-actie: naamresolutie op deelnaam (Hendriks)",
+  executeMiddelenTool(
+    "wijzig_middel",
+    { naam: "Hendriks", middel: "laptop", actie: "innemen" },
+    actieTest.api,
+    TEST_BRON,
+  ).status,
+  "ok",
+);
+check(
+  "assistent-actie: onbekende naam is een fout",
+  executeMiddelenTool(
+    "wijzig_middel",
+    { naam: "Jansen van Galen", middel: "laptop", actie: "toewijzen" },
+    actieTest.api,
+    TEST_BRON,
+  ).status,
+  "fout",
+);
+check(
+  "assistent-actie: verwijderen zonder bevestiging wordt geweigerd",
+  executeMiddelenTool("verwijder_medewerker", { naam: "P. Hendriks", bevestigd: false }, actieTest.api, TEST_BRON)
+    .status,
+  "bevestiging_vereist",
+);
+check(
+  "assistent-actie: verwijderen mét bevestiging",
+  executeMiddelenTool("verwijder_medewerker", { naam: "P. Hendriks", bevestigd: true }, actieTest.api, TEST_BRON)
+    .status,
+  "ok",
+);
+check(
+  "assistent-actie: P. Hendriks is uit de registratie",
+  actieTest.state().medewerkers.some((rij) => rij.naam === "P. Hendriks"),
+  false,
+);
+check(
+  "assistent-actie: laptops-voorraad Tilburg aanpassen (case-insensitieve locatie)",
+  executeMiddelenTool("zet_inventaris", { locatie: "tilburg", veld: "laptops", aantal: 20 }, actieTest.api, TEST_BRON)
+    .status,
+  "ok",
+);
+check(
+  "assistent-actie: voorraad Tilburg staat op 20",
+  actieTest.state().inventaris.find((rij) => rij.locatie === "Tilburg")?.laptops,
+  20,
+);
+check(
+  "assistent-actie: gewijzigde teststaat blijft een geldige MiddelenState",
+  isMiddelenState({ ...actieTest.state(), updatedAt: "2026-07-24T00:00:00.000Z" }),
+  true,
+);
 
 // ---- Tijdvenster-toggle (per-grafiek venster op maandreeksen) ----
 check(

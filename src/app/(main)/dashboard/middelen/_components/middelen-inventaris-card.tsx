@@ -19,12 +19,13 @@ import type { LocatieInventaris } from "@/lib/careon-middelen/types";
 // zijn handmatig toe te voegen en verschijnen bewust níét in het globale
 // locatiefilter — dat blijft aan de EPD/audit gebonden.
 
-type InventarisVeld = "behandelkamers" | "boeken" | "diagnostiek";
+type InventarisVeld = "behandelkamers" | "boeken" | "diagnostiek" | "laptops";
 
 const VELDEN: { veld: InventarisVeld; label: string }[] = [
   { veld: "behandelkamers", label: "Behandelkamers" },
   { veld: "boeken", label: "Boeken" },
   { veld: "diagnostiek", label: "Diagnostiekmateriaal" },
+  { veld: "laptops", label: "Laptops (voorraad)" },
 ];
 
 interface InventarisRij extends LocatieInventaris {
@@ -37,7 +38,7 @@ function AantalInput({ rij, veld, label }: Readonly<{ rij: InventarisRij; veld: 
     <Input
       type="number"
       min={0}
-      value={rij[veld]}
+      value={rij[veld] ?? 0}
       aria-label={`${label} — ${rij.locatie}`}
       className="h-8 w-24 text-right text-xs tabular-nums"
       onChange={(event) => setInventarisVeld(rij.locatie, veld, event.target.valueAsNumber)}
@@ -81,7 +82,7 @@ export function MiddelenInventarisCard({ bronLocaties }: Readonly<{ bronLocaties
     // Bronlocaties eerst (met opgeslagen aantallen of nul), daarna de
     // handmatige/verdwenen locaties uit de registratie zelf.
     ...bronLocaties.map((locatie) => ({
-      ...(geregistreerd.get(locatie) ?? { locatie, behandelkamers: 0, boeken: 0, diagnostiek: 0 }),
+      ...(geregistreerd.get(locatie) ?? { locatie, behandelkamers: 0, boeken: 0, diagnostiek: 0, laptops: 0 }),
       inBron: true,
     })),
     ...state.inventaris.filter((rij) => !bronLocaties.includes(rij.locatie)).map((rij) => ({ ...rij, inBron: false })),

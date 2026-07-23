@@ -7,6 +7,35 @@ export const MIDDEL_TYPES = ["auto", "tankpas", "sleutel", "telefoon", "laptop",
 
 export type MiddelType = (typeof MIDDEL_TYPES)[number];
 
+// Gecureerde keuzelijsten: vrije invoer versplintert de statistieken
+// ("Turks" vs "turks" vs "Turkish"), dus functie is een vaste lijst en talen
+// zijn vaste opties plus een expliciete vrije toevoeging. Ze staan hier
+// (UI-vrij) zodat ook de server-side assistent-route de tool-schema's eruit
+// kan opbouwen; `@/data/careon/careon-middelen` re-exporteert ze voor de UI.
+export const FUNCTIE_OPTIES = [
+  "Basispsycholoog",
+  "GZ-psycholoog",
+  "Klinisch psycholoog",
+  "Psychotherapeut",
+  "Psychiater",
+  "Verpleegkundig specialist GGZ",
+  "SPV",
+  "Basisarts",
+  "Overig",
+] as const;
+
+export const TAAL_OPTIES = [
+  "Nederlands",
+  "Engels",
+  "Turks",
+  "Arabisch",
+  "Farsi/Dari",
+  "Koerdisch",
+  "Berbers",
+  "Pools",
+  "Oekraïens",
+] as const;
+
 export interface MedewerkerMiddelen {
   naam: string;
   /** Handmatig toegevoegd persoon (bijv. kantoorpersoneel, niet in de behandelarenbron). */
@@ -35,6 +64,8 @@ export interface LocatieInventaris {
   behandelkamers: number;
   boeken: number;
   diagnostiek: number;
+  /** Laptops op voorraad (niet uitgegeven). Optioneel: oudere opgeslagen staten missen dit veld. */
+  laptops?: number;
 }
 
 export interface MiddelenState {
@@ -116,7 +147,8 @@ function isLocatieInventaris(value: unknown): value is LocatieInventaris {
     (row.handmatig === undefined || typeof row.handmatig === "boolean") &&
     isCount(row.behandelkamers) &&
     isCount(row.boeken) &&
-    isCount(row.diagnostiek)
+    isCount(row.diagnostiek) &&
+    (row.laptops === undefined || isCount(row.laptops))
   );
 }
 

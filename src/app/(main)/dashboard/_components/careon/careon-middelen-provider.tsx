@@ -18,7 +18,7 @@ import { useCareon } from "./careon-provider";
 
 export type MiddelenSyncStatus = "laden" | "centraal" | "lokaal" | "fout";
 
-type InventarisVeld = "behandelkamers" | "boeken" | "diagnostiek";
+type InventarisVeld = "behandelkamers" | "boeken" | "diagnostiek" | "laptops";
 
 interface CareonMiddelenContextValue {
   state: MiddelenState;
@@ -27,7 +27,14 @@ interface CareonMiddelenContextValue {
   middelenByNaam: Map<string, MiddelType[]>;
   /** Volledige registratierij per naam (functie/talen op Behandelaren). */
   registratieByNaam: Map<string, MedewerkerMiddelen>;
+  /** Actuele staat, ook direct na een mutatie in dezelfde taak (vóór re-render) —
+      voor de assistent-executor die meerdere acties in één beurt uitvoert. */
+  getState: () => MiddelenState;
   toggleMiddel: (naam: string, middel: MiddelType) => void;
+  /** Idempotente variant van toggleMiddel (assistent-acties): expliciet aan/uit. */
+  setMiddel: (naam: string, middel: MiddelType, aanwezig: boolean) => void;
+  setTaal: (naam: string, taal: string, aanwezig: boolean) => void;
+  setTeamTag: (naam: string, team: string, aanwezig: boolean) => void;
   setFunctie: (naam: string, functie: string) => void;
   toggleTaal: (naam: string, taal: string) => void;
   toggleTeamTag: (naam: string, team: string) => void;
@@ -106,6 +113,13 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
     return basis.teams === undefined ? { ...basis, teams: TEAM_SEED } : basis;
   }, [stored, isProduction]);
 
+  // Synchively bijgehouden spiegel van `state`: mutaties die in dezelfde taak
+  // na elkaar lopen (assistent voert meerdere tools uit in één beurt) lezen zo
+  // altijd het resultaat van de vorige mutatie in plaats van de nog niet
+  // her-gerenderde React-state — anders zou de tweede de eerste overschrijven.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
   const persist = useCallback((next: MiddelenState) => {
     setStored(next);
     saveMiddelenState(next);
@@ -123,11 +137,14 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
 
   const mutate = useCallback(
     (fn: (draft: MiddelenState) => MiddelenState) => {
-      const next = { ...fn(state), updatedAt: new Date().toISOString() };
+      const next = { ...fn(stateRef.current), updatedAt: new Date().toISOString() };
+      stateRef.current = next;
       persist(next);
     },
-    [state, persist],
+    [persist],
   );
+
+  const getState = useCallback(() => stateRef.current, []);
 
   // Upsert-patroon voor alle per-medewerker-velden: bestaat de rij nog niet
   // (bijv. een EPD-medewerker zonder registratie), dan wordt hij aangemaakt.
@@ -156,9 +173,46 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
     [patchMedewerker],
   );
 
+  const setMiddel = useCallback(
+    (naam: string, middel: MiddelType, aanwezig: boolean) => {
+      patchMedewerker(naam, (rij) => {
+        if (aanwezig === rij.middelen.includes(middel)) return rij;
+        return {
+          ...rij,
+          middelen: aanwezig ? [...rij.middelen, middel] : rij.middelen.filter((eigen) => eigen !== middel),
+        };
+      });
+    },
+    [patchMedewerker],
+  );
+
   const setFunctie = useCallback(
     (naam: string, functie: string) => {
       patchMedewerker(naam, (rij) => ({ ...rij, functie: functie === "" ? undefined : functie }));
+    },
+    [patchMedewerker],
+  );
+
+  const setTaal = useCallback(
+    (naam: string, taal: string, aanwezig: boolean) => {
+      patchMedewerker(naam, (rij) => {
+        const huidig = rij.talen ?? [];
+        if (aanwezig === huidig.includes(taal)) return rij;
+        const talen = aanwezig ? [...huidig, taal] : huidig.filter((eigen) => eigen !== taal);
+        return { ...rij, talen: talen.length === 0 ? undefined : talen };
+      });
+    },
+    [patchMedewerker],
+  );
+
+  const setTeamTag = useCallback(
+    (naam: string, team: string, aanwezig: boolean) => {
+      patchMedewerker(naam, (rij) => {
+        const huidig = rij.teams ?? [];
+        if (aanwezig === huidig.includes(team)) return rij;
+        const teams = aanwezig ? [...huidig, team] : huidig.filter((eigen) => eigen !== team);
+        return { ...rij, teams: teams.length === 0 ? undefined : teams };
+      });
     },
     [patchMedewerker],
   );
@@ -188,7 +242,7 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
   const addTeam = useCallback(
     (locatie: string, naam: string): boolean => {
       const schoon = naam.trim();
-      const bestaand = state.teams ?? [];
+      const bestaand = stateRef.current.teams ?? [];
       if (
         !schoon ||
         bestaand.some((team) => team.locatie === locatie && team.naam.toLowerCase() === schoon.toLowerCase())
@@ -198,7 +252,7 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
       mutate((draft) => ({ ...draft, teams: [...(draft.teams ?? []), { naam: schoon, locatie }] }));
       return true;
     },
-    [state, mutate],
+    [mutate],
   );
 
   // Verwijdert alleen de structuurrij; bestaande teamtags op medewerkers
@@ -235,7 +289,7 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
   const addPersoon = useCallback(
     (naam: string): boolean => {
       const schoon = naam.trim();
-      if (!schoon || state.medewerkers.some((row) => row.naam.toLowerCase() === schoon.toLowerCase())) {
+      if (!schoon || stateRef.current.medewerkers.some((row) => row.naam.toLowerCase() === schoon.toLowerCase())) {
         return false;
       }
       mutate((draft) => ({
@@ -244,7 +298,7 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
       }));
       return true;
     },
-    [state, mutate],
+    [mutate],
   );
 
   const removePersoon = useCallback(
@@ -275,7 +329,7 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
   const addLocatie = useCallback(
     (locatie: string): boolean => {
       const schoon = locatie.trim();
-      if (!schoon || state.inventaris.some((row) => row.locatie.toLowerCase() === schoon.toLowerCase())) {
+      if (!schoon || stateRef.current.inventaris.some((row) => row.locatie.toLowerCase() === schoon.toLowerCase())) {
         return false;
       }
       mutate((draft) => ({
@@ -287,7 +341,7 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
       }));
       return true;
     },
-    [state, mutate],
+    [mutate],
   );
 
   const removeLocatie = useCallback(
@@ -316,7 +370,11 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
       syncStatus: hydrated ? syncStatus : ("laden" as const),
       middelenByNaam,
       registratieByNaam,
+      getState,
       toggleMiddel,
+      setMiddel,
+      setTaal,
+      setTeamTag,
       setFunctie,
       toggleTaal,
       toggleTeamTag,
@@ -335,7 +393,11 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
       syncStatus,
       middelenByNaam,
       registratieByNaam,
+      getState,
       toggleMiddel,
+      setMiddel,
+      setTaal,
+      setTeamTag,
       setFunctie,
       toggleTaal,
       toggleTeamTag,

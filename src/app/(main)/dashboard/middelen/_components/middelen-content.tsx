@@ -86,8 +86,8 @@ export function MiddelenContent() {
   const uitgegeven = (middel: MiddelType) => state.medewerkers.filter((rij) => rij.middelen.includes(middel)).length;
 
   const inventarisLocaties = new Set([...state.inventaris.map((rij) => rij.locatie), ...bronLocaties]).size;
-  const inventarisSom = (veld: "behandelkamers" | "boeken" | "diagnostiek") =>
-    state.inventaris.reduce((som, rij) => som + rij[veld], 0);
+  const inventarisSom = (veld: "behandelkamers" | "boeken" | "diagnostiek" | "laptops") =>
+    state.inventaris.reduce((som, rij) => som + (rij[veld] ?? 0), 0);
 
   return (
     <div className="@container/main flex flex-col gap-4 md:gap-6">
@@ -109,7 +109,7 @@ export function MiddelenContent() {
           />
         ))}
       </div>
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <MiddelenStat
           label="Behandelkamers"
           value={nl.format(inventarisSom("behandelkamers"))}
@@ -127,6 +127,12 @@ export function MiddelenContent() {
           value={nl.format(inventarisSom("diagnostiek"))}
           sub={`over ${nl.format(inventarisLocaties)} locaties`}
           icon={ClipboardList}
+        />
+        <MiddelenStat
+          label="Laptops op voorraad"
+          value={nl.format(inventarisSom("laptops"))}
+          sub={`over ${nl.format(inventarisLocaties)} locaties`}
+          icon={Laptop}
         />
       </div>
 
