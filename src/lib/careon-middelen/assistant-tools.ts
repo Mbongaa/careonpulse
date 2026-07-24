@@ -3,11 +3,11 @@
 //
 // De schema's staan hier UI-vrij zodat de server-route (/api/assistant) ze in
 // het OpenAI-verzoek kan meesturen; de uitvoering gebeurt ALTIJD client-side
-// via de executor (assistant-executor.ts) op de bestaande provider-mutators —
-// het model zelf heeft dus nooit directe toegang tot opslag of Supabase.
-// Destructieve tools dragen een verplicht `bevestigd`-argument: de executor
-// weigert uitvoering zolang de gebruiker niet expliciet in het gesprek heeft
-// bevestigd (het systeem-prompt instrueert het model daarop).
+// via de executor (assistant-executor.ts) tegen de CONCEPT-staat (concept.ts)
+// — het model zelf heeft dus nooit directe toegang tot opslag of Supabase, en
+// er wordt pas iets bewaard nadat de gebruiker het concept in het canvas
+// goedkeurt (Toepassen). Chat-bevestiging per destructieve actie is daarmee
+// vervallen; DESTRUCTIEVE_TOOLS markeert ze alleen nog voor weergave.
 
 import { FUNCTIE_OPTIES, MIDDEL_TYPES, TAAL_OPTIES } from "./types";
 
@@ -18,6 +18,8 @@ export type InventarisVeldNaam = (typeof INVENTARIS_VELDEN)[number];
 export const MIDDELEN_TOOL_NAMES = [
   "lees_middelen_registratie",
   "wijzig_middel",
+  "wijzig_middel_bulk",
+  "wijzig_taal_bulk",
   "zet_functie",
   "wijzig_taal",
   "wijzig_teamtag",
@@ -33,7 +35,8 @@ export const MIDDELEN_TOOL_NAMES = [
 
 export type MiddelenToolName = (typeof MIDDELEN_TOOL_NAMES)[number];
 
-/** Tools die een rij verwijderen: alleen uitvoerbaar met bevestigd=true. */
+/** Tools die een rij verwijderen — gemarkeerd voor weergave; net als alle
+    acties worden ze pas definitief na goedkeuring van het concept. */
 export const DESTRUCTIEVE_TOOLS: readonly MiddelenToolName[] = [
   "verwijder_medewerker",
   "verwijder_team",
@@ -43,12 +46,6 @@ export const DESTRUCTIEVE_TOOLS: readonly MiddelenToolName[] = [
 const NAAM_PROP = {
   type: "string",
   description: "Naam van de medewerker (zoals in de registratie of de databron).",
-} as const;
-
-const BEVESTIGD_PROP = {
-  type: "boolean",
-  description:
-    "Alleen true nadat de gebruiker in dit gesprek expliciet heeft bevestigd. Zonder expliciete bevestiging: false.",
 } as const;
 
 interface OpenAiFunctionTool {
@@ -92,6 +89,36 @@ export const MIDDELEN_TOOLS: readonly OpenAiFunctionTool[] = [
       actie: { type: "string", enum: ["toewijzen", "innemen"] },
     },
     ["naam", "middel", "actie"],
+  ),
+  tool(
+    "wijzig_middel_bulk",
+    "Wijs een middel toe aan of neem het in van MEERDERE medewerkers tegelijk. Zet iedereen=true om gegarandeerd ALLE medewerkers (registratie + databron) te raken — gebruik dit voor 'iedereen'-verzoeken; of geef een expliciete namenlijst.",
+    {
+      middel: { type: "string", enum: [...MIDDEL_TYPES] },
+      actie: { type: "string", enum: ["toewijzen", "innemen"] },
+      iedereen: { type: "boolean", description: "true = alle medewerkers uit registratie én databron." },
+      namen: {
+        type: "array",
+        items: { type: "string" },
+        description: "Expliciete namenlijst (als iedereen niet true is).",
+      },
+    },
+    ["middel", "actie"],
+  ),
+  tool(
+    "wijzig_taal_bulk",
+    "Voeg een gesproken taal toe aan of verwijder die bij MEERDERE medewerkers tegelijk. Zet iedereen=true om gegarandeerd ALLE medewerkers (registratie + databron) te raken — gebruik dit voor 'iedereen'-verzoeken; of geef een expliciete namenlijst.",
+    {
+      taal: { type: "string", description: "De taal (bijv. Nederlands, Turks, Arabisch)." },
+      actie: { type: "string", enum: ["toevoegen", "verwijderen"] },
+      iedereen: { type: "boolean", description: "true = alle medewerkers uit registratie én databron." },
+      namen: {
+        type: "array",
+        items: { type: "string" },
+        description: "Expliciete namenlijst (als iedereen niet true is).",
+      },
+    },
+    ["taal", "actie"],
   ),
   tool(
     "zet_functie",
@@ -139,9 +166,9 @@ export const MIDDELEN_TOOLS: readonly OpenAiFunctionTool[] = [
   ),
   tool(
     "verwijder_medewerker",
-    "Verwijder een medewerker (en al zijn/haar registraties) uit de registratie. Destructief: vraag eerst expliciete bevestiging.",
-    { naam: NAAM_PROP, bevestigd: BEVESTIGD_PROP },
-    ["naam", "bevestigd"],
+    "Verwijder een medewerker (en al zijn/haar registraties) uit de registratie. Wordt zoals alle acties pas definitief na goedkeuring van het concept.",
+    { naam: NAAM_PROP },
+    ["naam"],
   ),
   tool(
     "voeg_team_toe",
@@ -154,13 +181,12 @@ export const MIDDELEN_TOOLS: readonly OpenAiFunctionTool[] = [
   ),
   tool(
     "verwijder_team",
-    "Verwijder een team uit de teamstructuur (bestaande teamtags op medewerkers blijven staan). Destructief: vraag eerst expliciete bevestiging.",
+    "Verwijder een team uit de teamstructuur (bestaande teamtags op medewerkers blijven staan).",
     {
       locatie: { type: "string" },
       naam: { type: "string", description: "Teamnaam." },
-      bevestigd: BEVESTIGD_PROP,
     },
-    ["locatie", "naam", "bevestigd"],
+    ["locatie", "naam"],
   ),
   tool(
     "zet_inventaris",
@@ -180,8 +206,8 @@ export const MIDDELEN_TOOLS: readonly OpenAiFunctionTool[] = [
   ),
   tool(
     "verwijder_locatie",
-    "Verwijder een handmatig toegevoegde locatie uit de inventaris. Destructief: vraag eerst expliciete bevestiging.",
-    { locatie: { type: "string" }, bevestigd: BEVESTIGD_PROP },
-    ["locatie", "bevestigd"],
+    "Verwijder een handmatig toegevoegde locatie uit de inventaris.",
+    { locatie: { type: "string" } },
+    ["locatie"],
   ),
 ];

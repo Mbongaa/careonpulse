@@ -1,4 +1,5 @@
 import { formatCareonDelta, formatCareonValue } from "@/lib/careon-format";
+import type { MiddelenState } from "@/lib/careon-middelen/types";
 
 import { CAREON_ALERTS, CRITICAL_ALERT_COUNT } from "./careon-alerts";
 import { BEHANDELAREN, CASELOAD_NORM, caseloadTone, ncTone, noshowTone } from "./careon-behandelaren";
@@ -8,6 +9,7 @@ import { CAREON_ORG } from "./careon-filters";
 import { DECLARATIE_OUDERDOM, FINANCIEEL_METRICS, FINANCIEEL_NOTE, OMZET_PER_VERZEKERAAR } from "./careon-financieel";
 import { BIG_REGISTRATIES, HR_BIG_NOTE, HR_METRICS } from "./careon-hr";
 import { complianceTone, KWALITEIT_COMPLIANCE, KWALITEIT_COUNTERS } from "./careon-kwaliteit";
+import { MIDDEL_LABELS } from "./careon-middelen";
 import { CAREON_PAGE_META, CAREON_ROUTES } from "./careon-pages";
 import {
   PATIENTEN_METRICS,
@@ -42,7 +44,11 @@ export type AssistantIntentId =
   | "kwaliteit-dossier"
   | "verzuim-hr"
   | "behandelaar-coaching"
-  | "databron-status";
+  | "databron-status"
+  // Geen lees-intent: het canvas-artefact van een actiebeurt (handoff 11).
+  // Wordt nooit door inferAssistantIntent gekozen; alleen de actielus bouwt
+  // het via buildActieArtifact.
+  | "assistent-acties";
 
 export type AssistantTone = "good" | "warn" | "bad" | "accent" | "none";
 
@@ -126,6 +132,7 @@ export const ASSISTANT_INTENT_META: Record<AssistantIntentId, { label: string }>
   "verzuim-hr": { label: "Verzuim & HR" },
   "behandelaar-coaching": { label: "Behandelaar-coaching" },
   "databron-status": { label: "Databron-status" },
+  "assistent-acties": { label: "Assistent-acties" },
 };
 
 export const ASSISTANT_QUICK_PROMPTS: { id: AssistantIntentId; text: string }[] = [
@@ -134,6 +141,163 @@ export const ASSISTANT_QUICK_PROMPTS: { id: AssistantIntentId; text: string }[] 
   { id: "capaciteit-planning", text: "Waar knelt de capaciteit?" },
   { id: "financieel-omzet", text: "Hoe ontwikkelt de omzet zich?" },
 ];
+
+// ---------------------------------------------------------------------------
+// Actie-artefact (handoff 11) — het canvas van een actiebeurt toont wat er is
+// uitgevoerd plus de geraakte registratierijen, in plaats van een lees-intent.
+// ---------------------------------------------------------------------------
+
+export interface AssistantActieRegel {
+  tool: string;
+  status: "ok" | "geen_wijziging" | "bevestiging_vereist" | "fout";
+  melding: string;
+  naam?: string;
+  /** Geraakte namen van een bulk-actie. */
+  namen?: string[];
+  locatie?: string;
+}
+
+const ACTIE_STATUS_TONE: Record<AssistantActieRegel["status"], AssistantTone> = {
+  ok: "good",
+  geen_wijziging: "none",
+  bevestiging_vereist: "warn",
+  fout: "bad",
+};
+
+const ACTIE_STATUS_LABEL: Record<AssistantActieRegel["status"], string> = {
+  ok: "Uitgevoerd",
+  geen_wijziging: "Geen wijziging",
+  bevestiging_vereist: "Bevestiging vereist",
+  fout: "Niet gelukt",
+};
+
+/** concept = klaargezet, wacht op goedkeuring in het canvas; toegepast = door
+    de gebruiker goedgekeurd en via de provider opgeslagen. */
+export type AssistantActieModus = "concept" | "toegepast";
+
+export function buildActieArtifact(
+  query: string,
+  acties: AssistantActieRegel[],
+  state: MiddelenState,
+  modus: AssistantActieModus,
+  /** Totaal aantal medewerkers in de databron — maakt onvolledige bulkbeurten
+      zichtbaar ("10 van 30 geraakt") vóórdat de gebruiker het concept goedkeurt. */
+  bronMedewerkersTotaal?: number,
+): AssistantArtifact {
+  const concept = modus === "concept";
+  const uitgevoerd = acties.filter((actie) => actie.status === "ok").length;
+  const geraakteNamen = [
+    ...new Set(acties.flatMap((actie) => [...(actie.naam ? [actie.naam] : []), ...(actie.namen ?? [])])),
+  ];
+  const geraakteLocaties = [
+    ...new Set(acties.map((actie) => actie.locatie).filter((locatie): locatie is string => Boolean(locatie))),
+  ];
+
+  const visualizations: AssistantVisualization[] = [
+    {
+      id: "acties",
+      kind: "status-card",
+      title: concept ? "Voorgestelde acties (concept)" : "Uitgevoerde acties",
+      sub: concept
+        ? `${acties.length} voorgestelde wijzigingen · nog niets opgeslagen`
+        : `${acties.length} acties · ${uitgevoerd} uitgevoerd en opgeslagen`,
+      statusRows: acties.map((actie) => ({
+        title: actie.melding,
+        detail: `${concept && actie.status === "ok" ? "Klaargezet" : ACTIE_STATUS_LABEL[actie.status]} · ${actie.tool}`,
+        tone: ACTIE_STATUS_TONE[actie.status],
+      })),
+    },
+  ];
+
+  const medewerkerRijen = state.medewerkers.filter((rij) => geraakteNamen.includes(rij.naam));
+  if (medewerkerRijen.length) {
+    visualizations.push({
+      id: "registratie",
+      kind: "table",
+      title: concept ? "Registratie ná toepassing (concept)" : "Registratie na deze beurt",
+      sub: concept
+        ? "Zo komt de registratie van de geraakte medewerkers eruit te zien — pas na Toepassen"
+        : "Geraakte medewerkers — controleer of corrigeer op Medewerkers & middelen",
+      table: {
+        head: ["Medewerker", "Functie", "Talen", "Teams", "Middelen"],
+        rows: medewerkerRijen.map((rij) => ({
+          cells: [
+            rij.naam,
+            rij.functie ?? "—",
+            (rij.talen ?? []).join(", ") || "—",
+            (rij.teams ?? []).join(", ") || "—",
+            rij.middelen.map((middel) => MIDDEL_LABELS[middel]).join(", ") || "—",
+          ],
+          tone: "none",
+        })),
+      },
+    });
+  }
+
+  const inventarisRijen = state.inventaris.filter((rij) => geraakteLocaties.includes(rij.locatie));
+  if (inventarisRijen.length) {
+    visualizations.push({
+      id: "inventaris",
+      kind: "table",
+      title: concept ? "Inventaris ná toepassing (concept)" : "Inventaris na deze beurt",
+      sub: concept
+        ? "Zo komt de inventaris van de geraakte locaties eruit te zien — pas na Toepassen"
+        : "Geraakte locaties",
+      table: {
+        head: ["Locatie", "Behandelkamers", "Boeken", "Diagnostiek", "Laptops"],
+        rows: inventarisRijen.map((rij) => ({
+          cells: [
+            rij.locatie,
+            String(rij.behandelkamers),
+            String(rij.boeken),
+            String(rij.diagnostiek),
+            String(rij.laptops ?? 0),
+          ],
+          tone: "none",
+        })),
+      },
+    });
+  }
+
+  const nietUitgevoerd = acties.length - uitgevoerd;
+  const afgerondBody =
+    nietUitgevoerd === 0
+      ? "Alle goedgekeurde acties zijn uitgevoerd en opgeslagen (lokaal + centrale sync)."
+      : "Niet alles is uitgevoerd — de actielijst toont de reden per regel (geen wijziging nodig of fout).";
+  return {
+    intent: "assistent-acties",
+    query,
+    page: "middelen",
+    pageHref: CAREON_ROUTES.middelen,
+    pageLabel: CAREON_PAGE_META.middelen.title,
+    visualizations,
+    claims: [
+      {
+        title: concept ? "Concept — wacht op uw goedkeuring" : "Resultaat van deze actiebeurt",
+        body: concept
+          ? "Er is nog niets opgeslagen. Keur het concept goed (Toepassen) of verwerp het in het canvas; aanpassen kan door het de assistent te vragen."
+          : afgerondBody,
+        values: [
+          { label: concept ? "Klaargezet" : "Uitgevoerd", value: String(uitgevoerd) },
+          { label: "Overig", value: String(nietUitgevoerd) },
+          {
+            label: "Geraakte medewerkers",
+            value: bronMedewerkersTotaal
+              ? `${geraakteNamen.length} van ${bronMedewerkersTotaal} in databron`
+              : String(geraakteNamen.length),
+          },
+        ],
+      },
+    ],
+    sources: [
+      {
+        model: "careon_middelen_state",
+        label: "Handmatige registratie — Medewerkers & middelen",
+        rowCount: state.medewerkers.length,
+      },
+    ],
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Intent inference — keyword matching on the normalized query, mirroring the
@@ -962,7 +1126,11 @@ function buildDatabronStatus(query: string, ctx: AssistantContext): AssistantRes
 // Entry point
 // ---------------------------------------------------------------------------
 
-const INTENT_BUILDERS: Record<AssistantIntentId, (query: string, ctx: AssistantContext) => AssistantResponse> = {
+// De actie-intent heeft geen deterministische builder — dat artefact komt
+// uitsluitend uit buildActieArtifact via de actielus.
+type AssistantLeesIntentId = Exclude<AssistantIntentId, "assistent-acties">;
+
+const INTENT_BUILDERS: Record<AssistantLeesIntentId, (query: string, ctx: AssistantContext) => AssistantResponse> = {
   "directie-overzicht": buildDirectieOverzicht,
   "noshow-analyse": buildNoshowAnalyse,
   "capaciteit-planning": buildCapaciteitPlanning,
@@ -980,5 +1148,6 @@ export function resolveAssistantResponse(
   intentHint?: AssistantIntentId,
 ): AssistantResponse {
   const intent = intentHint ?? inferAssistantIntent(query);
-  return INTENT_BUILDERS[intent](query, ctx);
+  const leesIntent: AssistantLeesIntentId = intent === "assistent-acties" ? "directie-overzicht" : intent;
+  return INTENT_BUILDERS[leesIntent](query, ctx);
 }

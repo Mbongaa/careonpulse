@@ -42,9 +42,10 @@ import { CAREON_MONTHLY } from "../data/careon/careon-shared-charts";
 import { sliceTimeframe, timeframeKeys } from "../data/careon/careon-timeframe";
 import type { CareonMetric } from "../data/careon/careon-types";
 import { formatCareonDelta, formatCareonValue } from "../lib/careon-format";
-import { executeMiddelenTool, isMiddelenTool, type MiddelenActieApi } from "../lib/careon-middelen/assistant-executor";
+import { executeMiddelenTool, isMiddelenTool } from "../lib/careon-middelen/assistant-executor";
 import { DESTRUCTIEVE_TOOLS, MIDDELEN_TOOL_NAMES, MIDDELEN_TOOLS } from "../lib/careon-middelen/assistant-tools";
-import { isMiddelenState, type MiddelenState } from "../lib/careon-middelen/types";
+import { createConceptMiddelenApi } from "../lib/careon-middelen/concept";
+import { isMiddelenState } from "../lib/careon-middelen/types";
 import { CAREON_PROVENANCE } from "../lib/careon-production/provenance";
 
 let failures = 0;
@@ -567,12 +568,8 @@ check(
 );
 check("assistent-tools: onbekende tool wordt geweigerd", isMiddelenTool("verwijder_alles"), false);
 check(
-  "assistent-tools: destructieve tools vereisen de bevestigd-parameter",
-  DESTRUCTIEVE_TOOLS.every((name) => {
-    const schema = MIDDELEN_TOOLS.find((tool) => tool.function.name === name);
-    const params = schema?.function.parameters as { required?: string[] } | undefined;
-    return params?.required?.includes("bevestigd") ?? false;
-  }),
+  "assistent-tools: destructieve markering dekt bekende tools",
+  DESTRUCTIEVE_TOOLS.every((name) => (MIDDELEN_TOOL_NAMES as readonly string[]).includes(name)),
   true,
 );
 check(
@@ -581,168 +578,142 @@ check(
   true,
 );
 
-// Executor-rooktest tegen een mock-api met provider-semantiek (upsert per
-// medewerker), gestart vanaf de demo-seed.
-function maakTestApi(): { api: MiddelenActieApi; state: () => MiddelenState } {
-  let state: MiddelenState = JSON.parse(JSON.stringify(DEMO_MIDDELEN_STATE)) as MiddelenState;
-  const patch = (
-    naam: string,
-    fn: (rij: MiddelenState["medewerkers"][number]) => MiddelenState["medewerkers"][number],
-  ) => {
-    const bestaand = state.medewerkers.some((rij) => rij.naam === naam);
-    state = bestaand
-      ? { ...state, medewerkers: state.medewerkers.map((rij) => (rij.naam === naam ? fn(rij) : rij)) }
-      : { ...state, medewerkers: [...state.medewerkers, fn({ naam, middelen: [] })] };
-  };
-  const api: MiddelenActieApi = {
-    getState: () => state,
-    setMiddel: (naam, middel, aanwezig) =>
-      patch(naam, (rij) => ({
-        ...rij,
-        middelen: aanwezig ? [...new Set([...rij.middelen, middel])] : rij.middelen.filter((m) => m !== middel),
-      })),
-    setFunctie: (naam, functie) => patch(naam, (rij) => ({ ...rij, functie: functie === "" ? undefined : functie })),
-    setTaal: (naam, taal, aanwezig) =>
-      patch(naam, (rij) => ({
-        ...rij,
-        talen: aanwezig ? [...new Set([...(rij.talen ?? []), taal])] : (rij.talen ?? []).filter((t) => t !== taal),
-      })),
-    setTeamTag: (naam, team, aanwezig) =>
-      patch(naam, (rij) => ({
-        ...rij,
-        teams: aanwezig ? [...new Set([...(rij.teams ?? []), team])] : (rij.teams ?? []).filter((t) => t !== team),
-      })),
-    setNotitie: (naam, notitie) => patch(naam, (rij) => ({ ...rij, notitie: notitie === "" ? undefined : notitie })),
-    addPersoon: (naam) => {
-      if (state.medewerkers.some((rij) => rij.naam.toLowerCase() === naam.toLowerCase())) return false;
-      state = { ...state, medewerkers: [...state.medewerkers, { naam, handmatig: true, middelen: [] }] };
-      return true;
-    },
-    removePersoon: (naam) => {
-      state = { ...state, medewerkers: state.medewerkers.filter((rij) => rij.naam !== naam) };
-    },
-    addTeam: (locatie, naam) => {
-      if ((state.teams ?? []).some((t) => t.locatie === locatie && t.naam.toLowerCase() === naam.toLowerCase())) {
-        return false;
-      }
-      state = { ...state, teams: [...(state.teams ?? []), { naam, locatie }] };
-      return true;
-    },
-    removeTeam: (locatie, naam) => {
-      state = { ...state, teams: (state.teams ?? []).filter((t) => !(t.locatie === locatie && t.naam === naam)) };
-    },
-    setInventarisVeld: (locatie, veld, aantal) => {
-      const bestaand = state.inventaris.some((rij) => rij.locatie === locatie);
-      state = bestaand
-        ? {
-            ...state,
-            inventaris: state.inventaris.map((rij) => (rij.locatie === locatie ? { ...rij, [veld]: aantal } : rij)),
-          }
-        : {
-            ...state,
-            inventaris: [
-              ...state.inventaris,
-              { locatie, behandelkamers: 0, boeken: 0, diagnostiek: 0, [veld]: aantal },
-            ],
-          };
-    },
-    addLocatie: (locatie) => {
-      if (state.inventaris.some((rij) => rij.locatie.toLowerCase() === locatie.toLowerCase())) return false;
-      state = {
-        ...state,
-        inventaris: [...state.inventaris, { locatie, handmatig: true, behandelkamers: 0, boeken: 0, diagnostiek: 0 }],
-      };
-      return true;
-    },
-    removeLocatie: (locatie) => {
-      state = { ...state, inventaris: state.inventaris.filter((rij) => rij.locatie !== locatie) };
-    },
-  };
-  return { api, state: () => state };
-}
-
+// Executor-rooktest tegen de échte concept-api (concept.ts): acties worden
+// klaargezet in een kopie — de bron-seed blijft onaangeroerd tot "Toepassen".
 const TEST_BRON = { medewerkers: BEHANDELAREN.map((rij) => rij.naam), locaties: CAREON_LOCATION_KEUZES };
-const actieTest = maakTestApi();
+const conceptTest = createConceptMiddelenApi(DEMO_MIDDELEN_STATE);
 check(
-  "assistent-actie: laptop toewijzen aan P. Hendriks",
+  "assistent-concept: laptop toewijzen aan P. Hendriks",
   executeMiddelenTool(
     "wijzig_middel",
     { naam: "P. Hendriks", middel: "laptop", actie: "toewijzen" },
-    actieTest.api,
+    conceptTest.api,
     TEST_BRON,
   ).status,
   "ok",
 );
 check(
-  "assistent-actie: registratie draagt de nieuwe laptop",
-  actieTest
-    .state()
+  "assistent-concept: concept draagt de nieuwe laptop",
+  conceptTest
+    .huidig()
     .medewerkers.find((rij) => rij.naam === "P. Hendriks")
     ?.middelen.includes("laptop"),
   true,
 );
 check(
-  "assistent-actie: dubbele toewijzing is geen wijziging",
+  "assistent-concept: bron-seed blijft onaangeroerd (niets opgeslagen)",
+  DEMO_MIDDELEN_STATE.medewerkers.find((rij) => rij.naam === "P. Hendriks")?.middelen.includes("laptop"),
+  false,
+);
+check(
+  "assistent-concept: dubbele toewijzing is geen wijziging",
   executeMiddelenTool(
     "wijzig_middel",
     { naam: "P. Hendriks", middel: "laptop", actie: "toewijzen" },
-    actieTest.api,
+    conceptTest.api,
     TEST_BRON,
   ).status,
   "geen_wijziging",
 );
 check(
-  "assistent-actie: naamresolutie op deelnaam (Hendriks)",
+  "assistent-concept: naamresolutie op deelnaam (Hendriks)",
   executeMiddelenTool(
     "wijzig_middel",
     { naam: "Hendriks", middel: "laptop", actie: "innemen" },
-    actieTest.api,
+    conceptTest.api,
     TEST_BRON,
   ).status,
   "ok",
 );
 check(
-  "assistent-actie: onbekende naam is een fout",
+  "assistent-concept: onbekende naam is een fout",
   executeMiddelenTool(
     "wijzig_middel",
     { naam: "Jansen van Galen", middel: "laptop", actie: "toewijzen" },
-    actieTest.api,
+    conceptTest.api,
     TEST_BRON,
   ).status,
   "fout",
 );
 check(
-  "assistent-actie: verwijderen zonder bevestiging wordt geweigerd",
-  executeMiddelenTool("verwijder_medewerker", { naam: "P. Hendriks", bevestigd: false }, actieTest.api, TEST_BRON)
-    .status,
-  "bevestiging_vereist",
-);
-check(
-  "assistent-actie: verwijderen mét bevestiging",
-  executeMiddelenTool("verwijder_medewerker", { naam: "P. Hendriks", bevestigd: true }, actieTest.api, TEST_BRON)
-    .status,
+  "assistent-concept: verwijderen wordt klaargezet (goedkeuring volgt in het canvas)",
+  executeMiddelenTool("verwijder_medewerker", { naam: "P. Hendriks" }, conceptTest.api, TEST_BRON).status,
   "ok",
 );
 check(
-  "assistent-actie: P. Hendriks is uit de registratie",
-  actieTest.state().medewerkers.some((rij) => rij.naam === "P. Hendriks"),
+  "assistent-concept: P. Hendriks is uit de conceptstaat",
+  conceptTest.huidig().medewerkers.some((rij) => rij.naam === "P. Hendriks"),
   false,
 );
 check(
-  "assistent-actie: laptops-voorraad Tilburg aanpassen (case-insensitieve locatie)",
-  executeMiddelenTool("zet_inventaris", { locatie: "tilburg", veld: "laptops", aantal: 20 }, actieTest.api, TEST_BRON)
+  "assistent-concept: bron-seed behoudt P. Hendriks",
+  DEMO_MIDDELEN_STATE.medewerkers.some((rij) => rij.naam === "P. Hendriks"),
+  true,
+);
+check(
+  "assistent-concept: laptops-voorraad Tilburg aanpassen (case-insensitieve locatie)",
+  executeMiddelenTool("zet_inventaris", { locatie: "tilburg", veld: "laptops", aantal: 20 }, conceptTest.api, TEST_BRON)
     .status,
   "ok",
 );
 check(
-  "assistent-actie: voorraad Tilburg staat op 20",
-  actieTest.state().inventaris.find((rij) => rij.locatie === "Tilburg")?.laptops,
+  "assistent-concept: voorraad Tilburg staat op 20 in het concept",
+  conceptTest.huidig().inventaris.find((rij) => rij.locatie === "Tilburg")?.laptops,
   20,
 );
 check(
-  "assistent-actie: gewijzigde teststaat blijft een geldige MiddelenState",
-  isMiddelenState({ ...actieTest.state(), updatedAt: "2026-07-24T00:00:00.000Z" }),
+  "assistent-concept: concept-eindstand is een geldige MiddelenState",
+  isMiddelenState({ ...conceptTest.huidig(), updatedAt: "2026-07-24T00:00:00.000Z" }),
   true,
+);
+
+// Bulk-tools: iedereen=true garandeert volledige dekking (registratie ∪ bron)
+// zónder dat het model namen hoeft op te sommen — de kern van de fix voor
+// "assistent raakt alleen de eerste 10 medewerkers".
+const bulkTest = createConceptMiddelenApi(DEMO_MIDDELEN_STATE);
+const ALLE_NAMEN = new Set([...DEMO_MIDDELEN_STATE.medewerkers.map((rij) => rij.naam), ...TEST_BRON.medewerkers]);
+const bulkTaal = executeMiddelenTool(
+  "wijzig_taal_bulk",
+  { taal: "Pools", actie: "toevoegen", iedereen: true },
+  bulkTest.api,
+  TEST_BRON,
+);
+check("assistent-bulk: iedereen=true raakt registratie ∪ databron", bulkTaal.namen?.length, ALLE_NAMEN.size);
+check("assistent-bulk: taal-bulk voert uit", bulkTaal.status, "ok");
+check(
+  "assistent-bulk: elke medewerker draagt de taal in het concept",
+  bulkTest.huidig().medewerkers.every((rij) => (rij.talen ?? []).includes("Pools")),
+  true,
+);
+check(
+  "assistent-bulk: idempotente herhaling is geen wijziging",
+  executeMiddelenTool(
+    "wijzig_taal_bulk",
+    { taal: "Pools", actie: "toevoegen", iedereen: true },
+    bulkTest.api,
+    TEST_BRON,
+  ).status,
+  "geen_wijziging",
+);
+check(
+  "assistent-bulk: middel-bulk vult alleen de ontbrekende laptop aan",
+  executeMiddelenTool(
+    "wijzig_middel_bulk",
+    { middel: "laptop", actie: "toewijzen", iedereen: true },
+    bulkTest.api,
+    TEST_BRON,
+  ).melding.startsWith("laptop toegewezen aan 1 van"),
+  true,
+);
+check(
+  "assistent-bulk: zonder iedereen of namen een duidelijke fout",
+  executeMiddelenTool("wijzig_taal_bulk", { taal: "Pools", actie: "toevoegen" }, bulkTest.api, TEST_BRON).status,
+  "fout",
+);
+check(
+  "assistent-bulk: bron-seed blijft ook na bulk onaangeroerd",
+  DEMO_MIDDELEN_STATE.medewerkers.some((rij) => (rij.talen ?? []).includes("Pools")),
+  false,
 );
 
 // ---- Tijdvenster-toggle (per-grafiek venster op maandreeksen) ----

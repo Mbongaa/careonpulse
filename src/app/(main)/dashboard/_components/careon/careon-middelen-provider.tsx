@@ -30,6 +30,9 @@ interface CareonMiddelenContextValue {
   /** Actuele staat, ook direct na een mutatie in dezelfde taak (vóór re-render) —
       voor de assistent-executor die meerdere acties in één beurt uitvoert. */
   getState: () => MiddelenState;
+  /** Vervang de volledige staat in één keer — het toepassen van een door de
+      gebruiker goedgekeurd assistent-concept (handoff 11). */
+  vervangState: (volgende: MiddelenState) => void;
   toggleMiddel: (naam: string, middel: MiddelType) => void;
   /** Idempotente variant van toggleMiddel (assistent-acties): expliciet aan/uit. */
   setMiddel: (naam: string, middel: MiddelType, aanwezig: boolean) => void;
@@ -145,6 +148,13 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
   );
 
   const getState = useCallback(() => stateRef.current, []);
+
+  const vervangState = useCallback(
+    (volgende: MiddelenState) => {
+      mutate(() => volgende);
+    },
+    [mutate],
+  );
 
   // Upsert-patroon voor alle per-medewerker-velden: bestaat de rij nog niet
   // (bijv. een EPD-medewerker zonder registratie), dan wordt hij aangemaakt.
@@ -371,6 +381,7 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
       middelenByNaam,
       registratieByNaam,
       getState,
+      vervangState,
       toggleMiddel,
       setMiddel,
       setTaal,
@@ -394,6 +405,7 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
       middelenByNaam,
       registratieByNaam,
       getState,
+      vervangState,
       toggleMiddel,
       setMiddel,
       setTaal,

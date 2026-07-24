@@ -29,9 +29,11 @@ import { CAREON_ALERTS } from "@/data/careon/careon-alerts";
 import {
   ASSISTANT_INTENT_META,
   ASSISTANT_QUICK_PROMPTS,
+  type AssistantActieRegel,
   type AssistantArtifact,
   type AssistantIntentId,
   type AssistantResponse,
+  buildActieArtifact,
   resolveAssistantResponse,
 } from "@/data/careon/careon-assistant";
 import { BEHANDELAREN } from "@/data/careon/careon-behandelaren";
@@ -41,9 +43,11 @@ import { CAREON_MONTHLY } from "@/data/careon/careon-shared-charts";
 import type { CareonFilters, CareonKpi, CareonSource } from "@/data/careon/careon-types";
 import {
   executeMiddelenTool,
-  type MiddelenActieApi,
+  type MiddelenActieResultaat,
   type MiddelenBron,
 } from "@/lib/careon-middelen/assistant-executor";
+import { assembleAssistantContext, middelenGrounding } from "@/lib/careon-middelen/assistant-grounding";
+import { createConceptMiddelenApi } from "@/lib/careon-middelen/concept";
 import { buildProductionAssistantFacts } from "@/lib/careon-production/assistant-facts";
 import type { ProductionSnapshot } from "@/lib/careon-production/types";
 import { cn } from "@/lib/utils";
@@ -52,6 +56,7 @@ import { AssistantArtifactCanvas } from "./assistant-canvas";
 import {
   AssistantCanvasContext,
   type AssistantCanvasState,
+  type AssistantConceptState,
   assistantArtifactItems,
   defaultArtifactItemId,
   readMessageCustom,
@@ -65,6 +70,7 @@ const STREAM_CHUNK = 6;
 const STREAM_FRAME_MS = 16;
 const CITE = "Bron: geauditeerde Careon Pulse demo-dataset · deterministisch antwoord zonder live AI-model";
 const LIVE_CITE = "Live AI-antwoord · cijfers uitsluitend uit de geauditeerde Careon Pulse demo-dataset";
+const CONCEPT_CITE = "Concept-wijzigingen · nog niets opgeslagen — beoordeel het concept in het canvas";
 const liveProductionCite = (fileName: string) =>
   `Live AI-antwoord · cijfers uit de EPD-export ${fileName} (geaggregeerd, geen cliëntgegevens)`;
 
@@ -80,7 +86,9 @@ const THREAD_LIST_LABELS: ThreadListLabels = {
 type ReasoningStyle = "standaard" | "diep";
 
 // Maximaal aantal model→tools→model-rondes binnen één beurt (handoff 11).
-const MAX_ACTIE_RONDES = 4;
+// Ruim genoeg voor bulkbeurten ("vul talen voor alle behandelaren") die de
+// aanroepen over meerdere rondes spreiden.
+const MAX_ACTIE_RONDES = 6;
 
 const OFFLINE_ACTIE_NOTICE =
   "Wijzigingen uitvoeren (zoals middelen toewijzen of inventaris aanpassen) kan alleen met een actieve live AI-koppeling. In deze lokale preview kunt u de registratie handmatig bijwerken op de pagina Medewerkers & middelen (Organisatie → Medewerkers & middelen).";
@@ -128,21 +136,10 @@ async function* readWireEvents(body: ReadableStream<Uint8Array>): AsyncGenerator
   }
 }
 
-// Registratie-grounding voor de live route: zo kan het model zowel vragen
-// over middelen beantwoorden als namen/locaties correct resolven vóór een
-// actie. Compact gehouden en afgekapt ruim onder de context-limiet.
-function middelenGrounding(ctx: { api: MiddelenActieApi; bron: MiddelenBron }): string {
-  const state = ctx.api.getState();
-  const geregistreerd = new Set(state.medewerkers.map((rij) => rij.naam));
-  return JSON.stringify({
-    toelichting:
-      "Handmatig bijgehouden registratie (geen EPD-data): uitgegeven middelen, functie, talen en teamtags per medewerker plus inventaris per locatie. Aanpasbaar via de actie-tools.",
-    medewerkers: state.medewerkers.slice(0, 150),
-    bronMedewerkersZonderRegistratie: ctx.bron.medewerkers.filter((naam) => !geregistreerd.has(naam)).slice(0, 150),
-    teams: state.teams ?? [],
-    inventaris: state.inventaris,
-  });
-}
+// De registratie-grounding en context-samenstelling staan in
+// src/lib/careon-middelen/assistant-grounding.ts (UI-vrij) zodat de
+// verify-scripts hetzelfde klantpad kunnen doormeten: de medewerkerslijst
+// staat vóóraan en kan nooit door het context-budget worden afgekapt.
 
 // Below this width the canvas lives in a bottom drawer instead of the inline
 // pane; must match the `lg:` classes on the workspace grid.
@@ -297,7 +294,43 @@ export function AssistentContent() {
     if (!window.matchMedia(CANVAS_INLINE_QUERY).matches) setMobileCanvasOpen(true);
   }, []);
 
-  const canvasValue = useMemo(() => ({ ...canvas, select }), [canvas, select]);
+  // Concept-wijzigingen (handoff 11): de assistent zet acties alleen klaar;
+  // hier valt de beslissing. Toepassen schrijft de concept-eindstand in één
+  // keer via de provider weg (localStorage + centrale sync); Verwerpen laat
+  // alles ongemoeid.
+  const [concept, setConcept] = useState<AssistantConceptState | null>(null);
+  const conceptRef = useRef(concept);
+  conceptRef.current = concept;
+
+  const besluitConcept = useCallback((besluit: "toepassen" | "verwerpen") => {
+    const huidig = conceptRef.current;
+    if (huidig?.status !== "open") return;
+    if (besluit === "verwerpen") {
+      setConcept({ ...huidig, status: "verworpen" });
+      return;
+    }
+    middelenRef.current.api.vervangState(huidig.staat);
+    const toegepast = buildActieArtifact(
+      huidig.artifact.query,
+      huidig.regels,
+      huidig.staat,
+      "toegepast",
+      middelenRef.current.bron.medewerkers.length,
+    );
+    setConcept({ ...huidig, artifact: toegepast, status: "toegepast" });
+    setCanvas((prev) => ({
+      artifact: toegepast,
+      pending: false,
+      stage: "ready",
+      selectedItemId: prev.messageKey === huidig.key ? prev.selectedItemId : defaultArtifactItemId(toegepast),
+      messageKey: huidig.key,
+    }));
+  }, []);
+
+  const canvasValue = useMemo(
+    () => ({ ...canvas, select, concept, besluitConcept }),
+    [canvas, select, concept, besluitConcept],
+  );
 
   // Everything the turn generator needs, via a ref so the adapter identity
   // stays stable while filters/source/kpis change between turns.
@@ -370,19 +403,54 @@ export function AssistentContent() {
       // tussentranscript gaat als `steps` terug voor de vervolgronde.
       if (aiLiveRef.current) {
         const liveParts: ThreadAssistantMessagePart[] = [];
+        // Acties draaien tegen een concept-kopie — er wordt in deze beurt
+        // niets opgeslagen. Een openstaand concept bouwt door (zo kan de
+        // gebruiker het via de chat laten aanpassen vóór goedkeuring).
+        const openConcept = conceptRef.current?.status === "open" ? conceptRef.current : null;
+        const conceptBasis = openConcept ? openConcept.staat : middelenRef.current.api.getState();
+        const conceptApi = createConceptMiddelenApi(conceptBasis);
+        const uitgevoerd: AssistantActieRegel[] = openConcept ? [...openConcept.regels] : [];
         let toolsUsed = false;
-        const liveCustom = () => (toolsUsed ? {} : { visualPending: true });
+        const liveCustom = () => ({ visualPending: true });
         const afgebrokenNaActies: ThreadAssistantMessagePart = {
           type: "text",
-          text: "\n\nDe verbinding met de AI-dienst viel weg; de hierboven uitgevoerde wijzigingen zijn wel opgeslagen.",
+          text: "\n\nDe verbinding met de AI-dienst viel weg; het tot nu toe klaargezette concept staat in het canvas — er is niets opgeslagen.",
+        };
+        // Actiebeurten sluiten af met het concept-artefact in het canvas: de
+        // voorgestelde acties plus de registratie zoals die er ná toepassing
+        // uit zou zien, met de goedkeuringsbalk (Toepassen / Verwerpen).
+        const commitConceptCanvas = () => {
+          const staat = conceptApi.huidig();
+          const conceptArtifact = buildActieArtifact(
+            text,
+            uitgevoerd,
+            staat,
+            "concept",
+            middelenRef.current.bron.medewerkers.length,
+          );
+          setConcept({ key: messageKey, regels: [...uitgevoerd], staat, artifact: conceptArtifact, status: "open" });
+          setCanvas({
+            artifact: conceptArtifact,
+            pending: false,
+            stage: "ready",
+            selectedItemId: defaultArtifactItemId(conceptArtifact),
+            messageKey,
+          });
+          return { artifact: conceptArtifact, artifactKey: messageKey, cite: CONCEPT_CITE };
         };
         try {
-          const grounding = [
+          const conceptNotitie = openConcept
+            ? [
+                "",
+                "OPENSTAAND CONCEPT (nog niet toegepast; nieuwe acties bouwen hierop voort):",
+                ...openConcept.regels.map((regel) => `- ${regel.melding}`),
+              ].join("\n")
+            : "";
+          const grounding = assembleAssistantContext(
             buildGrounding(response, turnContextRef.current),
-            "",
-            "MEDEWERKERS & MIDDELEN (handmatige registratie, JSON):",
-            middelenGrounding(middelenRef.current),
-          ].join("\n");
+            middelenGrounding(conceptBasis, middelenRef.current.bron),
+            conceptNotitie,
+          );
           const steps: unknown[] = [];
           let klaar = false;
 
@@ -403,7 +471,11 @@ export function AssistentContent() {
             if (!res.ok || !res.body) {
               if (!toolsUsed) throw new Error("AI-dienst niet beschikbaar");
               liveParts.push(afgebrokenNaActies);
-              yield { content: [...liveParts], status: { type: "complete", reason: "stop" }, metadata: { custom: {} } };
+              yield {
+                content: [...liveParts],
+                status: { type: "complete", reason: "stop" },
+                metadata: { custom: commitConceptCanvas() },
+              };
               return;
             }
             if (ronde === 0) setCanvas((prev) => ({ ...prev, pending: true, stage: "assembling" }));
@@ -431,13 +503,10 @@ export function AssistentContent() {
               break;
             }
 
-            // Acties uitvoeren: de canvas-belofte vervalt (dit is een
-            // actiebeurt, geen artefact-antwoord); elke aanroep toont een
-            // tool-kaart die na uitvoering het resultaat draagt.
-            if (!toolsUsed) {
-              toolsUsed = true;
-              setCanvas((prev) => ({ ...prev, pending: false, stage: prev.artifact ? "ready" : "idle" }));
-            }
+            // Acties uitvoeren: elke aanroep toont een tool-kaart die na
+            // uitvoering het resultaat draagt; het canvas volgt aan het einde
+            // van de beurt met het actie-artefact.
+            toolsUsed = true;
             steps.push({
               role: "assistant",
               content: rondeTekst || null,
@@ -466,9 +535,17 @@ export function AssistentContent() {
                   argsText: call.args,
                 }) - 1;
               yield { content: [...liveParts], metadata: { custom: liveCustom() } };
-              const resultaat = parseFout
-                ? { status: "fout" as const, melding: "Ongeldige tool-argumenten (geen geldige JSON)." }
-                : executeMiddelenTool(call.name, args, middelenRef.current.api, middelenRef.current.bron);
+              const resultaat: MiddelenActieResultaat = parseFout
+                ? { status: "fout", melding: "Ongeldige tool-argumenten (geen geldige JSON)." }
+                : executeMiddelenTool(call.name, args, conceptApi.api, middelenRef.current.bron);
+              uitgevoerd.push({
+                tool: call.name,
+                status: resultaat.status,
+                melding: resultaat.melding,
+                naam: resultaat.naam,
+                namen: resultaat.namen,
+                locatie: resultaat.locatie,
+              });
               liveParts[index] = {
                 ...(liveParts[index] as ToolCallMessagePart),
                 result: resultaat,
@@ -482,12 +559,16 @@ export function AssistentContent() {
           if (!klaar) {
             liveParts.push({
               type: "text",
-              text: "\n\nMaximaal aantal actierondes bereikt — controleer het resultaat op de pagina Medewerkers & middelen.",
+              text: "\n\nMaximaal aantal actierondes bereikt — beoordeel het klaargezette concept in het canvas; vraag eventueel om de resterende acties in een vervolgbeurt.",
             });
           }
 
           if (toolsUsed) {
-            yield { content: [...liveParts], status: { type: "complete", reason: "stop" }, metadata: { custom: {} } };
+            yield {
+              content: [...liveParts],
+              status: { type: "complete", reason: "stop" },
+              metadata: { custom: commitConceptCanvas() },
+            };
             return;
           }
 
@@ -517,7 +598,11 @@ export function AssistentContent() {
             // nadat er acties zijn uitgevoerd — dat zou de actie-samenvatting
             // vervangen door een los kernantwoord over een ander onderwerp.
             liveParts.push(afgebrokenNaActies);
-            yield { content: [...liveParts], status: { type: "complete", reason: "stop" }, metadata: { custom: {} } };
+            yield {
+              content: [...liveParts],
+              status: { type: "complete", reason: "stop" },
+              metadata: { custom: commitConceptCanvas() },
+            };
             return;
           }
           // Live route failed — continue into the deterministic fallback.

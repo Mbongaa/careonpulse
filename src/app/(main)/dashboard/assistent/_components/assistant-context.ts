@@ -2,7 +2,8 @@
 
 import { createContext, useContext } from "react";
 
-import type { AssistantArtifact } from "@/data/careon/careon-assistant";
+import type { AssistantActieRegel, AssistantArtifact } from "@/data/careon/careon-assistant";
+import type { MiddelenState } from "@/lib/careon-middelen/types";
 
 export type AssistantStage = "idle" | "thinking" | "assembling" | "ready";
 
@@ -14,8 +15,23 @@ export interface AssistantCanvasState {
   messageKey: string | null;
 }
 
+// Concept-wijzigingen op de middelen-registratie (handoff 11): door de
+// assistent klaargezet, door de gebruiker goed te keuren in het canvas.
+// Zolang de status "open" is, is er niets opgeslagen.
+export interface AssistantConceptState {
+  /** messageKey van de beurt die het concept (laatst) opbouwde. */
+  key: string;
+  regels: AssistantActieRegel[];
+  /** De concept-eindstand die Toepassen in één keer wegschrijft. */
+  staat: MiddelenState;
+  artifact: AssistantArtifact;
+  status: "open" | "toegepast" | "verworpen";
+}
+
 export interface AssistantCanvasContextValue extends AssistantCanvasState {
   select: (artifact: AssistantArtifact, itemId?: string | null, messageKey?: string | null) => void;
+  concept: AssistantConceptState | null;
+  besluitConcept: (besluit: "toepassen" | "verwerpen") => void;
 }
 
 export const AssistantCanvasContext = createContext<AssistantCanvasContextValue | null>(null);

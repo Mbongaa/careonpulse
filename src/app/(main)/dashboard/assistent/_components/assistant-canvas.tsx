@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { ArrowUpRight, BarChart3, ClipboardCheck, Database, FileText, Printer } from "lucide-react";
+import { ArrowUpRight, BarChart3, Check, ClipboardCheck, Database, FileText, Printer, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { CareonDonut, CareonDonutLegend } from "@/app/(main)/dashboard/_components/careon/careon-donut";
@@ -238,6 +238,73 @@ function AssistantCanvasPreparing({ stage }: Readonly<{ stage: AssistantStage }>
 
 const ITEM_ICON = { visual: BarChart3, proof: ClipboardCheck, sources: FileText } as const;
 
+// Goedkeuringsbalk voor concept-wijzigingen (handoff 11): de assistent zet
+// wijzigingen alleen klaar; hier beslist de gebruiker. Toepassen schrijft de
+// concept-eindstand in één keer weg; Verwerpen laat alles ongemoeid. De balk
+// blijft zichtbaar zolang er een concept bestaat — ook wanneer het canvas
+// inmiddels een ander artefact toont (dan met een terugknop naar het concept).
+function ConceptBesluitBalk() {
+  const canvas = useAssistantCanvas();
+  const { concept, besluitConcept, select } = canvas;
+  if (!concept) return null;
+
+  const wijzigingen = concept.regels.filter((regel) => regel.status === "ok").length;
+  const toontConcept = canvas.artifact === concept.artifact;
+
+  if (concept.status === "toegepast") {
+    return (
+      <div className="flex items-center gap-2 border-b bg-emerald-500/10 px-4 py-2 text-emerald-700 text-xs dark:text-emerald-400">
+        <Check className="size-3.5 shrink-0" />
+        Concept toegepast en opgeslagen ({wijzigingen} wijzigingen).
+      </div>
+    );
+  }
+  if (concept.status === "verworpen") {
+    return (
+      <div className="flex items-center gap-2 border-b bg-muted/50 px-4 py-2 text-muted-foreground text-xs">
+        <X className="size-3.5 shrink-0" />
+        Concept verworpen — er is niets gewijzigd.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b bg-amber-500/10 px-4 py-2.5">
+      <span className="min-w-0 flex-1 text-amber-800 text-xs dark:text-amber-300">
+        <span className="font-medium">Concept — nog niets opgeslagen.</span>{" "}
+        {wijzigingen === 1 ? "1 voorgestelde wijziging" : `${wijzigingen} voorgestelde wijzigingen`}; aanpassen kan via
+        de chat.
+      </span>
+      {toontConcept ? (
+        <span className="flex shrink-0 items-center gap-1.5">
+          <Button size="sm" className="h-7 gap-1.5 px-2.5" onClick={() => besluitConcept("toepassen")}>
+            <Check className="size-3.5" />
+            Toepassen
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1.5 px-2.5"
+            onClick={() => besluitConcept("verwerpen")}
+          >
+            <X className="size-3.5" />
+            Verwerpen
+          </Button>
+        </span>
+      ) : (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 shrink-0 px-2.5"
+          onClick={() => select(concept.artifact, null, concept.key)}
+        >
+          Concept bekijken
+        </Button>
+      )}
+    </div>
+  );
+}
+
 export function AssistantArtifactCanvas({
   onExport,
   className,
@@ -262,6 +329,7 @@ export function AssistantArtifactCanvas({
         <AssistantCanvasPreparing stage={stage} />
       ) : (
         <>
+          <ConceptBesluitBalk />
           <header className="flex items-start justify-between gap-3 border-b p-4">
             <div className="min-w-0">
               <p className="text-muted-foreground text-xs uppercase tracking-wide">Geselecteerd artefact</p>
@@ -324,7 +392,11 @@ export function AssistantArtifactCanvas({
           </div>
 
           <footer className="flex items-center justify-between gap-2 border-t p-3">
-            <span className="text-muted-foreground text-xs">Demo · deterministisch opgebouwd</span>
+            <span className="text-muted-foreground text-xs">
+              {artifact.intent === "assistent-acties"
+                ? "Assistent-acties · handmatige registratie"
+                : "Demo · deterministisch opgebouwd"}
+            </span>
             <Button asChild variant="outline" size="sm" className="gap-1.5">
               <Link href={artifact.pageHref}>
                 {artifact.pageLabel}
