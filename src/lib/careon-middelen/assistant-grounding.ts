@@ -21,10 +21,38 @@ export const ASSISTANT_MAX_CONTEXT_CHARS = 200_000;
 // verdringen. Ook dit is ver boven de reële omvang (feitenblad ≈ 10-20k).
 export const ASSISTANT_MAX_FACTS_CHARS = 150_000;
 
-export function middelenGrounding(staat: MiddelenState, bron: MiddelenBron): string {
+export interface MiddelenGroundingOptions {
+  /** Vrije notities kunnen asset-identifiers bevatten en gaan alleen mee
+      wanneer de vraag expliciet over notities of tags gaat. */
+  includeNotes?: boolean;
+  /** Pure tellingen kunnen zonder medewerkersnamen naar de provider. */
+  includeNames?: boolean;
+}
+
+function aantallen(waarden: (string | undefined)[]): Record<string, number> {
+  const resultaat: Record<string, number> = {};
+  for (const waarde of waarden) {
+    if (waarde) resultaat[waarde] = (resultaat[waarde] ?? 0) + 1;
+  }
+  return resultaat;
+}
+
+export function middelenGrounding(
+  staat: MiddelenState,
+  bron: MiddelenBron,
+  options: MiddelenGroundingOptions = {},
+): string {
   const geregistreerd = new Set(staat.medewerkers.map((rij) => rij.naam));
   const zonderRegistratie = bron.medewerkers.filter((naam) => !geregistreerd.has(naam));
   const totaal = staat.medewerkers.length + zonderRegistratie.length;
+  const medewerkers =
+    options.includeNames === false
+      ? undefined
+      : staat.medewerkers.map((rij) => {
+          if (options.includeNotes) return rij;
+          const { notitie: _notitie, ...zonderNotitie } = rij;
+          return zonderNotitie;
+        });
   return JSON.stringify({
     toelichting:
       "Handmatig bijgehouden registratie (geen EPD-data): uitgegeven middelen, functie, talen en teamtags per medewerker plus inventaris per locatie. Aanpasbaar via de actie-tools. LET OP: het totale aantal medewerkers = medewerkers (met registratierij) PLUS bronMedewerkersZonderRegistratie — beide lijsten samen zijn de volledige medewerkerslijst; de productie-toplijst elders in de context is slechts een top-10.",
@@ -33,8 +61,18 @@ export function middelenGrounding(staat: MiddelenState, bron: MiddelenBron): str
     aantalBronZonderRegistratie: zonderRegistratie.length,
     // Volledige lijsten — de opslaglimiet (MIDDELEN_LIMITS.medewerkers = 500)
     // is de enige bovengrens; er valt dus nooit een medewerker buiten beeld.
-    medewerkers: staat.medewerkers,
-    bronMedewerkersZonderRegistratie: zonderRegistratie,
+    medewerkers,
+    bronMedewerkersZonderRegistratie: options.includeNames === false ? undefined : zonderRegistratie,
+    aggregaten:
+      options.includeNames === false
+        ? {
+            uitDienst: staat.medewerkers.filter((rij) => rij.uitDienst).length,
+            middelen: aantallen(staat.medewerkers.flatMap((rij) => rij.middelen)),
+            functies: aantallen(staat.medewerkers.map((rij) => rij.functie)),
+            talen: aantallen(staat.medewerkers.flatMap((rij) => rij.talen ?? [])),
+            teamtags: aantallen(staat.medewerkers.flatMap((rij) => rij.teams ?? [])),
+          }
+        : undefined,
     teams: staat.teams ?? [],
     inventaris: staat.inventaris,
   });
@@ -46,11 +84,10 @@ export function middelenGrounding(staat: MiddelenState, bron: MiddelenBron): str
  * mag nooit de medewerkerslijst raken (wel desnoods de staart van de facts).
  */
 export function assembleAssistantContext(facts: string, middelen: string, conceptNotitie: string): string {
-  return [
-    "MEDEWERKERS & MIDDELEN (handmatige registratie, JSON):",
-    middelen + conceptNotitie,
-    "",
-    "OVERIGE CONTEXT (KPI's/feitenblad, JSON):",
-    facts.slice(0, ASSISTANT_MAX_FACTS_CHARS),
-  ].join("\n");
+  const delen = [];
+  if (middelen) {
+    delen.push("MEDEWERKERS & MIDDELEN (handmatige registratie, JSON):", middelen + conceptNotitie, "");
+  }
+  delen.push("OVERIGE CONTEXT (KPI's/feitenblad, JSON):", facts.slice(0, ASSISTANT_MAX_FACTS_CHARS));
+  return delen.join("\n");
 }

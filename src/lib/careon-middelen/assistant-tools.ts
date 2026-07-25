@@ -21,6 +21,7 @@ export const MIDDELEN_TOOL_NAMES = [
   "wijzig_middel_bulk",
   "wijzig_taal_bulk",
   "zet_functie",
+  "zet_dienstverband",
   "wijzig_taal",
   "wijzig_teamtag",
   "zet_notitie",
@@ -48,13 +49,22 @@ const NAAM_PROP = {
   description: "Naam van de medewerker (zoals in de registratie of de databron).",
 } as const;
 
-interface OpenAiFunctionTool {
+export interface OpenAiFunctionTool {
   type: "function";
   function: {
     name: MiddelenToolName;
     description: string;
     parameters: Record<string, unknown>;
+    strict?: boolean;
   };
+}
+
+export interface OpenAiResponsesFunctionTool {
+  type: "function";
+  name: MiddelenToolName;
+  description: string;
+  parameters: Record<string, unknown>;
+  strict: true;
 }
 
 function tool(
@@ -76,8 +86,13 @@ function tool(
 export const MIDDELEN_TOOLS: readonly OpenAiFunctionTool[] = [
   tool(
     "lees_middelen_registratie",
-    "Lees de actuele registratie Medewerkers & middelen: alle medewerkers met functie, talen, teamtags, uitgegeven middelen en notitie, plus de teamstructuur en de inventaris per locatie. Gebruik dit vóór wijzigingen als je niet zeker bent van namen of de huidige stand.",
-    {},
+    "Lees de actuele registratie Medewerkers & middelen. Vrije notities worden alleen opgenomen wanneer de gebruiker daar expliciet naar vraagt.",
+    {
+      inclusiefNotities: {
+        type: "boolean",
+        description: "Alleen true bij een expliciete vraag over notities, kentekens, sleutel- of assettags.",
+      },
+    },
     [],
   ),
   tool(
@@ -102,6 +117,11 @@ export const MIDDELEN_TOOLS: readonly OpenAiFunctionTool[] = [
         items: { type: "string" },
         description: "Expliciete namenlijst (als iedereen niet true is).",
       },
+      uitzonderingen: {
+        type: "array",
+        items: { type: "string" },
+        description: "Namen die worden overgeslagen ('iedereen behalve …').",
+      },
     },
     ["middel", "actie"],
   ),
@@ -117,6 +137,11 @@ export const MIDDELEN_TOOLS: readonly OpenAiFunctionTool[] = [
         items: { type: "string" },
         description: "Expliciete namenlijst (als iedereen niet true is).",
       },
+      uitzonderingen: {
+        type: "array",
+        items: { type: "string" },
+        description: "Namen die worden overgeslagen ('iedereen behalve …').",
+      },
     },
     ["taal", "actie"],
   ),
@@ -128,6 +153,18 @@ export const MIDDELEN_TOOLS: readonly OpenAiFunctionTool[] = [
       functie: { type: "string", enum: [...FUNCTIE_OPTIES, "geen"] },
     },
     ["naam", "functie"],
+  ),
+  tool(
+    "zet_dienstverband",
+    "Zet een medewerker uit dienst of weer in dienst. Gebruik dit voor élk vertrek/ontslag/'stopt'/'uit dienst'-verzoek: de registratie blijft bewaard als historie en alle uitgegeven middelen worden automatisch ingenomen.",
+    {
+      naam: NAAM_PROP,
+      uitDienst: {
+        type: "boolean",
+        description: "true = uit dienst (met automatische inname van middelen), false = weer in dienst.",
+      },
+    },
+    ["naam", "uitDienst"],
   ),
   tool(
     "wijzig_taal",
@@ -166,7 +203,7 @@ export const MIDDELEN_TOOLS: readonly OpenAiFunctionTool[] = [
   ),
   tool(
     "verwijder_medewerker",
-    "Verwijder een medewerker (en al zijn/haar registraties) uit de registratie. Wordt zoals alle acties pas definitief na goedkeuring van het concept.",
+    "Verwijder een medewerker (en al zijn/haar registraties) permanent uit de registratie — alleen voor foutief aangemaakte rijen. NIET voor uit dienst/vertrek/ontslag: gebruik daarvoor zet_dienstverband (dat bewaart de historie).",
     { naam: NAAM_PROP },
     ["naam"],
   ),
@@ -211,3 +248,59 @@ export const MIDDELEN_TOOLS: readonly OpenAiFunctionTool[] = [
     ["locatie"],
   ),
 ];
+
+function nullableProperty(schema: unknown): Record<string, unknown> {
+  if (typeof schema !== "object" || schema === null) return { anyOf: [{}, { type: "null" }] };
+  const row = schema as Record<string, unknown>;
+  const type = row.type;
+  if (typeof type === "string") {
+    return { ...row, type: [type, "null"] };
+  }
+  return { anyOf: [row, { type: "null" }] };
+}
+
+/**
+ * OpenAI strict function schemas require every property to be listed in
+ * `required`. Fields that are optional in the executor contract become
+ * nullable instead of disappearing from the JSON object.
+ */
+function strictParameters(parameters: Record<string, unknown>): Record<string, unknown> {
+  const properties =
+    typeof parameters.properties === "object" && parameters.properties !== null
+      ? (parameters.properties as Record<string, unknown>)
+      : {};
+  const originallyRequired = new Set(Array.isArray(parameters.required) ? parameters.required : []);
+  return {
+    type: "object",
+    properties: Object.fromEntries(
+      Object.entries(properties).map(([name, schema]) => [
+        name,
+        originallyRequired.has(name) ? schema : nullableProperty(schema),
+      ]),
+    ),
+    required: Object.keys(properties),
+    additionalProperties: false,
+  };
+}
+
+export function getAssistantChatTools(names: readonly MiddelenToolName[]): OpenAiFunctionTool[] {
+  const allowed = new Set(names);
+  return MIDDELEN_TOOLS.filter((tool) => allowed.has(tool.function.name)).map((tool) => ({
+    ...tool,
+    function: {
+      ...tool.function,
+      strict: true,
+      parameters: strictParameters(tool.function.parameters),
+    },
+  }));
+}
+
+export function getAssistantResponsesTools(names: readonly MiddelenToolName[]): OpenAiResponsesFunctionTool[] {
+  return getAssistantChatTools(names).map((tool) => ({
+    type: "function",
+    name: tool.function.name,
+    description: tool.function.description,
+    parameters: tool.function.parameters,
+    strict: true,
+  }));
+}

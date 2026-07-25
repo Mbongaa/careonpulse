@@ -1,11 +1,25 @@
 "use client";
 
+import { useId, useState } from "react";
+
 import Link from "next/link";
 
-import { ArrowUpRight, BarChart3, Check, ClipboardCheck, Database, FileText, Printer, X } from "lucide-react";
+import {
+  ArrowUpRight,
+  BarChart3,
+  Check,
+  ClipboardCheck,
+  Database,
+  FileText,
+  Pencil,
+  Printer,
+  RefreshCw,
+  X,
+} from "lucide-react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { CareonDonut, CareonDonutLegend } from "@/app/(main)/dashboard/_components/careon/careon-donut";
+import { useCareonMiddelen } from "@/app/(main)/dashboard/_components/careon/careon-middelen-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,16 +30,25 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   ASSISTANT_INTENT_META,
+  type AssistantActieRegel,
   type AssistantArtifact,
   type AssistantClaim,
   type AssistantSourceRef,
   type AssistantTone,
   type AssistantVisualization,
 } from "@/data/careon/careon-assistant";
+import { MIDDEL_ICONS, MIDDEL_LABELS } from "@/data/careon/careon-middelen";
 import { CAREON_MONTHLY } from "@/data/careon/careon-shared-charts";
+import { isDestructieveTool } from "@/lib/careon-middelen/assistant-executor";
+import { MIDDELEN_TOOLS } from "@/lib/careon-middelen/assistant-tools";
+import { FUNCTIE_OPTIES, MIDDEL_TYPES, TAAL_OPTIES } from "@/lib/careon-middelen/types";
 import { cn } from "@/lib/utils";
 
 import { type AssistantStage, assistantArtifactItems, useAssistantCanvas } from "./assistant-context";
@@ -238,18 +261,383 @@ function AssistantCanvasPreparing({ stage }: Readonly<{ stage: AssistantStage }>
 
 const ITEM_ICON = { visual: BarChart3, proof: ClipboardCheck, sources: FileText } as const;
 
+// -- Bewerkbaar concept (handoff 11, kiosk-patroon "human-confirm") ---------
+// De AI vult het concept alleen; hier bewerkt en bevestigt de mens. Elke
+// regel is te schrappen (✕) en te bewerken (velden uit het tool-schema);
+// bulk-regels laten per naam uitsluiten. Elke bewerking herberekent de
+// preview door replay op de actuele registratie.
+
+const ACTIE_TONE: Record<AssistantActieRegel["status"], AssistantTone> = {
+  ok: "good",
+  geen_wijziging: "none",
+  bevestiging_vereist: "warn",
+  fout: "bad",
+};
+
+interface ConceptVeldSchema {
+  type?: string;
+  enum?: string[];
+  description?: string;
+}
+
+// Bewerkbare velden rechtstreeks uit het tool-schema (enums → keuzelijst,
+// integer → getal, string → tekst); arrays/booleans (namen/iedereen) lopen
+// via de naam-uitsluiting en niet via dit formulier.
+function conceptVelden(tool: string): [string, ConceptVeldSchema][] {
+  const schema = MIDDELEN_TOOLS.find((kandidaat) => kandidaat.function.name === tool);
+  const properties =
+    (schema?.function.parameters as { properties?: Record<string, ConceptVeldSchema> } | undefined)?.properties ?? {};
+  return Object.entries(properties).filter(([, veld]) => veld.type !== "array" && veld.type !== "boolean");
+}
+
+function ConceptActieBewerker({
+  regel,
+  onOpslaan,
+}: Readonly<{ regel: AssistantActieRegel; onOpslaan: (args: Record<string, unknown>) => void }>) {
+  const fieldPrefix = useId();
+  const [waarden, setWaarden] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      conceptVelden(regel.tool).map(([naam]) => [
+        naam,
+        regel.args?.[naam] === undefined ? "" : String(regel.args[naam]),
+      ]),
+    ),
+  );
+
+  const opslaan = () => {
+    const nieuweArgs: Record<string, unknown> = { ...regel.args };
+    for (const [naam, veld] of conceptVelden(regel.tool)) {
+      const waarde = waarden[naam] ?? "";
+      nieuweArgs[naam] = veld.type === "integer" ? Math.max(0, Math.round(Number(waarde) || 0)) : waarde;
+    }
+    onOpslaan(nieuweArgs);
+  };
+
+  return (
+    <div className="mt-2 flex flex-wrap items-end gap-2 border-t pt-2">
+      {conceptVelden(regel.tool).map(([naam, veld]) => (
+        <label
+          key={naam}
+          htmlFor={`${fieldPrefix}-${naam}`}
+          className="flex min-w-0 flex-col gap-1 text-muted-foreground text-xs"
+        >
+          {naam}
+          {veld.enum ? (
+            <NativeSelect
+              id={`${fieldPrefix}-${naam}`}
+              value={waarden[naam] ?? ""}
+              aria-label={`${naam} van dit voorstel`}
+              className="h-8 w-40 text-xs"
+              onChange={(event) => setWaarden((prev) => ({ ...prev, [naam]: event.target.value }))}
+            >
+              {veld.enum.map((optie) => (
+                <NativeSelectOption key={optie} value={optie}>
+                  {optie}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          ) : (
+            <Input
+              id={`${fieldPrefix}-${naam}`}
+              value={waarden[naam] ?? ""}
+              type={veld.type === "integer" ? "number" : "text"}
+              aria-label={`${naam} van dit voorstel`}
+              className="h-8 w-40 text-xs"
+              onChange={(event) => setWaarden((prev) => ({ ...prev, [naam]: event.target.value }))}
+            />
+          )}
+        </label>
+      ))}
+      <Button size="sm" className="h-8 px-3" onClick={opslaan}>
+        Opslaan
+      </Button>
+    </div>
+  );
+}
+
+// Bewerkbare registratietabel van het open concept — de hoofdweergave
+// (klantvoorkeur 2026-07-24): per geraakte medewerker direct talen, functie,
+// teams en middelen aanpassen. Elke celwijziging wordt onder water een actie
+// in hetzelfde her-afspeelbare logboek als de AI-acties.
+function ConceptRegistratieTabel() {
+  const { concept, bewerkConceptRij } = useAssistantCanvas();
+  if (!concept) return null;
+  const geraakt = new Set(
+    concept.regels.flatMap((regel) => [...(regel.naam ? [regel.naam] : []), ...(regel.namen ?? [])]),
+  );
+  const rijen = concept.staat.medewerkers.filter((rij) => geraakt.has(rij.naam));
+  const teamOpties = [...new Set((concept.staat.teams ?? []).map((team) => team.naam))];
+  if (rijen.length === 0) {
+    return <p className="text-muted-foreground text-sm">Geen geraakte medewerkers in dit concept.</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {rijen.map((rij) => (
+        <div key={rij.naam} className="rounded-lg border bg-card/50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="min-w-0 truncate font-medium text-sm">{rij.naam}</p>
+            <span className="flex shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                aria-pressed={rij.uitDienst === true}
+                aria-label={`${rij.naam} ${rij.uitDienst ? "weer in dienst zetten" : "uit dienst zetten"}`}
+                className={cn(
+                  "inline-flex items-center rounded-full border px-2 py-0.5 text-xs transition-colors",
+                  rij.uitDienst
+                    ? "border-amber-500/50 bg-amber-500/10 text-amber-800 dark:text-amber-300"
+                    : "text-muted-foreground hover:bg-muted",
+                )}
+                onClick={() =>
+                  bewerkConceptRij(rij.naam, { soort: "dienstverband", uitDienst: rij.uitDienst !== true })
+                }
+              >
+                {rij.uitDienst ? "Uit dienst" : "In dienst"}
+              </button>
+              <NativeSelect
+                value={rij.functie ?? ""}
+                aria-label={`Functie van ${rij.naam}`}
+                className="h-7 w-44 text-xs"
+                onChange={(event) => bewerkConceptRij(rij.naam, { soort: "functie", waarde: event.target.value })}
+              >
+                <NativeSelectOption value="">— geen functie —</NativeSelectOption>
+                {FUNCTIE_OPTIES.map((optie) => (
+                  <NativeSelectOption key={optie} value={optie}>
+                    {optie}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </span>
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-center gap-1">
+            <span className="w-16 shrink-0 text-muted-foreground text-xs">Talen</span>
+            {(rij.talen ?? []).map((taal) => (
+              <button
+                key={taal}
+                type="button"
+                aria-label={`${taal} verwijderen bij ${rij.naam}`}
+                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs hover:bg-muted"
+                onClick={() => bewerkConceptRij(rij.naam, { soort: "taal", waarde: taal, aanwezig: false })}
+              >
+                {taal}
+                <X className="size-3 text-muted-foreground" />
+              </button>
+            ))}
+            <NativeSelect
+              value=""
+              aria-label={`Taal toevoegen bij ${rij.naam}`}
+              className="h-6 w-28 text-xs"
+              onChange={(event) => {
+                if (event.target.value) {
+                  bewerkConceptRij(rij.naam, { soort: "taal", waarde: event.target.value, aanwezig: true });
+                }
+              }}
+            >
+              <NativeSelectOption value="">+ taal</NativeSelectOption>
+              {TAAL_OPTIES.filter((optie) => !(rij.talen ?? []).includes(optie)).map((optie) => (
+                <NativeSelectOption key={optie} value={optie}>
+                  {optie}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-center gap-1">
+            <span className="w-16 shrink-0 text-muted-foreground text-xs">Teams</span>
+            {(rij.teams ?? []).map((team) => (
+              <button
+                key={team}
+                type="button"
+                aria-label={`Teamtag ${team} verwijderen bij ${rij.naam}`}
+                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs hover:bg-muted"
+                onClick={() => bewerkConceptRij(rij.naam, { soort: "team", waarde: team, aanwezig: false })}
+              >
+                {team}
+                <X className="size-3 text-muted-foreground" />
+              </button>
+            ))}
+            <NativeSelect
+              value=""
+              aria-label={`Team toevoegen bij ${rij.naam}`}
+              className="h-6 w-28 text-xs"
+              onChange={(event) => {
+                if (event.target.value) {
+                  bewerkConceptRij(rij.naam, { soort: "team", waarde: event.target.value, aanwezig: true });
+                }
+              }}
+            >
+              <NativeSelectOption value="">+ team</NativeSelectOption>
+              {teamOpties
+                .filter((optie) => !(rij.teams ?? []).includes(optie))
+                .map((optie) => (
+                  <NativeSelectOption key={optie} value={optie}>
+                    {optie}
+                  </NativeSelectOption>
+                ))}
+            </NativeSelect>
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-center gap-1">
+            <span className="w-16 shrink-0 text-muted-foreground text-xs">Middelen</span>
+            {MIDDEL_TYPES.map((middel) => {
+              const actief = rij.middelen.includes(middel);
+              const Icon = MIDDEL_ICONS[middel];
+              return (
+                <button
+                  key={middel}
+                  type="button"
+                  title={MIDDEL_LABELS[middel]}
+                  aria-label={`${MIDDEL_LABELS[middel]} ${actief ? "innemen" : "toewijzen"} — ${rij.naam}`}
+                  aria-pressed={actief}
+                  className={cn(
+                    "inline-flex size-7 items-center justify-center rounded-md border transition-colors",
+                    actief ? "border-primary/50 bg-primary/10 text-foreground" : "text-muted-foreground hover:bg-muted",
+                  )}
+                  onClick={() => bewerkConceptRij(rij.naam, { soort: "middel", waarde: middel, aanwezig: !actief })}
+                >
+                  <Icon className="size-3.5" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ConceptActieLijst() {
+  const { concept, verwijderConceptActie, sluitConceptNaamUit, bewerkConceptActie } = useAssistantCanvas();
+  const [bewerkIndex, setBewerkIndex] = useState<number | null>(null);
+  if (!concept) return null;
+  if (concept.regels.length === 0) {
+    return (
+      <p className="text-muted-foreground text-sm">
+        Geen voorstellen meer — verwerp het concept of vraag de assistent om nieuwe acties.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {concept.regels.map((regel, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: het concept is een positioneel, append-only actielogboek — dubbele acties zijn geldig en de index ís de identiteit.
+        <div key={`${regel.tool}-${index}-${regel.melding}`} className="rounded-lg border bg-card/50 p-3">
+          <div className="flex items-start gap-2.5">
+            <span className={cn("mt-1.5 size-2 shrink-0 rounded-full", TONE_BAR[ACTIE_TONE[regel.status]])} />
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-sm leading-tight">{regel.melding}</p>
+              <p className="mt-0.5 text-muted-foreground text-xs">{regel.tool}</p>
+              {regel.uitgesloten?.length ? (
+                <p className="mt-0.5 text-muted-foreground text-xs">Uitgesloten: {regel.uitgesloten.join(", ")}</p>
+              ) : null}
+            </div>
+            <span className="flex shrink-0 items-center gap-0.5">
+              {regel.args ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground"
+                  aria-label="Voorstel bewerken"
+                  onClick={() => setBewerkIndex(bewerkIndex === index ? null : index)}
+                >
+                  <Pencil className="size-3.5" />
+                </Button>
+              ) : null}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 text-muted-foreground"
+                aria-label="Voorstel schrappen"
+                onClick={() => {
+                  setBewerkIndex(null);
+                  verwijderConceptActie(index);
+                }}
+              >
+                <X className="size-3.5" />
+              </Button>
+            </span>
+          </div>
+          {bewerkIndex === index && regel.args ? (
+            <ConceptActieBewerker
+              regel={regel}
+              onOpslaan={(args) => {
+                setBewerkIndex(null);
+                bewerkConceptActie(index, args);
+              }}
+            />
+          ) : null}
+          {(regel.namen?.length ?? 0) > 1 ? (
+            <Collapsible className="mt-2">
+              <CollapsibleTrigger className="text-muted-foreground text-xs underline-offset-2 hover:underline">
+                {regel.namen?.length} medewerkers — klik om per naam uit te sluiten
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {regel.namen?.map((naam) => (
+                    <button
+                      key={naam}
+                      type="button"
+                      className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs hover:bg-muted"
+                      aria-label={`${naam} uitsluiten van dit voorstel`}
+                      onClick={() => sluitConceptNaamUit(index, naam)}
+                    >
+                      {naam}
+                      <X className="size-3 text-muted-foreground" />
+                    </button>
+                  ))}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Kiest per geselecteerd artefact-onderdeel de interactieve conceptweergave
+// (open concept) of het statische visualisatieblok.
+function ConceptOfStandaardVisual({ visual }: Readonly<{ visual: AssistantVisualization }>) {
+  const canvas = useAssistantCanvas();
+  const openConcept = canvas.concept?.status === "open" && canvas.messageKey === canvas.concept.key;
+  if (openConcept && visual.id === "registratie") return <ConceptRegistratieTabel />;
+  if (openConcept && visual.id === "acties") return <ConceptActieLijst />;
+  return <AssistantVisualizationBlock visual={visual} />;
+}
+
 // Goedkeuringsbalk voor concept-wijzigingen (handoff 11): de assistent zet
-// wijzigingen alleen klaar; hier beslist de gebruiker. Toepassen schrijft de
-// concept-eindstand in één keer weg; Verwerpen laat alles ongemoeid. De balk
-// blijft zichtbaar zolang er een concept bestaat — ook wanneer het canvas
-// inmiddels een ander artefact toont (dan met een terugknop naar het concept).
+// wijzigingen alleen klaar; hier beslist de gebruiker. Toepassen replayt de
+// (bewerkte) acties op de actuele registratie en slaat die eindstand op;
+// Verwerpen laat alles ongemoeid. De balk blijft zichtbaar zolang er een
+// concept bestaat — ook wanneer het canvas inmiddels een ander artefact toont
+// (dan met een terugknop naar het concept).
 function ConceptBesluitBalk() {
   const canvas = useAssistantCanvas();
-  const { concept, besluitConcept, select } = canvas;
+  const { concept, besluitConcept, herberekenConcept, select } = canvas;
+  const registratie = useCareonMiddelen();
+  const [destructieveBevestiging, setDestructieveBevestiging] = useState<string | null>(null);
+  const [bulkBevestiging, setBulkBevestiging] = useState<string | null>(null);
+
   if (!concept) return null;
 
+  const bevestigingKey = `${concept.key}:${concept.status}`;
+  const destructiefBevestigd = destructieveBevestiging === bevestigingKey;
+  const bulkBevestigd = bulkBevestiging === bevestigingKey;
   const wijzigingen = concept.regels.filter((regel) => regel.status === "ok").length;
+  const destructieveWijzigingen = concept.regels.filter(
+    (regel) => regel.status === "ok" && isDestructieveTool(regel.tool),
+  ).length;
+  const geraakteNamen = new Set(
+    concept.regels
+      .filter((regel) => regel.status === "ok")
+      .flatMap((regel) => [...(regel.naam ? [regel.naam] : []), ...(regel.namen ?? [])]),
+  );
+  const hogeImpact =
+    geraakteNamen.size >= 25 || concept.regels.some((regel) => regel.status === "ok" && regel.args?.iedereen === true);
   const toontConcept = canvas.artifact === concept.artifact;
+  const basisVerouderd = concept.status === "open" && registratie.state.updatedAt !== concept.basisUpdatedAt;
 
   if (concept.status === "toegepast") {
     return (
@@ -269,38 +657,85 @@ function ConceptBesluitBalk() {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b bg-amber-500/10 px-4 py-2.5">
-      <span className="min-w-0 flex-1 text-amber-800 text-xs dark:text-amber-300">
-        <span className="font-medium">Concept — nog niets opgeslagen.</span>{" "}
-        {wijzigingen === 1 ? "1 voorgestelde wijziging" : `${wijzigingen} voorgestelde wijzigingen`}; aanpassen kan via
-        de chat.
-      </span>
-      {toontConcept ? (
-        <span className="flex shrink-0 items-center gap-1.5">
-          <Button size="sm" className="h-7 gap-1.5 px-2.5" onClick={() => besluitConcept("toepassen")}>
-            <Check className="size-3.5" />
-            Toepassen
-          </Button>
+    <div className="flex flex-col border-b bg-amber-500/10">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
+        <span className="min-w-0 flex-1 text-amber-800 text-xs dark:text-amber-300">
+          <span className="font-medium">Concept — nog niets opgeslagen.</span>{" "}
+          {wijzigingen === 1 ? "1 voorgestelde wijziging" : `${wijzigingen} voorgestelde wijzigingen`}; bewerk of schrap
+          voorstellen hieronder, of stuur bij via de chat.
+        </span>
+        {toontConcept ? (
+          <span className="flex shrink-0 items-center gap-1.5">
+            <Button
+              size="sm"
+              className="h-7 gap-1.5 px-2.5"
+              disabled={
+                wijzigingen === 0 ||
+                (destructieveWijzigingen > 0 && !destructiefBevestigd) ||
+                (hogeImpact && !bulkBevestigd)
+              }
+              onClick={() => besluitConcept("toepassen")}
+            >
+              <Check className="size-3.5" />
+              Toepassen
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1.5 px-2.5"
+              onClick={() => besluitConcept("verwerpen")}
+            >
+              <X className="size-3.5" />
+              Verwerpen
+            </Button>
+          </span>
+        ) : (
           <Button
             size="sm"
             variant="outline"
-            className="h-7 gap-1.5 px-2.5"
-            onClick={() => besluitConcept("verwerpen")}
+            className="h-7 shrink-0 px-2.5"
+            onClick={() => select(concept.artifact, null, concept.key)}
           >
-            <X className="size-3.5" />
-            Verwerpen
+            Concept bekijken
           </Button>
-        </span>
-      ) : (
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 shrink-0 px-2.5"
-          onClick={() => select(concept.artifact, null, concept.key)}
+        )}
+      </div>
+      {toontConcept && destructieveWijzigingen > 0 ? (
+        <label
+          htmlFor="bevestig-destructieve-assistentacties"
+          className="flex cursor-pointer items-center gap-2 border-amber-500/20 border-t px-4 py-2 text-amber-900 text-xs dark:text-amber-200"
         >
-          Concept bekijken
-        </Button>
-      )}
+          <Checkbox
+            id="bevestig-destructieve-assistentacties"
+            checked={destructiefBevestigd}
+            onCheckedChange={(checked) => setDestructieveBevestiging(checked === true ? bevestigingKey : null)}
+          />
+          Bevestig expliciet dat {destructieveWijzigingen === 1 ? "de verwijdering" : "de verwijderingen"} mag worden
+          toegepast.
+        </label>
+      ) : null}
+      {toontConcept && hogeImpact ? (
+        <label
+          htmlFor="bevestig-bulk-assistentacties"
+          className="flex cursor-pointer items-center gap-2 border-amber-500/20 border-t px-4 py-2 text-amber-900 text-xs dark:text-amber-200"
+        >
+          <Checkbox
+            id="bevestig-bulk-assistentacties"
+            checked={bulkBevestigd}
+            onCheckedChange={(checked) => setBulkBevestiging(checked === true ? bevestigingKey : null)}
+          />
+          Bevestig expliciet de bulkimpact op {geraakteNamen.size || "alle"} medewerkers.
+        </label>
+      ) : null}
+      {basisVerouderd ? (
+        <div className="flex flex-wrap items-center gap-2 border-amber-500/20 border-t px-4 py-1.5 text-amber-800 text-xs dark:text-amber-300">
+          De registratie is intussen gewijzigd — de preview kan afwijken (Toepassen rekent altijd met de actuele stand).
+          <Button size="sm" variant="outline" className="h-6 gap-1 px-2 text-xs" onClick={herberekenConcept}>
+            <RefreshCw className="size-3" />
+            Herbereken
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -378,7 +813,10 @@ export function AssistantArtifactCanvas({
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
             {selected.kind === "visual" && selectedVisual ? (
               <>
-                <AssistantVisualizationBlock visual={selectedVisual} />
+                {/* Bij een open concept zijn de registratietabel (hoofd-
+                    weergave, direct bewerkbaar) en de actielijst (logboek met
+                    schrappen/uitsluiten) interactief in plaats van statisch. */}
+                <ConceptOfStandaardVisual visual={selectedVisual} />
                 {artifact.claims.length ? (
                   <div>
                     <p className="mb-2 text-muted-foreground text-xs uppercase tracking-wide">Onderbouwing</p>

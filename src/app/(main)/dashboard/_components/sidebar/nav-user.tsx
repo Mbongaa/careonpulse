@@ -29,8 +29,8 @@ export function NavUser({
   const { isMobile } = useSidebar();
   const router = useRouter();
 
-  const handleLogout = () => {
-    careonLogout();
+  const handleLogout = async () => {
+    await careonLogout();
     router.replace(CAREON_LOGIN_ROUTE);
   };
 

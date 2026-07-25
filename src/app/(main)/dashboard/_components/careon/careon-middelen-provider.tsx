@@ -4,8 +4,14 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 
 import { DEMO_MIDDELEN_STATE, EMPTY_MIDDELEN_STATE, TEAM_SEED } from "@/data/careon/careon-middelen";
 import { fetchRemoteMiddelenState, pushRemoteMiddelenState } from "@/lib/careon-middelen/remote.client";
-import { loadMiddelenState, saveMiddelenState } from "@/lib/careon-middelen/storage.client";
-import type { LocatieInventaris, MedewerkerMiddelen, MiddelenState, MiddelType } from "@/lib/careon-middelen/types";
+import { loadMiddelenCache, saveMiddelenState } from "@/lib/careon-middelen/storage.client";
+import type {
+  LocatieInventaris,
+  MedewerkerMiddelen,
+  MiddelenChangeAudit,
+  MiddelenState,
+  MiddelType,
+} from "@/lib/careon-middelen/types";
 
 import { useCareon } from "./careon-provider";
 
@@ -16,7 +22,7 @@ import { useCareon } from "./careon-provider";
 // de centrale Supabase-opslag (of blijft lokaal wanneer die niet is
 // geconfigureerd — de route antwoordt dan 501).
 
-export type MiddelenSyncStatus = "laden" | "centraal" | "lokaal" | "fout";
+export type MiddelenSyncStatus = "laden" | "centraal" | "lokaal" | "fout" | "conflict";
 
 type InventarisVeld = "behandelkamers" | "boeken" | "diagnostiek" | "laptops";
 
@@ -32,12 +38,16 @@ interface CareonMiddelenContextValue {
   getState: () => MiddelenState;
   /** Vervang de volledige staat in één keer — het toepassen van een door de
       gebruiker goedgekeurd assistent-concept (handoff 11). */
-  vervangState: (volgende: MiddelenState) => void;
+  vervangState: (volgende: MiddelenState, audit?: MiddelenChangeAudit) => void;
+  resolveConflict: (keuze: "centraal" | "lokaal") => void;
+  hasCentralConflictVersion: boolean;
   toggleMiddel: (naam: string, middel: MiddelType) => void;
   /** Idempotente variant van toggleMiddel (assistent-acties): expliciet aan/uit. */
   setMiddel: (naam: string, middel: MiddelType, aanwezig: boolean) => void;
   setTaal: (naam: string, taal: string, aanwezig: boolean) => void;
   setTeamTag: (naam: string, team: string, aanwezig: boolean) => void;
+  /** Uit dienst: registratie blijft bewaard; weer in dienst wist de markering. */
+  setUitDienst: (naam: string, uitDienst: boolean) => void;
   setFunctie: (naam: string, functie: string) => void;
   toggleTaal: (naam: string, taal: string) => void;
   toggleTeamTag: (naam: string, team: string) => void;
@@ -62,11 +72,15 @@ export function useCareonMiddelen(): CareonMiddelenContextValue {
 }
 
 const PUSH_DEBOUNCE_MS = 800;
+const PULL_INTERVAL_MS = 15_000;
 
-function nieuwerVan(a: MiddelenState | null, b: MiddelenState | null): MiddelenState | null {
-  if (!a) return b;
-  if (!b) return a;
-  return Date.parse(b.updatedAt) > Date.parse(a.updatedAt) ? b : a;
+function mergeAudit(huidig: MiddelenChangeAudit | null, volgend: MiddelenChangeAudit): MiddelenChangeAudit {
+  if (!huidig) return volgend;
+  return {
+    source: huidig.source === "assistant" || volgend.source === "assistant" ? "assistant" : "manual",
+    toolNames: [...new Set([...(huidig.toolNames ?? []), ...(volgend.toolNames ?? [])])],
+    requestIds: [...new Set([...(huidig.requestIds ?? []), ...(volgend.requestIds ?? [])])],
+  };
 }
 
 export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactNode }>) {
@@ -74,75 +88,196 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
   const [stored, setStored] = useState<MiddelenState | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<MiddelenSyncStatus>("laden");
+  const [conflictState, setConflictState] = useState<{ state: MiddelenState | null; revision: number } | null>(null);
   const pushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revisionRef = useRef(0);
+  const dirtyRef = useRef(false);
+  const generationRef = useRef(0);
+  const pendingOperationRef = useRef<string | null>(null);
+  const pendingAuditRef = useRef<MiddelenChangeAudit | null>(null);
+  const pushingRef = useRef(false);
+  const conflictRef = useRef<typeof conflictState>(null);
+  const centralConfiguredRef = useRef(false);
+  const mountedRef = useRef(true);
 
-  // Hydratatie na mount: lokaal direct, daarna best-effort centraal — de
-  // nieuwste updatedAt wint, zodat de bewerking van een collega niet door een
-  // oudere lokale kopie wordt verdrongen.
-  useEffect(() => {
-    const local = loadMiddelenState();
-    if (local) {
-      setStored(local);
-    }
-    setHydrated(true);
-    let cancelled = false;
-    void fetchRemoteMiddelenState().then((remote) => {
-      if (cancelled) return;
-      if (remote.state) {
-        const remoteState = remote.state;
-        setStored((current) => {
-          const winner = nieuwerVan(current, remoteState);
-          if (winner === remoteState) {
-            saveMiddelenState(remoteState);
-          }
-          return winner;
-        });
-      }
-      // "Geconfigureerd maar nog leeg" is ook centraal: de eerste wijziging
-      // wordt gewoon gedeeld — geen lokale-opslag-waarschuwing tonen.
-      setSyncStatus(remote.configured ? "centraal" : "lokaal");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Effectieve staat: opgeslagen registratie, anders de demo-seed (demo) of
-  // een lege start (productie). Oudere opgeslagen staten missen de
-  // teamstructuur — die krijgen de seed (migratie-bij-lezen); een expliciet
-  // leeggemaakte structuur ([]) blijft leeg.
   const state = useMemo(() => {
     const basis = stored ?? (isProduction ? EMPTY_MIDDELEN_STATE : DEMO_MIDDELEN_STATE);
     return basis.teams === undefined ? { ...basis, teams: TEAM_SEED } : basis;
   }, [stored, isProduction]);
 
-  // Synchively bijgehouden spiegel van `state`: mutaties die in dezelfde taak
-  // na elkaar lopen (assistent voert meerdere tools uit in één beurt) lezen zo
-  // altijd het resultaat van de vorige mutatie in plaats van de nog niet
-  // her-gerenderde React-state — anders zou de tweede de eerste overschrijven.
+  // Synchrone spiegel: opeenvolgende assistentacties lezen altijd de laatst
+  // berekende staat, ook voordat React opnieuw heeft gerenderd.
   const stateRef = useRef(state);
   stateRef.current = state;
+  const schedulePushRef = useRef<() => void>(() => undefined);
 
-  const persist = useCallback((next: MiddelenState) => {
-    setStored(next);
-    saveMiddelenState(next);
-    if (pushTimer.current) {
-      clearTimeout(pushTimer.current);
+  const flushPending = useCallback(async () => {
+    if (pushingRef.current || conflictRef.current || !dirtyRef.current) return;
+    pushingRef.current = true;
+    const snapshot = stateRef.current;
+    const generation = generationRef.current;
+    const operationId = pendingOperationRef.current ?? crypto.randomUUID();
+    const audit = pendingAuditRef.current ?? { source: "manual" as const };
+    pendingOperationRef.current = null;
+    pendingAuditRef.current = null;
+
+    const result = await pushRemoteMiddelenState(snapshot, {
+      baseRevision: revisionRef.current,
+      operationId,
+      audit,
+    });
+    pushingRef.current = false;
+    if (!mountedRef.current) return;
+
+    if (result.status === "ok") {
+      revisionRef.current = result.revision;
+      centralConfiguredRef.current = true;
+      if (generation === generationRef.current) {
+        dirtyRef.current = false;
+        saveMiddelenState(stateRef.current, { revision: result.revision, dirty: false });
+        setSyncStatus("centraal");
+      } else {
+        saveMiddelenState(stateRef.current, {
+          revision: result.revision,
+          dirty: true,
+          operationId: pendingOperationRef.current ?? undefined,
+          audit: pendingAuditRef.current ?? undefined,
+        });
+        schedulePushRef.current();
+      }
+      return;
     }
-    pushTimer.current = setTimeout(() => {
-      void pushRemoteMiddelenState(next).then((result) => {
-        if (result === "ok") setSyncStatus("centraal");
-        else if (result === "unconfigured") setSyncStatus("lokaal");
-        else setSyncStatus("fout");
+
+    if (result.status === "conflict") {
+      pendingOperationRef.current ??= operationId;
+      pendingAuditRef.current = mergeAudit(audit, pendingAuditRef.current ?? { source: "manual" });
+      conflictRef.current = { state: result.state, revision: result.revision };
+      setConflictState(conflictRef.current);
+      setSyncStatus("conflict");
+    } else {
+      pendingOperationRef.current ??= operationId;
+      pendingAuditRef.current = mergeAudit(audit, pendingAuditRef.current ?? { source: "manual" });
+      setSyncStatus(result.status === "unconfigured" ? "lokaal" : "fout");
+    }
+
+    saveMiddelenState(stateRef.current, {
+      revision: revisionRef.current,
+      dirty: true,
+      operationId: pendingOperationRef.current,
+      audit: pendingAuditRef.current,
+    });
+  }, []);
+
+  const schedulePush = useCallback(() => {
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(() => void flushPending(), PUSH_DEBOUNCE_MS);
+  }, [flushPending]);
+  schedulePushRef.current = schedulePush;
+
+  const persist = useCallback(
+    (next: MiddelenState, audit: MiddelenChangeAudit = { source: "manual" }) => {
+      setStored(next);
+      dirtyRef.current = true;
+      generationRef.current += 1;
+      pendingOperationRef.current ??= crypto.randomUUID();
+      pendingAuditRef.current = mergeAudit(pendingAuditRef.current, audit);
+      saveMiddelenState(next, {
+        revision: revisionRef.current,
+        dirty: true,
+        operationId: pendingOperationRef.current,
+        audit: pendingAuditRef.current,
       });
-    }, PUSH_DEBOUNCE_MS);
+      if (!conflictRef.current) schedulePush();
+    },
+    [schedulePush],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const local = loadMiddelenCache();
+    if (local) {
+      setStored(local.state);
+      revisionRef.current = local.revision;
+      dirtyRef.current = local.dirty;
+      pendingOperationRef.current = local.operationId ?? null;
+      pendingAuditRef.current = local.audit ?? null;
+    }
+    setHydrated(true);
+
+    let cancelled = false;
+    void fetchRemoteMiddelenState().then((remote) => {
+      if (cancelled) return;
+      if (remote.status === "unconfigured") {
+        setSyncStatus("lokaal");
+        return;
+      }
+      if (remote.status === "failed") {
+        setSyncStatus("fout");
+        return;
+      }
+
+      centralConfiguredRef.current = true;
+      if (local?.dirty) {
+        if (local.revision === remote.revision) {
+          setSyncStatus("centraal");
+          schedulePushRef.current();
+        } else {
+          conflictRef.current = { state: remote.state, revision: remote.revision };
+          setConflictState(conflictRef.current);
+          setSyncStatus("conflict");
+        }
+        return;
+      }
+
+      revisionRef.current = remote.revision;
+      if (remote.state) {
+        stateRef.current = remote.state;
+        setStored(remote.state);
+        saveMiddelenState(remote.state, { revision: remote.revision, dirty: false });
+      } else if (local) {
+        dirtyRef.current = true;
+        pendingOperationRef.current = crypto.randomUUID();
+        pendingAuditRef.current = { source: "manual" };
+        saveMiddelenState(local.state, {
+          revision: remote.revision,
+          dirty: true,
+          operationId: pendingOperationRef.current,
+          audit: pendingAuditRef.current,
+        });
+        schedulePushRef.current();
+      }
+      setSyncStatus("centraal");
+    });
+
+    return () => {
+      cancelled = true;
+      mountedRef.current = false;
+      if (pushTimer.current) clearTimeout(pushTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (dirtyRef.current || pushingRef.current || conflictRef.current || !centralConfiguredRef.current) return;
+      void fetchRemoteMiddelenState().then((remote) => {
+        if (remote.status !== "ok" || remote.revision <= revisionRef.current || !remote.state || !mountedRef.current) {
+          return;
+        }
+        revisionRef.current = remote.revision;
+        stateRef.current = remote.state;
+        setStored(remote.state);
+        saveMiddelenState(remote.state, { revision: remote.revision, dirty: false });
+        setSyncStatus("centraal");
+      });
+    }, PULL_INTERVAL_MS);
+    return () => clearInterval(timer);
   }, []);
 
   const mutate = useCallback(
-    (fn: (draft: MiddelenState) => MiddelenState) => {
+    (fn: (draft: MiddelenState) => MiddelenState, audit?: MiddelenChangeAudit) => {
       const next = { ...fn(stateRef.current), updatedAt: new Date().toISOString() };
       stateRef.current = next;
-      persist(next);
+      persist(next, audit);
     },
     [persist],
   );
@@ -150,10 +285,44 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
   const getState = useCallback(() => stateRef.current, []);
 
   const vervangState = useCallback(
-    (volgende: MiddelenState) => {
-      mutate(() => volgende);
+    (volgende: MiddelenState, audit?: MiddelenChangeAudit) => {
+      mutate(() => volgende, audit);
     },
     [mutate],
+  );
+
+  const resolveConflict = useCallback(
+    (keuze: "centraal" | "lokaal") => {
+      const conflict = conflictRef.current;
+      if (!conflict) return;
+      if (keuze === "centraal") {
+        if (!conflict.state) return;
+        revisionRef.current = conflict.revision;
+        dirtyRef.current = false;
+        pendingOperationRef.current = null;
+        pendingAuditRef.current = null;
+        stateRef.current = conflict.state;
+        setStored(conflict.state);
+        saveMiddelenState(conflict.state, { revision: conflict.revision, dirty: false });
+      } else {
+        revisionRef.current = conflict.revision;
+        dirtyRef.current = true;
+        generationRef.current += 1;
+        pendingOperationRef.current = crypto.randomUUID();
+        pendingAuditRef.current = { source: "manual" };
+        saveMiddelenState(stateRef.current, {
+          revision: conflict.revision,
+          dirty: true,
+          operationId: pendingOperationRef.current,
+          audit: pendingAuditRef.current,
+        });
+      }
+      conflictRef.current = null;
+      setConflictState(null);
+      setSyncStatus("centraal");
+      if (keuze === "lokaal") schedulePush();
+    },
+    [schedulePush],
   );
 
   // Upsert-patroon voor alle per-medewerker-velden: bestaat de rij nog niet
@@ -199,6 +368,13 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
   const setFunctie = useCallback(
     (naam: string, functie: string) => {
       patchMedewerker(naam, (rij) => ({ ...rij, functie: functie === "" ? undefined : functie }));
+    },
+    [patchMedewerker],
+  );
+
+  const setUitDienst = useCallback(
+    (naam: string, uitDienst: boolean) => {
+      patchMedewerker(naam, (rij) => ({ ...rij, uitDienst: uitDienst ? true : undefined }));
     },
     [patchMedewerker],
   );
@@ -382,10 +558,13 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
       registratieByNaam,
       getState,
       vervangState,
+      resolveConflict,
+      hasCentralConflictVersion: Boolean(conflictState?.state),
       toggleMiddel,
       setMiddel,
       setTaal,
       setTeamTag,
+      setUitDienst,
       setFunctie,
       toggleTaal,
       toggleTeamTag,
@@ -406,10 +585,13 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
       registratieByNaam,
       getState,
       vervangState,
+      resolveConflict,
+      conflictState,
       toggleMiddel,
       setMiddel,
       setTaal,
       setTeamTag,
+      setUitDienst,
       setFunctie,
       toggleTaal,
       toggleTeamTag,

@@ -48,10 +48,12 @@ export async function fetchRemoteProductionState(): Promise<ProductionState | nu
  */
 export async function pushRemoteProductionState(state: ProductionState): Promise<PushResult> {
   try {
+    const operationId = globalThis.crypto?.randomUUID?.();
+    if (!operationId) return "failed";
     const response = await fetch(ENDPOINT, {
       method: "POST",
       headers: syncHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify(state),
+      body: JSON.stringify({ ...state, operationId }),
     });
     if (response.status === 501) return "unconfigured";
     return response.ok ? "ok" : "failed";
@@ -77,10 +79,12 @@ async function fetchAuxState<T>(endpoint: string, guard: (value: unknown) => val
 
 async function pushAuxState(endpoint: string, state: unknown): Promise<PushResult> {
   try {
+    const operationId = globalThis.crypto?.randomUUID?.();
+    if (!operationId) return "failed";
     const response = await fetch(endpoint, {
       method: "POST",
       headers: syncHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify(state),
+      body: JSON.stringify({ state, operationId }),
     });
     if (response.status === 501) return "unconfigured";
     return response.ok ? "ok" : "failed";

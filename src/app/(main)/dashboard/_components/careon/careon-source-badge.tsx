@@ -11,12 +11,14 @@ const BADGE_STYLES = {
   live: "border-emerald-600/40 text-emerald-700 dark:text-emerald-400",
   proxy: "border-sky-600/40 text-sky-700 dark:text-sky-400",
   demo: "border-amber-600/40 text-amber-700 dark:text-amber-400",
+  handmatig: "border-violet-600/40 text-violet-700 dark:text-violet-400",
 };
 
 const BADGE_LABELS = {
   live: "Live",
   proxy: "Afgeleid",
   demo: "Demo",
+  handmatig: "Handmatig",
 };
 
 export function CareonSourceBadge({
@@ -45,6 +47,8 @@ export function CareonSourceBadge({
       "Afgeleide waarde — zie Databron voor de definitie.";
   } else if (source === "demo") {
     note = "Demo-data — wacht op aanvullende EPD-export (zie Databron).";
+  } else if (source === "handmatig") {
+    note = "Handmatig bijgehouden — deze gegevens komen niet uit het EPD.";
   }
 
   return (

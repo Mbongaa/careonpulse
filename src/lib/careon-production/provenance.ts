@@ -9,7 +9,9 @@
 import { CASELOAD_NORM } from "../../data/careon/careon-behandelaren";
 import { REGIE_NORM } from "../../data/careon/careon-dossiers-productie";
 
-export type WidgetSource = "live" | "proxy" | "demo";
+// "handmatig": door de gebruiker zelf bijgehouden registratie (HR, middelen) —
+// komt niet uit het EPD en wacht ook niet op een export. Telt niet als live.
+export type WidgetSource = "live" | "proxy" | "demo" | "handmatig";
 
 export interface PageProvenance {
   /** Widget-id (KPI-label of widget-naam) → herkomst. */
@@ -45,7 +47,7 @@ export const DETAIL_WAIT_NOTES: Record<string, string> = {
     "Demo-records — de agenda-import bewaart uit privacy-oogpunt alleen aggregaten, geen losse afspraakregels; na een agenda-import zijn de kaartwaarden op de Planning-pagina wél live.",
   financieel:
     "Demo-records — echte declaratieregels vereisen de declaratie-export (Vecozo/Infomedics); na een agenda-import komen de omzetcijfers op de Financieel-pagina wél live uit de agenda.",
-  hr: "Demo-records — echte personeelsgegevens vereisen de HR-export.",
+  hr: "Handmatig bijgehouden op de HR-pagina — deze personeelscijfers komen niet uit het EPD.",
   kwaliteit: "Demo-records — echte metingen vereisen de ROM/MIC-export.",
 };
 
@@ -207,16 +209,17 @@ export const CAREON_PROVENANCE: Record<string, PageProvenance> = {
       "Ouderdom openstaande declaraties": "demo",
     },
   },
+  // HR is een handmatig bijgehouden registratie (handoff 12) — geen EPD-bron.
   hr: {
     widgets: {
-      Ziekteverzuim: "demo",
-      "Verloop (12m)": "demo",
-      "Openstaande vacatures": "demo",
-      "Lopende opleidingen": "demo",
-      "Intervisie-deelname": "demo",
-      Werkdrukscore: "demo",
-      "Verzuim-trend": "demo",
-      "BIG-registraties": "demo",
+      Ziekteverzuim: "handmatig",
+      "Verloop (12m)": "handmatig",
+      "Openstaande vacatures": "handmatig",
+      "Lopende opleidingen": "handmatig",
+      "Intervisie-deelname": "handmatig",
+      Werkdrukscore: "handmatig",
+      "Verzuim-trend": "handmatig",
+      "BIG-registraties": "handmatig",
     },
   },
 };
@@ -397,7 +400,8 @@ export function pageLiveCounts(pageId: string, caps?: ProvenanceCaps): { live: n
   const widgets = CAREON_PROVENANCE[pageId]?.widgets ?? {};
   const sources = Object.keys(widgets).map((widgetId) => widgetSource(pageId, widgetId, caps));
   return {
-    live: sources.filter((source) => source !== "demo").length,
+    // "live" telt echte EPD-herkomst (live/proxy); demo én handmatig tellen niet.
+    live: sources.filter((source) => source !== "demo" && source !== "handmatig").length,
     total: sources.length,
   };
 }

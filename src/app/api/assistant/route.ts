@@ -1,66 +1,52 @@
-// Live AI endpoint for the Careon assistant.
-//
-// The OpenAI key lives ONLY here (server-side, via OPENAI_API_KEY in the
-// environment) — it is never bundled to the client. The client sends the
-// question plus a grounding context built from the deterministic demo
-// dataset; the model is instructed to answer in Dutch using only that data.
-// Without a configured key the route reports live:false and the client falls
-// back to the deterministic demo answers, so the dashboard keeps working.
-//
-// Acties (handoff 11): naast lezen kan het model tools aanroepen om de
-// handmatige registratie "Medewerkers & middelen" bij te werken. De tools
-// worden hier alleen aan het model AANGEBODEN; uitvoering gebeurt uitsluitend
-// client-side (assistant-executor.ts) op de bestaande provider-mutators. De
-// response is daarom een NDJSON-stroom: tekst-tokens plus eventuele
-// tool-aanroepen; de client voert uit en stuurt het tussenresultaat als
-// `steps` terug voor de vervolgronde.
-
+import { isSensitiveProxyInference } from "@/lib/careon-assistant/policy";
+import {
+  ASSISTANT_API_MODE,
+  ASSISTANT_MODEL,
+  ASSISTANT_PROMPT_VERSION,
+  type AssistantUsage,
+  assistantActorHash,
+  createAssistantRequestId,
+  enforceAssistantRateLimit,
+  fetchOpenAIWithRetry,
+  isAssistantLive,
+  moderateAssistantQuestion,
+  OPENAI_API_BASE_URL,
+  pruneAssistantEvents,
+  writeAssistantEvent,
+} from "@/lib/careon-assistant/runtime.server";
 import { ASSISTANT_MAX_CONTEXT_CHARS } from "@/lib/careon-middelen/assistant-grounding";
-import { MIDDELEN_TOOLS } from "@/lib/careon-middelen/assistant-tools";
+import {
+  getAssistantChatTools,
+  getAssistantResponsesTools,
+  MIDDELEN_TOOL_NAMES,
+  type MiddelenToolName,
+} from "@/lib/careon-middelen/assistant-tools";
 
-const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
-const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
-const MAX_QUESTION_CHARS = 2000;
-// Gedeeld met de client-samenstelling (assistant-grounding.ts): de client
-// budgetteert de facts-sectie zodat de medewerkerslijst nooit wordt afgekapt.
+const MAX_REQUEST_BYTES = 450_000;
+const MAX_QUESTION_CHARS = 2_000;
 const MAX_CONTEXT_CHARS = ASSISTANT_MAX_CONTEXT_CHARS;
 const MAX_HISTORY_TURNS = 8;
 const MAX_OUTPUT_TOKENS = 700;
-// Actiebeurten dragen de tool-aanroep-JSON in de completion zelf; een
-// bulkverzoek ("vul talen voor alle ~30 behandelaren") past niet in 700
-// tokens — ruim nemen zodat één ronde tientallen aanroepen kan dragen.
-const MAX_OUTPUT_TOKENS_TOOLS = 2400;
-// Grenzen op het tussentranscript van de actielus (client stuurt per ronde
-// één assistant-stap + één tool-resultaat per aanroep terug). Dit zijn
-// misbruik-remmen, geen workflow-grenzen: ruim boven wat een echte bulkbeurt
-// (tientallen aanroepen over meerdere rondes) nodig heeft — een te krappe cap
-// zou een geldige vervolgronde met 400 afbreken.
+const MAX_OUTPUT_TOKENS_TOOLS = 2_400;
 const MAX_STEPS = 120;
 const MAX_TOOL_CALLS_PER_STEP = 32;
-const MAX_TOOL_ARGS_CHARS = 4000;
-const MAX_TOOL_RESULT_CHARS = 6000;
-
-function isLive(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY) && process.env.CAREON_ASSISTANT_LIVE !== "0";
-}
-
-export async function GET() {
-  return Response.json(
-    { live: isLive(), model: isLive() ? MODEL : null },
-    { headers: { "Cache-Control": "no-store" } },
-  );
-}
+const MAX_TOOL_ARGS_CHARS = 4_000;
+const MAX_TOOL_RESULT_CHARS = 6_000;
 
 interface AssistantRequest {
   question?: string;
   style?: "standaard" | "diep";
   context?: string;
   history?: { role: "user" | "assistant"; content: string }[];
-  /** Actielus-transcript van de huidige beurt (OpenAI-formaat), zie sanitizeSteps. */
   steps?: unknown[];
-  /** Client kan tools uitvoeren (middelen-registratie); dan bieden we ze aan. */
   tools?: boolean;
+  /** Nieuwe clients vragen NDJSON ook wanneer geen tools relevant zijn. */
+  events?: boolean;
+  allowedTools?: unknown;
+  forceerTools?: boolean;
 }
 
 interface UpstreamToolCall {
@@ -73,9 +59,13 @@ type StepMessage =
   | { role: "assistant"; content: string | null; tool_calls: UpstreamToolCall[] }
   | { role: "tool"; tool_call_id: string; content: string };
 
-// Strikte validatie van het door de client teruggestuurde tussentranscript:
-// alleen de twee verwachte vormen, met harde lengtegrenzen. Ongeldige input
-// levert null op (→ 400), nooit een gedeeltelijk geaccepteerde stap.
+type WireEvent =
+  | { t: "meta"; requestId: string; model: string; promptVersion: string }
+  | { t: "text"; d: string }
+  | { t: "tool"; id: string; name: string; args: string }
+  | { t: "error"; code: string; message: string }
+  | { t: "done"; reason: "stop" | "tool_calls"; usage?: AssistantUsage };
+
 function sanitizeSteps(steps: unknown[]): StepMessage[] | null {
   if (steps.length > MAX_STEPS) return null;
   const result: StepMessage[] = [];
@@ -95,8 +85,8 @@ function sanitizeSteps(steps: unknown[]): StepMessage[] | null {
         const name = (fn as Record<string, unknown>).name;
         const args = (fn as Record<string, unknown>).arguments;
         if (typeof name !== "string" || typeof args !== "string" || args.length > MAX_TOOL_ARGS_CHARS) return null;
-        if (!MIDDELEN_TOOLS.some((tool) => tool.function.name === name)) return null;
-        calls.push({ id: id.slice(0, 80), type: "function", function: { name, arguments: args } });
+        if (!(MIDDELEN_TOOL_NAMES as readonly string[]).includes(name)) return null;
+        calls.push({ id: id.slice(0, 120), type: "function", function: { name, arguments: args } });
       }
       result.push({
         role: "assistant",
@@ -107,7 +97,7 @@ function sanitizeSteps(steps: unknown[]): StepMessage[] | null {
       if (typeof row.tool_call_id !== "string" || typeof row.content !== "string") return null;
       result.push({
         role: "tool",
-        tool_call_id: row.tool_call_id.slice(0, 80),
+        tool_call_id: row.tool_call_id.slice(0, 120),
         content: row.content.slice(0, MAX_TOOL_RESULT_CHARS),
       });
     } else {
@@ -117,118 +107,441 @@ function sanitizeSteps(steps: unknown[]): StepMessage[] | null {
   return result;
 }
 
-function systemPrompt(style: "standaard" | "diep", context: string, toolsEnabled: boolean): string {
+function allowedTools(body: AssistantRequest): MiddelenToolName[] {
+  if (body.tools !== true) return [];
+  if (!Array.isArray(body.allowedTools)) return [...MIDDELEN_TOOL_NAMES];
+  return [
+    ...new Set(
+      body.allowedTools.filter(
+        (name): name is MiddelenToolName =>
+          typeof name === "string" && (MIDDELEN_TOOL_NAMES as readonly string[]).includes(name),
+      ),
+    ),
+  ];
+}
+
+function systemPrompt(style: "standaard" | "diep", context: string, tools: readonly MiddelenToolName[]): string {
   const depth =
     style === "diep"
-      ? "Geef een diepgaand, diagnostisch antwoord met oorzaken, verbanden en concrete vervolgacties (max ±10 zinnen)."
+      ? "Geef een diepgaand, diagnostisch antwoord met oorzaken, verbanden en concrete vervolgacties (maximaal circa 10 zinnen)."
       : "Antwoord kort en zakelijk in 2-4 zinnen met de kern en één concreet advies.";
-
-  const acties = toolsEnabled
+  const acties = tools.length
     ? [
         "",
-        "ACTIES (registratie Medewerkers & middelen) — CONCEPT-WERKWIJZE:",
-        "Je kunt met tools de handmatige registratie bijwerken: middelen (auto, tankpas, sleutel, telefoon, laptop, gebouwtoegang) toewijzen of innemen, functie/talen/teamtags/notities zetten, medewerkers/teams/locaties toevoegen of verwijderen en inventarisaantallen (behandelkamers, boeken, diagnostiek, laptops op voorraad) aanpassen.",
-        "Tool-aanroepen worden als CONCEPT klaargezet en pas opgeslagen nadat de gebruiker het concept in het canvas goedkeurt (Toepassen). Sluit een actiebeurt daarom altijd af met de melding dat het concept in het canvas klaarstaat ter beoordeling.",
-        "Voer alleen acties uit waar de gebruiker expliciet om vraagt; nooit op eigen initiatief. Is er al een OPENSTAAND CONCEPT (zie context), dan bouwen nieuwe acties daarop voort — zo kan de gebruiker het concept via de chat laten aanpassen vóór goedkeuring.",
-        "ALLE medewerkers = de velden `medewerkers` PLUS `bronMedewerkersZonderRegistratie` in de registratie-context (totaal = aantalMedewerkersTotaal) — de productie-toplijst elders in de context bevat alleen de 10 grootste caseloads en is NIET de volledige lijst.",
-        "Voor verzoeken over 'iedereen'/'elke medewerker' of meerdere personen gebruik je de bulk-tools (wijzig_taal_bulk, wijzig_middel_bulk): met iedereen=true is volledige dekking gegarandeerd in één aanroep. Sluit een bulkbeurt pas af wanneer je dekking overeenkomt met aantalMedewerkersTotaal.",
-        "Gebruik lees_middelen_registratie als je een naam of de huidige stand niet zeker weet; verzin nooit namen. Bij een dubbelzinnige naam vraag je de gebruiker welke persoon bedoeld wordt.",
-        "Vraagt de gebruiker om een voorzet op basis van aannames (bijvoorbeeld een tweede taal inschatten op basis van de naam), zet die dan als concept klaar en benoem duidelijk dat het aannames zijn die de gebruiker vóór goedkeuring via de chat kan laten corrigeren.",
-        "Vat aan het einde kort in het Nederlands samen wat er in het concept staat (en wat niet kon, met reden).",
+        "ACTIES — CONCEPT-WERKWIJZE:",
+        `Alleen deze tools zijn voor dit verzoek beschikbaar: ${tools.join(", ")}.`,
+        "Gebruik uitsluitend tools die direct nodig zijn voor de expliciete opdracht. De AI schrijft nooit zelf: elke tool-aanroep wordt als bewerkbaar concept klaargezet en pas na Toepassen opgeslagen.",
+        "Vertrek, ontslag of 'uit dienst' gebruikt zet_dienstverband; verwijder_medewerker is uitsluitend voor foutief aangemaakte rijen.",
+        "Voor 'iedereen' gebruikt u de bulk-tool met iedereen=true. Gebruik de registratie-tool wanneer een naam of actuele stand onzeker is; verzin nooit namen.",
+        "Kondig een actie nooit alleen aan: roep in dezelfde beurt de benodigde tools aan. Vraag alleen door bij echte dubbelzinnigheid.",
+        "Sluit af met een korte samenvatting van het concept en vermeld wat niet kon.",
       ]
     : [];
-
   return [
-    "Je bent de Careon AI-assistent van het zorgdashboard Careon Pulse (TGC Groep, Nederlandse GGZ).",
-    "Je antwoordt uitsluitend in het Nederlands, professioneel en direct (u-vorm).",
-    "Gebruik ALLEEN de cijfers uit de meegeleverde context; verzin of extrapoleer nooit getallen.",
-    "Als de vraag buiten de context valt, zeg dat eerlijk en verwijs naar de relevante dashboardpagina.",
-    "Naast dit antwoord toont het dashboard automatisch een artefact met de bijbehorende visualisaties; verwijs daar kort naar waar relevant.",
-    "Respecteer de 'toelichting'-regels in de context (proxy-definities): benoem waar relevant dat een cijfer een proxy of ondergrens is.",
+    "U bent de Careon AI-assistent van het Nederlandse GGZ-managementdashboard Careon Pulse.",
+    "Antwoord uitsluitend in het Nederlands, professioneel en direct in de u-vorm.",
+    "Gebruik alleen feiten uit de context. Verzin, reconstrueer of extrapoleer geen getallen, namen of oorzaken.",
+    "Als gegevens ontbreken, benoem precies welke bron ontbreekt. Gebruik nooit demo-cijfers als productiefeiten.",
+    "Leid gevoelige of persoonsgebonden kenmerken (zoals taal, afkomst, nationaliteit of religie) nooit af uit een naam, foto of uiterlijk. Gebruik alleen expliciet geregistreerde feiten; anders weigert u de gevolgtrekking en roept u geen wijzigingstool aan.",
+    "Respecteer proxy- en ondergrensdefinities in de context.",
+    "Een antwoord is managementondersteuning en geen diagnose, behandeladvies of geautomatiseerd klinisch besluit.",
     depth,
     ...acties,
     "",
-    "CONTEXT (JSON, met actieve filters — het veld 'databron' beschrijft welke dataset dit is):",
+    `PROMPTVERSIE: ${ASSISTANT_PROMPT_VERSION}`,
+    "CONTEXT:",
     context,
   ].join("\n");
 }
 
-// NDJSON-regels naar de client: tekst-tokens direct, tool-aanroepen zodra de
-// stroom compleet is, afgesloten met een done-regel die de reden draagt.
-type WireEvent =
-  | { t: "text"; d: string }
-  | { t: "tool"; id: string; name: string; args: string }
-  | { t: "done"; reason: "stop" | "tool_calls" };
+async function readLimitedJson(request: Request): Promise<AssistantRequest | null> {
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_REQUEST_BYTES) return null;
+  if (!request.body) return null;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  let read = await reader.read();
+  while (!read.done) {
+    const { value } = read;
+    if (value) {
+      size += value.byteLength;
+      if (size > MAX_REQUEST_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+    read = await reader.read();
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes)) as AssistantRequest;
+  } catch {
+    return null;
+  }
+}
+
+function responsesInput(
+  history: { role: "user" | "assistant"; content: string }[],
+  question: string,
+  steps: StepMessage[],
+): unknown[] {
+  const input: unknown[] = [
+    ...history.map((turn) => ({ role: turn.role, content: turn.content })),
+    { role: "user", content: question },
+  ];
+  for (const step of steps) {
+    if (step.role === "assistant") {
+      if (step.content) input.push({ role: "assistant", content: step.content });
+      for (const call of step.tool_calls) {
+        input.push({
+          type: "function_call",
+          call_id: call.id,
+          name: call.function.name,
+          arguments: call.function.arguments,
+        });
+      }
+    } else {
+      input.push({ type: "function_call_output", call_id: step.tool_call_id, output: step.content });
+    }
+  }
+  return input;
+}
+
+function providerRequest(
+  body: AssistantRequest,
+  question: string,
+  context: string,
+  history: { role: "user" | "assistant"; content: string }[],
+  steps: StepMessage[],
+  tools: MiddelenToolName[],
+  actorHash: string,
+): { url: string; body: Record<string, unknown> } {
+  const instructions = systemPrompt(body.style === "diep" ? "diep" : "standaard", context, tools);
+  if (ASSISTANT_API_MODE === "responses") {
+    return {
+      url: `${OPENAI_API_BASE_URL}/responses`,
+      body: {
+        model: ASSISTANT_MODEL,
+        stream: true,
+        store: false,
+        instructions,
+        input: responsesInput(history, question, steps),
+        max_output_tokens: tools.length ? MAX_OUTPUT_TOKENS_TOOLS : MAX_OUTPUT_TOKENS,
+        ...(tools.length
+          ? {
+              tools: getAssistantResponsesTools(tools),
+              tool_choice: body.forceerTools === true ? "required" : "auto",
+            }
+          : {}),
+        safety_identifier: actorHash,
+      },
+    };
+  }
+  return {
+    url: `${OPENAI_API_BASE_URL}/chat/completions`,
+    body: {
+      model: ASSISTANT_MODEL,
+      stream: true,
+      stream_options: { include_usage: true },
+      temperature: 0.3,
+      max_tokens: tools.length ? MAX_OUTPUT_TOKENS_TOOLS : MAX_OUTPUT_TOKENS,
+      ...(tools.length
+        ? {
+            tools: getAssistantChatTools(tools),
+            tool_choice: body.forceerTools === true ? "required" : "auto",
+          }
+        : {}),
+      messages: [{ role: "system", content: instructions }, ...history, { role: "user", content: question }, ...steps],
+    },
+  };
+}
+
+export async function GET() {
+  return Response.json(
+    {
+      live: isAssistantLive(),
+      model: isAssistantLive() ? ASSISTANT_MODEL : null,
+      apiMode: ASSISTANT_API_MODE,
+      promptVersion: ASSISTANT_PROMPT_VERSION,
+      protections: { strictTools: true, moderation: process.env.OPENAI_MODERATION_ENABLED !== "0", rateLimited: true },
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+}
 
 export async function POST(request: Request) {
-  if (!isLive()) {
-    return new Response("AI is niet geconfigureerd.", { status: 503 });
+  const startedAt = Date.now();
+  const requestId = createAssistantRequestId();
+  const actorHash = assistantActorHash(request);
+  const responseHeaders = {
+    "Cache-Control": "no-store",
+    "X-Careon-Assistant-Model": ASSISTANT_MODEL,
+    "X-Careon-Request-Id": requestId,
+  };
+
+  if (!isAssistantLive()) {
+    return new Response("AI is niet geconfigureerd.", { status: 503, headers: responseHeaders });
   }
   if (request.headers.get("x-careon-assistant") !== "1") {
-    return new Response("Ongeldige aanvraag.", { status: 401 });
+    return new Response("Ongeldige aanvraag.", { status: 401, headers: responseHeaders });
   }
 
-  let body: AssistantRequest;
-  try {
-    body = (await request.json()) as AssistantRequest;
-  } catch {
-    return new Response("Ongeldige aanvraag.", { status: 400 });
+  const limit = await enforceAssistantRateLimit(actorHash);
+  if (!limit.allowed) {
+    void writeAssistantEvent({
+      requestId,
+      actorHash,
+      eventType: "request_blocked",
+      model: ASSISTANT_MODEL,
+      statusCode: limit.source === "unavailable" ? 503 : 429,
+      metadata: { reason: limit.source === "unavailable" ? "rate_limit_unavailable" : "rate_limit" },
+    });
+    if (limit.source === "unavailable") {
+      return new Response("De gedeelde aanvraaglimiet is tijdelijk niet beschikbaar.", {
+        status: 503,
+        headers: { ...responseHeaders, "Retry-After": String(limit.retryAfterSeconds) },
+      });
+    }
+    return new Response("Te veel AI-aanvragen. Probeer het later opnieuw.", {
+      status: 429,
+      headers: { ...responseHeaders, "Retry-After": String(limit.retryAfterSeconds) },
+    });
   }
 
+  const body = await readLimitedJson(request);
+  if (!body) return new Response("Ongeldige of te grote aanvraag.", { status: 400, headers: responseHeaders });
   const question = (body.question ?? "").slice(0, MAX_QUESTION_CHARS).trim();
   const context = (body.context ?? "").slice(0, MAX_CONTEXT_CHARS);
-  const style = body.style === "diep" ? "diep" : "standaard";
-  const toolsEnabled = body.tools === true;
-  if (!question) {
-    return new Response("Lege vraag.", { status: 400 });
+  if (!question) return new Response("Lege vraag.", { status: 400, headers: responseHeaders });
+  if (isSensitiveProxyInference(question)) {
+    void writeAssistantEvent({
+      requestId,
+      actorHash,
+      eventType: "request_blocked",
+      model: ASSISTANT_MODEL,
+      statusCode: 400,
+      metadata: { reason: "sensitive_proxy_inference" },
+    });
+    return new Response(
+      "De assistent leidt taal, afkomst of andere persoonskenmerken niet af uit een naam, foto of uiterlijk. Gebruik uitsluitend expliciet geregistreerde gegevens.",
+      { status: 400, headers: responseHeaders },
+    );
   }
 
   const steps = sanitizeSteps(Array.isArray(body.steps) ? body.steps : []);
-  if (steps === null) {
-    return new Response("Ongeldige aanvraag.", { status: 400 });
-  }
-
+  if (steps === null) return new Response("Ongeldige aanvraag.", { status: 400, headers: responseHeaders });
+  const tools = allowedTools(body);
+  const eventStream = body.events === true || body.tools === true;
   const history = (body.history ?? [])
     .filter((turn) => (turn.role === "user" || turn.role === "assistant") && typeof turn.content === "string")
     .slice(-MAX_HISTORY_TURNS)
     .map((turn) => ({ role: turn.role, content: turn.content.slice(0, MAX_QUESTION_CHARS) }));
 
-  const upstream = await fetch(OPENAI_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      stream: true,
-      temperature: 0.3,
-      max_tokens: toolsEnabled ? MAX_OUTPUT_TOKENS_TOOLS : MAX_OUTPUT_TOKENS,
-      ...(toolsEnabled ? { tools: MIDDELEN_TOOLS, tool_choice: "auto" } : {}),
-      messages: [
-        { role: "system", content: systemPrompt(style, context, toolsEnabled) },
-        ...history,
-        { role: "user", content: question },
-        ...steps,
-      ],
-    }),
-    signal: request.signal,
+  void pruneAssistantEvents();
+  void writeAssistantEvent({
+    requestId,
+    actorHash,
+    eventType: "request_started",
+    model: ASSISTANT_MODEL,
+    metadata: { toolsOffered: tools.length, contextChars: context.length },
   });
 
+  const moderation = await moderateAssistantQuestion(question, request.signal);
+  if (moderation !== "allowed") {
+    void writeAssistantEvent({
+      requestId,
+      actorHash,
+      eventType: "request_blocked",
+      model: ASSISTANT_MODEL,
+      statusCode: moderation === "flagged" ? 400 : 503,
+      metadata: { reason: moderation === "flagged" ? "moderation" : "moderation_unavailable" },
+    });
+    if (moderation === "unavailable") {
+      return new Response("De veiligheidscontrole is tijdelijk niet beschikbaar.", {
+        status: 503,
+        headers: { ...responseHeaders, "Retry-After": "30" },
+      });
+    }
+    return new Response("Deze aanvraag kan niet door de assistent worden verwerkt.", {
+      status: 400,
+      headers: responseHeaders,
+    });
+  }
+
+  const provider = providerRequest(body, question, context, history, steps, tools, actorHash);
+  let upstream: Response;
+  try {
+    upstream = await fetchOpenAIWithRetry(
+      provider.url,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify(provider.body),
+      },
+      request.signal,
+    );
+  } catch {
+    void writeAssistantEvent({
+      requestId,
+      actorHash,
+      eventType: "request_failed",
+      model: ASSISTANT_MODEL,
+      statusCode: 504,
+      durationMs: Date.now() - startedAt,
+      metadata: { reason: "timeout_or_network" },
+    });
+    return new Response("De AI-dienst reageerde niet op tijd.", { status: 504, headers: responseHeaders });
+  }
   if (!upstream.ok || !upstream.body) {
-    // Never forward provider error bodies (they can include request details).
-    return new Response("De AI-dienst is tijdelijk niet beschikbaar.", { status: 502 });
+    void writeAssistantEvent({
+      requestId,
+      actorHash,
+      eventType: "request_failed",
+      model: ASSISTANT_MODEL,
+      statusCode: upstream.status,
+      durationMs: Date.now() - startedAt,
+      metadata: { reason: "provider_status" },
+    });
+    return new Response("De AI-dienst is tijdelijk niet beschikbaar.", { status: 502, headers: responseHeaders });
   }
 
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   let buffered = "";
+  let usage: AssistantUsage | undefined;
+  let finishReason: string | null = null;
+  let responsesTerminal: "completed" | "failed" | "incomplete" | "error" | null = null;
+  let streamFailureCode = "";
+  let chatDoneSeen = false;
+  const toolCalls = new Map<number, { id: string; name: string; args: string }>();
 
-  // Compat: een client die geen tools:true meestuurt (ouder gebundelde pagina,
-  // bijv. een nog niet ververste tab) verwacht platte tekst — die mag nooit
-  // rauwe NDJSON-regels in de chat te zien krijgen.
-  if (!toolsEnabled) {
-    const textStream = upstream.body.pipeThrough(
+  type EnqueueController = Pick<TransformStreamDefaultController<Uint8Array>, "enqueue">;
+  const emit = (controller: EnqueueController, event: WireEvent) => {
+    controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
+  };
+  const callAt = (index: number) => toolCalls.get(index) ?? { id: "", name: "", args: "" };
+
+  const handleChatPayload = (controller: EnqueueController, payload: string) => {
+    const parsed = JSON.parse(payload) as {
+      choices?: {
+        delta?: {
+          content?: string;
+          tool_calls?: { index: number; id?: string; function?: { name?: string; arguments?: string } }[];
+        };
+        finish_reason?: string | null;
+      }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+    };
+    if (parsed.usage) {
+      usage = {
+        inputTokens: parsed.usage.prompt_tokens,
+        outputTokens: parsed.usage.completion_tokens,
+        totalTokens: parsed.usage.total_tokens,
+      };
+    }
+    const choice = parsed.choices?.[0];
+    if (!choice) return;
+    if (choice.finish_reason) finishReason = choice.finish_reason;
+    if (choice.delta?.content) emit(controller, { t: "text", d: choice.delta.content });
+    for (const fragment of choice.delta?.tool_calls ?? []) {
+      const call = callAt(fragment.index);
+      if (fragment.id) call.id = fragment.id;
+      if (fragment.function?.name) call.name += fragment.function.name;
+      if (fragment.function?.arguments) call.args += fragment.function.arguments;
+      toolCalls.set(fragment.index, call);
+    }
+  };
+
+  const handleResponsesPayload = (controller: EnqueueController, payload: string) => {
+    const parsed = JSON.parse(payload) as {
+      type?: string;
+      delta?: string;
+      output_index?: number;
+      item?: { type?: string; call_id?: string; name?: string; arguments?: string };
+      response?: {
+        status?: string;
+        error?: { code?: string; message?: string };
+        incomplete_details?: { reason?: string };
+        usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
+      };
+      error?: { code?: string; message?: string };
+    };
+    if (parsed.type === "response.output_text.delta" && parsed.delta) {
+      emit(controller, { t: "text", d: parsed.delta });
+    }
+    if (parsed.type === "response.output_item.added" && parsed.item?.type === "function_call") {
+      const index = parsed.output_index ?? toolCalls.size;
+      toolCalls.set(index, {
+        id: parsed.item.call_id ?? "",
+        name: parsed.item.name ?? "",
+        args: parsed.item.arguments ?? "",
+      });
+    }
+    if (parsed.type === "response.function_call_arguments.delta" && parsed.delta) {
+      const index = parsed.output_index ?? 0;
+      const call = callAt(index);
+      call.args += parsed.delta;
+      toolCalls.set(index, call);
+    }
+    if (parsed.type === "response.output_item.done" && parsed.item?.type === "function_call") {
+      const index = parsed.output_index ?? 0;
+      toolCalls.set(index, {
+        id: parsed.item.call_id ?? callAt(index).id,
+        name: parsed.item.name ?? callAt(index).name,
+        args: parsed.item.arguments ?? callAt(index).args,
+      });
+    }
+    if (parsed.type === "response.completed") {
+      responsesTerminal = "completed";
+      finishReason = "stop";
+      usage = {
+        inputTokens: parsed.response?.usage?.input_tokens,
+        outputTokens: parsed.response?.usage?.output_tokens,
+        totalTokens: parsed.response?.usage?.total_tokens,
+      };
+    }
+    if (parsed.type === "response.failed") {
+      responsesTerminal = "failed";
+      streamFailureCode = parsed.response?.error?.code ?? "response_failed";
+    }
+    if (parsed.type === "response.incomplete") {
+      responsesTerminal = "incomplete";
+      streamFailureCode = parsed.response?.incomplete_details?.reason ?? "response_incomplete";
+    }
+    if (parsed.type === "error") {
+      responsesTerminal = "error";
+      streamFailureCode = parsed.error?.code ?? "provider_stream_error";
+    }
+  };
+
+  const processSse = (controller: EnqueueController, data: string) => {
+    const payload = data.slice(5).trim();
+    if (!payload) return;
+    if (payload === "[DONE]") {
+      chatDoneSeen = true;
+      return;
+    }
+    try {
+      if (ASSISTANT_API_MODE === "responses") handleResponsesPayload(controller, payload);
+      else handleChatPayload(controller, payload);
+    } catch {
+      responsesTerminal = "error";
+      streamFailureCode = "malformed_provider_frame";
+    }
+  };
+
+  if (!eventStream) {
+    const plainStream = upstream.body.pipeThrough(
       new TransformStream<Uint8Array, Uint8Array>({
         transform(chunk, controller) {
           buffered += decoder.decode(chunk, { stream: true });
@@ -237,105 +550,122 @@ export async function POST(request: Request) {
           for (const line of lines) {
             const data = line.trim();
             if (!data.startsWith("data:")) continue;
-            const payload = data.slice(5).trim();
-            if (!payload || payload === "[DONE]") continue;
-            try {
-              const parsed = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] };
-              const token = parsed.choices?.[0]?.delta?.content;
-              if (token) {
-                controller.enqueue(encoder.encode(token));
+            const tokens: Uint8Array[] = [];
+            const shim: EnqueueController = {
+              enqueue(value) {
+                if (value) tokens.push(value);
+              },
+            };
+            processSse(shim, data);
+            for (const token of tokens) {
+              try {
+                const event = JSON.parse(decoder.decode(token)) as WireEvent;
+                if (event.t === "text") controller.enqueue(encoder.encode(event.d));
+              } catch {
+                // No output for non-text events.
               }
-            } catch {
-              // Ignore malformed keep-alive frames.
             }
           }
         },
+        flush() {
+          const succeeded =
+            ASSISTANT_API_MODE === "responses"
+              ? responsesTerminal === "completed"
+              : chatDoneSeen && (finishReason === "stop" || finishReason === "tool_calls");
+          void writeAssistantEvent({
+            requestId,
+            actorHash,
+            eventType: succeeded ? "request_completed" : "request_failed",
+            model: ASSISTANT_MODEL,
+            statusCode: succeeded ? 200 : 502,
+            durationMs: Date.now() - startedAt,
+            usage,
+            metadata: { reason: succeeded ? "stream_completed" : streamFailureCode || "stream_ended_early" },
+          });
+        },
       }),
     );
-    return new Response(textStream, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Cache-Control": "no-store",
-        "X-Careon-Assistant-Model": MODEL,
-      },
+    return new Response(plainStream, {
+      headers: { ...responseHeaders, "Content-Type": "text/plain; charset=utf-8" },
     });
   }
 
-  // Parse OpenAI's SSE en zend NDJSON door. Tool-aanroepen druppelen bij
-  // OpenAI als fragmenten per index binnen; we verzamelen ze en zenden ze in
-  // de flush als complete regels, gevolgd door de done-regel.
-  let finishReason: string | null = null;
-  const toolCalls = new Map<number, { id: string; name: string; args: string }>();
-
-  interface DeltaChunk {
-    choices?: {
-      delta?: {
-        content?: string;
-        tool_calls?: { index: number; id?: string; function?: { name?: string; arguments?: string } }[];
-      };
-      finish_reason?: string | null;
-    }[];
-  }
-
-  const emit = (controller: TransformStreamDefaultController<Uint8Array>, event: WireEvent) => {
-    controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-  };
-
-  const handlePayload = (controller: TransformStreamDefaultController<Uint8Array>, payload: string) => {
-    const parsed = JSON.parse(payload) as DeltaChunk;
-    const choice = parsed.choices?.[0];
-    if (!choice) return;
-    if (choice.finish_reason) finishReason = choice.finish_reason;
-    const token = choice.delta?.content;
-    if (token) emit(controller, { t: "text", d: token });
-    for (const fragment of choice.delta?.tool_calls ?? []) {
-      const call = toolCalls.get(fragment.index) ?? { id: "", name: "", args: "" };
-      if (fragment.id) call.id = fragment.id;
-      if (fragment.function?.name) call.name += fragment.function.name;
-      if (fragment.function?.arguments) call.args += fragment.function.arguments;
-      toolCalls.set(fragment.index, call);
-    }
-  };
-
   const wireStream = upstream.body.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
+      start(controller) {
+        emit(controller, {
+          t: "meta",
+          requestId,
+          model: ASSISTANT_MODEL,
+          promptVersion: ASSISTANT_PROMPT_VERSION,
+        });
+      },
       transform(chunk, controller) {
         buffered += decoder.decode(chunk, { stream: true });
         const lines = buffered.split("\n");
         buffered = lines.pop() ?? "";
         for (const line of lines) {
           const data = line.trim();
-          if (!data.startsWith("data:")) continue;
-          const payload = data.slice(5).trim();
-          if (!payload || payload === "[DONE]") continue;
-          try {
-            handlePayload(controller, payload);
-          } catch {
-            // Ignore malformed keep-alive frames.
-          }
+          if (data.startsWith("data:")) processSse(controller, data);
         }
       },
       flush(controller) {
+        const trailing = `${buffered}${decoder.decode()}`.trim();
+        if (trailing.startsWith("data:")) processSse(controller, trailing);
         const complete = [...toolCalls.entries()]
           .sort(([a], [b]) => a - b)
           .map(([, call]) => call)
-          .filter((call) => call.id && call.name);
-        for (const call of complete) {
-          emit(controller, { t: "tool", id: call.id, name: call.name, args: call.args });
+          .filter(
+            (call) =>
+              call.id &&
+              (MIDDELEN_TOOL_NAMES as readonly string[]).includes(call.name) &&
+              call.args.length <= MAX_TOOL_ARGS_CHARS,
+          );
+        const providerSucceeded =
+          ASSISTANT_API_MODE === "responses"
+            ? responsesTerminal === "completed"
+            : chatDoneSeen && (finishReason === "stop" || finishReason === "tool_calls");
+        const everyToolComplete = complete.length === toolCalls.size;
+        if (!providerSucceeded || !everyToolComplete) {
+          let code = "invalid_tool_call";
+          if (!providerSucceeded) {
+            code = streamFailureCode ? streamFailureCode : (responsesTerminal ?? "stream_ended_early");
+          }
+          emit(controller, {
+            t: "error",
+            code,
+            message: "De AI-stream is niet volledig afgerond; er zijn geen acties klaargezet.",
+          });
+          void writeAssistantEvent({
+            requestId,
+            actorHash,
+            eventType: "request_failed",
+            model: ASSISTANT_MODEL,
+            statusCode: 502,
+            durationMs: Date.now() - startedAt,
+            usage,
+            metadata: { reason: code, toolsDiscarded: toolCalls.size },
+          });
+          return;
         }
-        emit(controller, {
-          t: "done",
-          reason: finishReason === "tool_calls" || complete.length > 0 ? "tool_calls" : "stop",
+        for (const call of complete) emit(controller, { t: "tool", id: call.id, name: call.name, args: call.args });
+        const reason = finishReason === "tool_calls" || complete.length ? "tool_calls" : "stop";
+        emit(controller, { t: "done", reason, usage });
+        void writeAssistantEvent({
+          requestId,
+          actorHash,
+          eventType: "request_completed",
+          model: ASSISTANT_MODEL,
+          statusCode: 200,
+          durationMs: Date.now() - startedAt,
+          usage,
+          toolNames: complete.map((call) => call.name),
+          metadata: { toolsOffered: tools.length, toolCalls: complete.length },
         });
       },
     }),
   );
-
   return new Response(wireStream, {
-    headers: {
-      "Content-Type": "application/x-ndjson; charset=utf-8",
-      "Cache-Control": "no-store",
-      "X-Careon-Assistant-Model": MODEL,
-    },
+    headers: { ...responseHeaders, "Content-Type": "application/x-ndjson; charset=utf-8" },
   });
 }

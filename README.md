@@ -1,6 +1,6 @@
 # Careon Pulse — Zorgdashboard TGC Groep
 
-A Dutch medical/healthcare KPI dashboard: a functional clone of the audited "Careon Pulse" demo dashboard, rebuilt inside the [next-shadcn-admin-dashboard](https://github.com/arhamkhnz/next-shadcn-admin-dashboard) template. All data is fixed, audited mock data; there is **no backend, database, or real authentication** — everything runs on client state.
+A Dutch medical/healthcare KPI dashboard: a functional clone of the audited "Careon Pulse" dashboard, rebuilt inside the [next-shadcn-admin-dashboard](https://github.com/arhamkhnz/next-shadcn-admin-dashboard) template. It supports both the audited demo dataset and privacy-minimized production imports with optional EU Supabase persistence and a server-side AI assistant. The included login is still a demo gate, not real authentication.
 
 ## Quickstart
 
@@ -20,8 +20,13 @@ Demo credentials: **`user1`** / **`demo1234`** (session-storage flag; logout via
 | `npm run check` / `npm run check:fix` | Biome lint + format |
 | `npm run verify:careon` | Assertions of the Careon business logic against the audited source values (deltas, formats, scaling, CSV parser, alert routing, color thresholds) |
 | `npm run verify:production` | Production-mode data core: EPD-parsers (cliëntendata, agenda, verwijzers) incl. privacy-canaries, snapshot-aggregaties, provenance-registers en sanity-passes op de echte exports wanneer lokaal aanwezig |
+| `npm run verify:assistant` | Deterministic AI boundary checks: strict tool schemas, least-privilege routing, note redaction and intent-scoped production facts |
+| `npm run verify:runtime` | Fault injection for provider-stream failures, fail-closed moderation, sensitive proxy inference and bounded request bodies |
+| `npm run verify:assistant:live` | Live Responses API evaluation against the running production build |
+| `npm run verify:data-hygiene` | Fails when a real-looking export is tracked outside the synthetic fixture folder |
+| `npm run verify:ci` | Local equivalent of the deterministic CI quality gate |
 | `npm run push:production` | Server-side verversing van de centrale Supabase-opslag met de drie exports uit `Exports EPD/` (nieuwe import-run + agenda-/verwijzersaggregaat) |
-| `npm run test:e2e` | Playwright suite: functional flows + axe-core WCAG-AA audit of all routes in light and dark mode (desktop + mobile projects; run `npm run build` first) |
+| `npm run test:e2e` | Playwright suite: functional flows + axe-core WCAG-AA audit in light, dark and Careon modes (desktop + mobile; run `npm run build` first) |
 
 Release-gate status and iteration history: [RELEASE_GATES.md](RELEASE_GATES.md).
 
@@ -33,9 +38,9 @@ Directiecockpit · Signaleringen · Patiënten · Planning · Behandelaren · Do
 
 Plus **Dossiers & productie** (`/dashboard/dossiers-productie`, client-requested): dossiers, afsluitingen en productie-uren per medewerker with population analytics — diagnoses, geslacht, leeftijd, verwijzers, woonplaats, regiebehandelaar, verzekeringskoepel and wachtlijst — topped by Careon Insights, with a compact summary on the Directiecockpit. Its mock data reconciles with the audited constants (see `src/data/careon/careon-dossiers-productie.ts`).
 
-Plus an **AI-assistent** (`/dashboard/assistent`): an assistant-ui chat workspace with a persisted thread list and an artifact canvas (KPI tiles, charts, rank lists, claims, and source references). Answers are deterministic Dutch summaries built from the audited demo dataset — no LLM or backend is involved.
+Plus an **AI-assistent** (`/dashboard/assistent`): an assistant-ui chat workspace with a privacy-default session history and an artifact canvas (KPI tiles, charts, rank lists, claims, and source references). In production mode, facts and visual evidence come from the same filtered production snapshot.
 
-The assistant supports **live AI**: set `OPENAI_API_KEY` in `.env.local` (see `.env.example`) or as a Vercel environment variable and the assistant streams real answers from a server-side route (`src/app/api/assistant/route.ts`) that grounds the model on the demo dataset — the key never reaches the browser, and the artifact canvas stays deterministic. Without a key the assistant automatically uses its deterministic demo answers ("Demo-AI" badge).
+The assistant supports **live AI** through the OpenAI Responses API: set `OPENAI_API_KEY` in `.env.local` (see `.env.example`) or as a hosting secret. The server route uses a pinned model snapshot, strict function schemas, per-intent tool allowlists, atomic shared quotas, bounded retries, fail-closed moderation, terminal stream validation, pseudonymous telemetry and `store:false`. Tool calls only build a local concept; the user must apply it, with additional confirmation for removals and high-impact bulk changes. Unsupported inference of language/origin from names or appearance is blocked before provider/tool execution. Without a key the assistant uses deterministic demo answers ("Demo-AI" badge). See [AI_OPERATIONS.md](AI_OPERATIONS.md).
 
 The app is **mobile-first and installable as a PWA**: every page has a compact phone layout (bottom navigation in all themes, filter popover, card-list tables) without changing the desktop design, and `manifest.ts` + `public/sw.js` make it installable from the browser (Android: install prompt; iOS: Deel → Zet op beginscherm) with a branded offline fallback. Mobile and PWA behavior are gated by `e2e/mobile.spec.ts` and `e2e/pwa.spec.ts`.
 
@@ -55,6 +60,6 @@ Cross-cutting behavior:
 
 ## Scope guardrails
 
-- Keep it a mock/client-state demo: no backend, no database, no real auth unless explicitly requested.
+- Preserve demo-mode behavior alongside production imports; do not expose production data publicly until real authentication replaces the demo gate.
 - Use the template's design system; do not recreate the original dashboard's neon/glass styling.
 - All KPI values, alerts, table rows, and chart series come verbatim from the audit — don't invent data.

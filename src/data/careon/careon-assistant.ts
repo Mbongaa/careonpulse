@@ -151,6 +151,10 @@ export interface AssistantActieRegel {
   tool: string;
   status: "ok" | "geen_wijziging" | "bevestiging_vereist" | "fout";
   melding: string;
+  /** Tool-argumenten — maken de regel her-afspeelbaar (bewerken/replay). */
+  args?: Record<string, unknown>;
+  /** Door de gebruiker uitgesloten namen (bulk-regels). */
+  uitgesloten?: string[];
   naam?: string;
   /** Geraakte namen van een bulk-actie. */
   namen?: string[];
@@ -193,21 +197,23 @@ export function buildActieArtifact(
     ...new Set(acties.map((actie) => actie.locatie).filter((locatie): locatie is string => Boolean(locatie))),
   ];
 
-  const visualizations: AssistantVisualization[] = [
-    {
-      id: "acties",
-      kind: "status-card",
-      title: concept ? "Voorgestelde acties (concept)" : "Uitgevoerde acties",
-      sub: concept
-        ? `${acties.length} voorgestelde wijzigingen · nog niets opgeslagen`
-        : `${acties.length} acties · ${uitgevoerd} uitgevoerd en opgeslagen`,
-      statusRows: acties.map((actie) => ({
-        title: actie.melding,
-        detail: `${concept && actie.status === "ok" ? "Klaargezet" : ACTIE_STATUS_LABEL[actie.status]} · ${actie.tool}`,
-        tone: ACTIE_STATUS_TONE[actie.status],
-      })),
-    },
-  ];
+  // De registratietabel staat vóórop (en is bij een open concept de
+  // bewerkbare hoofdweergave); de actielijst is het secundaire logboek dat
+  // per actie uitlegt wat er (niet) gebeurde.
+  const actiesKaart: AssistantVisualization = {
+    id: "acties",
+    kind: "status-card",
+    title: concept ? "Voorgestelde acties (concept)" : "Uitgevoerde acties",
+    sub: concept
+      ? `${acties.length} voorgestelde wijzigingen · nog niets opgeslagen`
+      : `${acties.length} acties · ${uitgevoerd} uitgevoerd en opgeslagen`,
+    statusRows: acties.map((actie) => ({
+      title: actie.melding,
+      detail: `${concept && actie.status === "ok" ? "Klaargezet" : ACTIE_STATUS_LABEL[actie.status]} · ${actie.tool}`,
+      tone: ACTIE_STATUS_TONE[actie.status],
+    })),
+  };
+  const visualizations: AssistantVisualization[] = [];
 
   const medewerkerRijen = state.medewerkers.filter((rij) => geraakteNamen.includes(rij.naam));
   if (medewerkerRijen.length) {
@@ -216,13 +222,13 @@ export function buildActieArtifact(
       kind: "table",
       title: concept ? "Registratie ná toepassing (concept)" : "Registratie na deze beurt",
       sub: concept
-        ? "Zo komt de registratie van de geraakte medewerkers eruit te zien — pas na Toepassen"
+        ? "Bewerk direct per medewerker (talen, functie, teams, middelen) — opgeslagen wordt er pas ná Toepassen"
         : "Geraakte medewerkers — controleer of corrigeer op Medewerkers & middelen",
       table: {
         head: ["Medewerker", "Functie", "Talen", "Teams", "Middelen"],
         rows: medewerkerRijen.map((rij) => ({
           cells: [
-            rij.naam,
+            rij.uitDienst ? `${rij.naam} · uit dienst` : rij.naam,
             rij.functie ?? "—",
             (rij.talen ?? []).join(", ") || "—",
             (rij.teams ?? []).join(", ") || "—",
@@ -233,6 +239,8 @@ export function buildActieArtifact(
       },
     });
   }
+
+  visualizations.push(actiesKaart);
 
   const inventarisRijen = state.inventaris.filter((rij) => geraakteLocaties.includes(rij.locatie));
   if (inventarisRijen.length) {

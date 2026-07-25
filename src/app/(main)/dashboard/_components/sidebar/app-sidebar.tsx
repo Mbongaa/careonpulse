@@ -82,7 +82,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <Link
               prefetch={false}
               href="/dashboard/directiecockpit"
-              className="ring-sidebar-ring flex items-center rounded-md px-2 py-2 outline-hidden focus-visible:ring-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-1"
+              className="flex items-center rounded-md px-2 py-2 outline-hidden ring-sidebar-ring focus-visible:ring-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-1"
             >
               <CareonLogo compact={false} />
               <span className="sr-only">{APP_CONFIG.name}</span>

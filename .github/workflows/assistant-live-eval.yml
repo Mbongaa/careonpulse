@@ -1,0 +1,51 @@
+name: Assistant live evaluation
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  live-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_API_MODE: responses
+      CAREON_ASSISTANT_LIVE: "1"
+      CAREON_E2E_BASE: http://127.0.0.1:3210
+    steps:
+      - name: Check live-eval configuration
+        id: gate
+        run: |
+          if [ -n "$OPENAI_API_KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "OPENAI_API_KEY is not configured; weekly live evaluation skipped."
+          fi
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: steps.gate.outputs.enabled == 'true'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          node-version: 22
+          cache: npm
+      - if: steps.gate.outputs.enabled == 'true'
+        run: npm ci
+      - if: steps.gate.outputs.enabled == 'true'
+        run: npm run build
+      - if: steps.gate.outputs.enabled == 'true'
+        run: npm run start -- --port 3210 > assistant-server.log 2>&1 &
+      - name: Wait for server
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          for attempt in {1..30}; do
+            curl --fail --silent http://127.0.0.1:3210/api/assistant >/dev/null && exit 0
+            sleep 2
+          done
+          exit 1
+      - if: steps.gate.outputs.enabled == 'true'
+        run: npm run verify:assistant:live

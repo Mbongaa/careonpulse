@@ -173,15 +173,19 @@ filters (vestiging) ─▶ compute-snapshot.ts ──▶ ProductionSnapshot ─�
 ## AI-assistent in productie-modus
 
 Met een geconfigureerde `OPENAI_API_KEY` analyseert de live AI-assistent de
-**echte EPD-import**: de vragen gaan met een geaggregeerd feitenblad
-(`src/lib/careon-production/assistant-facts.ts`) naar de AI-dienst — kern-KPI's,
-trends, wachtlijst, populatie, controles en datakwaliteit, inclusief de
-proxy-definities zodat het model ze correct benoemt. **Privacy**: uitsluitend
-aggregaten; cliënt-ID's, dossierlinks en de risicolijst gaan nóóit mee
-(bewaakt door `verify:production`). Behandelaar-/verwijzernamen (medewerker-
-en praktijkgegevens) zitten er wél in — nodig voor caseloadvragen. Zonder
-live AI valt de assistent terug op de deterministische demo-referentie en
-zegt dat er eerlijk bij ("Analyse: demo-dataset").
+**echte EPD-import** via de Responses API. Het feitenblad is per intent
+begrensd: uitsluitend relevante aggregaten; cliëntrecords, dossierlinks en
+risicolijsten gaan nooit mee. Namen van behandelaren gaan alleen mee bij een
+expliciete coaching-/behandelaarvraag. De handmatige middelenregistratie gaat
+alleen mee bij een relevante vraag en vrije notities uitsluitend wanneer de
+gebruiker expliciet om notities of asset-tags vraagt.
+
+De route gebruikt een gedateerde modelsnapshot, `store:false`, strikte
+function-schema's, een per-vraag tool-allowlist, body/contextlimieten,
+moderation, timeouts/retries, rate limiting en pseudonieme operationele
+events. Mutaties worden client-side als concept afgespeeld; niets wordt
+opgeslagen zonder menselijke goedkeuring. Verwijderingen vereisen daarnaast
+een afzonderlijk vinkje. Zie `AI_OPERATIONS.md`.
 
 ## Supabase (optioneel, aanbevolen voor gedeeld gebruik)
 
@@ -196,8 +200,11 @@ gebruikers dezelfde data.
    `supabase/migrations/0002_careon_middelen.sql` voor de handmatige
    middelen- & inventarisregistratie (handoff 09),
    `supabase/migrations/0003_careon_agenda.sql` voor de agenda- en
-   verwijzersaggregaten, en `supabase/migrations/0004_careon_toeslagen.sql`
-   voor het toeslagen-aggregaat.
+   verwijzersaggregaten, `supabase/migrations/0004_careon_toeslagen.sql`,
+   `supabase/migrations/0005_careon_declaraties.sql` en
+   `supabase/migrations/0006_assistant_production_hardening.sql`,
+   `supabase/migrations/0007_careon_hr.sql` en
+   `supabase/migrations/0008_runtime_operations_hardening.sql`.
 3. Zet `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` én
    `NEXT_PUBLIC_CAREON_SYNC_TOKEN` in `.env.local` en herstart. Zonder
    sync-token blijft de route uitgeschakeld (501).
@@ -222,9 +229,24 @@ Robuustheid van de synchronisatie:
 
 - De import-kaart meldt het resultaat van zowel de browseropslag (quota) als
   de centrale push — een mislukte push is zichtbaar, niet stil.
+- De middelenregistratie gebruikt monotone revisies en idempotente
+  operation-ID's. Gelijktijdige edits worden niet meer stil overschreven:
+  de UI pauzeert en laat de gebruiker de centrale of lokale versie kiezen.
+- Schone clients pollen de centrale revisie en nemen wijzigingen van
+  collega's over. Niet-gesynchroniseerde lokale wijzigingen overleven een
+  herlaad en worden alleen hervat wanneer hun basisrevisie nog geldig is.
+- Auditrijen bevatten uitsluitend pseudonieme actor-/request-ID's,
+  toolnamen en aantallen; geen vragen, antwoorden, medewerkername of tool-args.
 - Een half-mislukte upload (run zonder records) wordt server-side opgeruimd;
   de GET-route negeert bovendien onvolledige runs (records ≠ `total_rows`),
   zodat een kapotte laatste run nooit de vorige goede run verduistert.
+- Import- en aanvullende snapshot-writes hebben unieke operation-ID's;
+  netwerkherhalingen maken daardoor geen dubbele snapshots. Grote imports
+  worden in batches geschreven en bij elke gedeeltelijke fout volledig
+  teruggedraaid.
+- De gedeelde AI- en auditquota worden atomisch in Postgres verbruikt. De
+  dagelijkse Vercel-cron ruimt verlopen operationele events en quotarijen op;
+  producthistorie wordt niet door deze onderhoudstaak verwijderd.
 - Praktische groottegrens: boven ± 5.000–7.000 cliëntrijen kan de
   browseropslag (± 5 MB) of de request-bodylimiet van de host de persistentie
   breken; de UI meldt dat dan expliciet. De huidige export (± 1.000 rijen)
@@ -263,7 +285,7 @@ gedeelde werkplekken ("Herstel demo-data" of uitloggen + opslag wissen).
 > échte centrale opslag (verdringt de echte import als "nieuwste") en
 > hydrateren demo-tests productie-data — beide zijn in de praktijk gebeurd.
 
-- `npm run verify:production` — 290+ assertions: parser-gedrag op de fixture
+- `npm run verify:production` — 398 assertions: parser-gedrag op de fixture
   én op inline randgevallen (meerregelige quoted cellen, dubbele kolomkoppen,
   niet-bestaande kalenderdagen, geweigerde niet-https-deeplinks), alle
   snapshot-aggregaties (vaste referentiedatum 14-07-2026, UTC), venster- en
@@ -275,5 +297,14 @@ gedeelde werkplekken ("Herstel demo-data" of uitloggen + opslag wissen).
   verwachtingen (oude export: 959 rijen/767 actief; nieuwe exports:
   1.267 cliënten/975 actief, 15.830 sessies, 120 no-shows,
   € 3.607.109 gefactureerd, enz.).
-- `npm run verify:careon` — de 104 geauditeerde demo-assertions blijven
+- `npm run verify:careon` — 492 geauditeerde demo-/actie-assertions blijven
   ongewijzigd van kracht; demo-modus is pixel- en gedrags-identiek gebleven.
+- `npm run verify:assistant` — deterministische controles op strict
+  schemas, tool-routing, privacyredactie en intent-specifieke productiefacts.
+- `npm run verify:assistant:live` — provider-eval op de production build:
+  runtime-status, read-only isolatie, bulkdekking, tellingen, compositie en
+  dienstverbandactie.
+- `npm run verify:data-hygiene` — blokkeert gevolgde productie-exportbestanden.
+- `npm run verify:runtime` — foutinjectie voor mislukte/onvolledige/misvormde
+  providerstreams, fail-closed moderation, proxy-inferentie en bodylimieten.
+- `npm run test:e2e` — functionele, responsive, PWA-, logout-cache- en WCAG-AA-tests.

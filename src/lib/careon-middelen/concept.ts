@@ -3,9 +3,49 @@
 // duplicaatchecks, teams behouden tags). Er wordt NIETS bewaard — pas wanneer
 // de gebruiker het concept in het canvas goedkeurt schrijft de provider de
 // eindstand in één keer weg (vervangState → localStorage + centrale sync).
+//
+// Het concept is een HERAFSPEELBAAR actielogboek (patroon uit de
+// kiosk-referentie: "AI pre-fills the draft only; a human edits and
+// confirms"): de gebruiker kan regels bewerken/schrappen en namen uitsluiten,
+// waarna replayConceptActies de preview herberekent; Toepassen replayt op de
+// ÁCTUELE registratie zodat tussentijdse handmatige wijzigingen nooit worden
+// overschreven.
 
-import type { MiddelenActieApi } from "./assistant-executor";
+import { executeMiddelenTool, type MiddelenActieApi, type MiddelenBron } from "./assistant-executor";
 import type { LocatieInventaris, MedewerkerMiddelen, MiddelenState } from "./types";
+
+/** Eén her-afspeelbare conceptactie: tool + argumenten (+ door de gebruiker
+    uitgesloten namen voor bulk-regels). */
+export interface ConceptActie {
+  tool: string;
+  args: Record<string, unknown>;
+  uitgesloten?: string[];
+}
+
+export interface ConceptReplayUitkomst {
+  resultaten: ReturnType<typeof executeMiddelenTool>[];
+  staat: MiddelenState;
+}
+
+/** Speel de conceptacties af op `basis` (een verse kopie) en geef de
+    resultaten + eindstand terug. Gebruikt voor preview-herberekening én voor
+    Toepassen (dan is `basis` de actuele registratie). */
+export function replayConceptActies(
+  acties: ConceptActie[],
+  basis: MiddelenState,
+  bron: MiddelenBron,
+): ConceptReplayUitkomst {
+  const concept = createConceptMiddelenApi(basis);
+  const resultaten = acties.map((actie) =>
+    executeMiddelenTool(
+      actie.tool,
+      actie.uitgesloten?.length ? { ...actie.args, uitzonderingen: actie.uitgesloten } : actie.args,
+      concept.api,
+      bron,
+    ),
+  );
+  return { resultaten, staat: concept.huidig() };
+}
 
 export interface ConceptMiddelenApi {
   api: MiddelenActieApi;
@@ -31,6 +71,7 @@ export function createConceptMiddelenApi(begin: MiddelenState): ConceptMiddelenA
         middelen: aanwezig ? [...new Set([...rij.middelen, middel])] : rij.middelen.filter((eigen) => eigen !== middel),
       })),
     setFunctie: (naam, functie) => patch(naam, (rij) => ({ ...rij, functie: functie === "" ? undefined : functie })),
+    setUitDienst: (naam, uitDienst) => patch(naam, (rij) => ({ ...rij, uitDienst: uitDienst ? true : undefined })),
     setTaal: (naam, taal, aanwezig) =>
       patch(naam, (rij) => {
         const talen = aanwezig

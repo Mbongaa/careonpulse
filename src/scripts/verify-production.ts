@@ -538,17 +538,24 @@ check("dossiercontrole compliance", snap.dossiercontrole.compliancePct, 87.5);
 // ---- AI-assistent feitenblad (productie-grounding) ----
 const factsRaw = buildProductionAssistantFacts(snap, { periode: "12m", locatie: "Alle locaties", team: "Alle teams" });
 const facts = JSON.parse(factsRaw) as Record<string, unknown> & {
-  kernKpis: { patienten: { label: string; waarde: number }[] };
-  wachttijdTrend: unknown[];
-  databron: string;
+  databron: { bestand: string };
+  domein: { kernKpis: { id: string; waarde: number }[] };
 };
-check("feitenblad noemt de databron", facts.databron.includes("fixture.csv"), true);
+const patientFactsRaw = buildProductionAssistantFacts(
+  snap,
+  { periode: "12m", locatie: "Alle locaties", team: "Alle teams" },
+  { intent: "patienten-instroom" },
+);
+const patientFacts = JSON.parse(patientFactsRaw) as {
+  domein: { patienten: { label: string; waarde: number }[]; wachttijdTrend: unknown[] };
+};
+check("feitenblad noemt de databron", facts.databron.bestand.includes("fixture.csv"), true);
 check(
   "feitenblad bevat actieve patiënten",
-  facts.kernKpis.patienten.find((m) => m.label === "Actieve patiënten")?.waarde,
+  patientFacts.domein.patienten.find((m) => m.label === "Actieve patiënten")?.waarde,
   8,
 );
-check("feitenblad bevat 12 maanden wachttijdtrend", facts.wachttijdTrend.length, 12);
+check("feitenblad bevat 12 maanden wachttijdtrend", patientFacts.domein.wachttijdTrend.length, 12);
 // Privacy: uitsluitend aggregaten naar de AI-dienst — geen cliëntniveau-rijen,
 // dossierlinks of cliëntlabels uit de risicolijst.
 check("feitenblad zonder risicolijst", factsRaw.includes("risicoLijst"), false);
@@ -582,7 +589,11 @@ check("provenance cockpit actief live", widgetSource("cockpit", "Actieve patiën
 check("provenance cockpit noshow demo", widgetSource("cockpit", "No-show"), "demo");
 check("provenance outreach proxy", widgetSource("cockpit", "Outreachende cliënten"), "proxy");
 check("provenance onbekende widget → demo", widgetSource("cockpit", "Bestaat niet"), "demo");
-check("provenance hr alles demo", pageLiveCounts("hr").live, 0);
+// HR is een handmatige registratie (handoff 12): geen live EPD-widgets, en
+// elke HR-widget is als "handmatig" gemarkeerd (niet "demo").
+check("provenance hr geen live", pageLiveCounts("hr").live, 0);
+check("provenance hr verzuim handmatig", widgetSource("hr", "Ziekteverzuim"), "handmatig");
+check("provenance hr big handmatig", widgetSource("hr", "BIG-registraties"), "handmatig");
 const cockpitCounts = pageLiveCounts("cockpit");
 check("provenance cockpit telling", [cockpitCounts.live, cockpitCounts.total], [10, 18]);
 
@@ -1418,12 +1429,8 @@ if (fs.existsSync(realPath)) {
     locatie: "Alle locaties",
     team: "Alle teams",
   });
-  const realFacts = JSON.parse(realFactsRaw) as { kernKpis: { cockpit: { id: string; waarde: number }[] } };
-  check(
-    "echt: feitenblad bevat actief 767",
-    realFacts.kernKpis.cockpit.find((kpi) => kpi.id === "actief")?.waarde,
-    767,
-  );
+  const realFacts = JSON.parse(realFactsRaw) as { domein: { kernKpis: { id: string; waarde: number }[] } };
+  check("echt: feitenblad bevat actief 767", realFacts.domein.kernKpis.find((kpi) => kpi.id === "actief")?.waarde, 767);
   check("echt: feitenblad zonder cliëntlabels", realFactsRaw.includes("Cliënt "), false);
   check("echt: feitenblad binnen context-budget", realFactsRaw.length < 24000, true);
 

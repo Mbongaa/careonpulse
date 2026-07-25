@@ -30,7 +30,7 @@ import {
 } from "../data/careon/careon-dossiers-productie";
 import { CAREON_LOCATION_SCALE, CAREON_LOCATIONS } from "../data/careon/careon-filters";
 import { FINANCIEEL_METRICS } from "../data/careon/careon-financieel";
-import { HR_METRICS } from "../data/careon/careon-hr";
+import { BIG_REGISTRATIES, HR_METRICS, HR_SEED_STATE } from "../data/careon/careon-hr";
 import { careonDetailHref, KPI_DETAIL_BY_ID, KPI_DETAILS } from "../data/careon/careon-kpi-details";
 import { COCKPIT_KPIS } from "../data/careon/careon-kpis";
 import { complianceTone, KWALITEIT_COUNTERS } from "../data/careon/careon-kwaliteit";
@@ -42,9 +42,10 @@ import { CAREON_MONTHLY } from "../data/careon/careon-shared-charts";
 import { sliceTimeframe, timeframeKeys } from "../data/careon/careon-timeframe";
 import type { CareonMetric } from "../data/careon/careon-types";
 import { formatCareonDelta, formatCareonValue } from "../lib/careon-format";
+import { bigDagenTot, HR_KPI_IDS, type HrKpiId, isHrState } from "../lib/careon-hr/types";
 import { executeMiddelenTool, isMiddelenTool } from "../lib/careon-middelen/assistant-executor";
 import { DESTRUCTIEVE_TOOLS, MIDDELEN_TOOL_NAMES, MIDDELEN_TOOLS } from "../lib/careon-middelen/assistant-tools";
-import { createConceptMiddelenApi } from "../lib/careon-middelen/concept";
+import { createConceptMiddelenApi, replayConceptActies } from "../lib/careon-middelen/concept";
 import { isMiddelenState } from "../lib/careon-middelen/types";
 import { CAREON_PROVENANCE } from "../lib/careon-production/provenance";
 
@@ -716,6 +717,98 @@ check(
   false,
 );
 
+// Replay-laag (bewerkbaar concept): het concept is een her-afspeelbaar
+// actielogboek — Toepassen replayt op de actuele stand (tussentijdse
+// handmatige wijzigingen blijven behouden) en gebruikers-bewerkingen
+// (regel schrappen, naam uitsluiten) herberekenen deterministisch.
+const replayBasis = createConceptMiddelenApi(DEMO_MIDDELEN_STATE);
+replayBasis.api.addPersoon("Tussentijds Toegevoegd");
+const replayUitkomst = replayConceptActies(
+  [{ tool: "wijzig_taal_bulk", args: { taal: "Pools", actie: "toevoegen", iedereen: true } }],
+  replayBasis.huidig(),
+  TEST_BRON,
+);
+check(
+  "assistent-replay: tussentijdse handmatige rij blijft behouden (geen clobbering)",
+  replayUitkomst.staat.medewerkers.some((rij) => rij.naam === "Tussentijds Toegevoegd"),
+  true,
+);
+check(
+  "assistent-replay: bulk raakt óók de tussentijdse rij",
+  replayUitkomst.staat.medewerkers.every((rij) => (rij.talen ?? []).includes("Pools")),
+  true,
+);
+const metUitsluiting = replayConceptActies(
+  [
+    {
+      tool: "wijzig_taal_bulk",
+      args: { taal: "Pools", actie: "toevoegen", iedereen: true },
+      uitgesloten: ["P. Hendriks"],
+    },
+  ],
+  DEMO_MIDDELEN_STATE,
+  TEST_BRON,
+);
+check(
+  "assistent-replay: uitgesloten naam blijft ongemoeid",
+  (metUitsluiting.staat.medewerkers.find((rij) => rij.naam === "P. Hendriks")?.talen ?? []).includes("Pools"),
+  false,
+);
+check(
+  "assistent-replay: overige medewerkers wél geraakt",
+  metUitsluiting.staat.medewerkers
+    .filter((rij) => rij.naam !== "P. Hendriks")
+    .every((rij) => (rij.talen ?? []).includes("Pools")),
+  true,
+);
+check(
+  "assistent-replay: geschrapte regels = geen effect",
+  replayConceptActies([], DEMO_MIDDELEN_STATE, TEST_BRON).staat.medewerkers,
+  DEMO_MIDDELEN_STATE.medewerkers,
+);
+
+// Dienstverband (klantscenario "zet behandelaar X uit dienst"): registratie
+// blijft bewaard als historie; uitgegeven middelen worden automatisch
+// ingenomen. Samen met de overige tools dekt de assistent daarmee ALLE
+// handmatige registratie-operaties van de Middelen-pagina.
+const dienstTest = createConceptMiddelenApi(DEMO_MIDDELEN_STATE);
+check(
+  "assistent-dienstverband: uit dienst zetten",
+  executeMiddelenTool("zet_dienstverband", { naam: "Drs. E. van Dijk", uitDienst: true }, dienstTest.api, TEST_BRON)
+    .status,
+  "ok",
+);
+const uitDienstRij = dienstTest.huidig().medewerkers.find((rij) => rij.naam === "Drs. E. van Dijk");
+check("assistent-dienstverband: markering gezet, registratie bewaard", uitDienstRij?.uitDienst, true);
+check("assistent-dienstverband: alle middelen automatisch ingenomen", uitDienstRij?.middelen.length, 0);
+check(
+  "assistent-dienstverband: idempotent",
+  executeMiddelenTool("zet_dienstverband", { naam: "Drs. E. van Dijk", uitDienst: true }, dienstTest.api, TEST_BRON)
+    .status,
+  "geen_wijziging",
+);
+executeMiddelenTool("zet_dienstverband", { naam: "Drs. E. van Dijk", uitDienst: false }, dienstTest.api, TEST_BRON);
+check(
+  "assistent-dienstverband: weer in dienst wist de markering",
+  dienstTest.huidig().medewerkers.find((rij) => rij.naam === "Drs. E. van Dijk")?.uitDienst,
+  undefined,
+);
+check(
+  "assistent-dekking: dienstverband-tool aanwezig in het schema",
+  (MIDDELEN_TOOL_NAMES as readonly string[]).includes("zet_dienstverband"),
+  true,
+);
+check(
+  "assistent-dekking: databron-medewerker niet te verwijderen (redirect naar dienstverband, zoals de pagina)",
+  executeMiddelenTool(
+    "verwijder_medewerker",
+    { naam: BEHANDELAREN[0].naam },
+    createConceptMiddelenApi(DEMO_MIDDELEN_STATE).api,
+    TEST_BRON,
+  ).status,
+  "fout",
+);
+
 // ---- Tijdvenster-toggle (per-grafiek venster op maandreeksen) ----
 check(
   "tijdvenster: 12m = volledige reeks van 12",
@@ -738,6 +831,36 @@ check(
   [...timeframeKeys(["2026-04", "2026-05", "2026-06"], "1m")],
   ["2026-06"],
 );
+
+// ---- HR handmatige registratie (handoff 12): seed reconcilieert met de audit ----
+check("hr seed geldig", isHrState(HR_SEED_STATE), true);
+check(
+  "hr seed kpi-ids compleet",
+  HR_KPI_IDS.every((id) => HR_SEED_STATE.kpis[id] !== undefined),
+  true,
+);
+for (const meta of HR_METRICS) {
+  const id = meta.detailId as HrKpiId; // detailId's van HR_METRICS == HR_KPI_IDS
+  check(`hr seed ${meta.label} value`, HR_SEED_STATE.kpis[id].value, meta.value);
+  check(`hr seed ${meta.label} prev`, HR_SEED_STATE.kpis[id].prev, meta.prev);
+}
+check(
+  "hr seed verzuimtrend = gedeelde reeks",
+  HR_SEED_STATE.verzuimTrend,
+  CAREON_MONTHLY.map((punt) => punt.verzuim),
+);
+check("hr seed benchmark", HR_SEED_STATE.benchmark, 6.2);
+// BIG: naam/functie == geauditeerde rijen; de live berekende dagen t.o.v. de
+// audit-peildatum (6 jul 2026) reproduceren exact de geauditeerde dagen.
+const bigPeildatum = new Date("2026-07-06T00:00:00Z");
+check("hr seed big aantal", HR_SEED_STATE.bigRegistraties.length, BIG_REGISTRATIES.length);
+for (let i = 0; i < BIG_REGISTRATIES.length; i += 1) {
+  const seed = HR_SEED_STATE.bigRegistraties[i];
+  const audit = BIG_REGISTRATIES[i];
+  check(`hr seed big ${i} naam`, seed.naam, audit.naam);
+  check(`hr seed big ${i} functie`, seed.functie, audit.functie);
+  check(`hr seed big ${i} dagen`, bigDagenTot(seed.verloopt, bigPeildatum), audit.dagen);
+}
 
 console.log(`\nverify-careon: ${passes} passed, ${failures} failed`);
 if (failures > 0) {

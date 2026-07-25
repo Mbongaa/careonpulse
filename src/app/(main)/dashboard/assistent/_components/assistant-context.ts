@@ -3,7 +3,7 @@
 import { createContext, useContext } from "react";
 
 import type { AssistantActieRegel, AssistantArtifact } from "@/data/careon/careon-assistant";
-import type { MiddelenState } from "@/lib/careon-middelen/types";
+import type { MiddelenState, MiddelType } from "@/lib/careon-middelen/types";
 
 export type AssistantStage = "idle" | "thinking" | "assembling" | "ready";
 
@@ -16,22 +16,48 @@ export interface AssistantCanvasState {
 }
 
 // Concept-wijzigingen op de middelen-registratie (handoff 11): door de
-// assistent klaargezet, door de gebruiker goed te keuren in het canvas.
-// Zolang de status "open" is, is er niets opgeslagen.
+// assistent klaargezet, door de gebruiker te bewerken en goed te keuren in
+// het canvas (kiosk-patroon "human-confirm": AI vult het concept, de mens
+// bewerkt en bevestigt). Zolang de status "open" is, is er niets opgeslagen.
 export interface AssistantConceptState {
   /** messageKey van de beurt die het concept (laatst) opbouwde. */
   key: string;
+  /** Pseudonieme server-request-ID's voor operationele auditkoppeling. */
+  requestIds: string[];
+  /** Her-afspeelbaar actielogboek (regels dragen hun tool-args). */
   regels: AssistantActieRegel[];
-  /** De concept-eindstand die Toepassen in één keer wegschrijft. */
+  /** Preview-eindstand (replay van de regels op de registratie-stand). */
   staat: MiddelenState;
+  /** updatedAt van de registratie waarop de preview is berekend — wijkt de
+      actuele registratie af, dan toont de balk een herberekenen-hint. */
+  basisUpdatedAt: string;
   artifact: AssistantArtifact;
   status: "open" | "toegepast" | "verworpen";
 }
+
+/** Directe rijbewerking in de concept-registratietabel — wordt onder water
+    een actie in het her-afspeelbare logboek (zelfde primitief als de AI). */
+export type ConceptRijWijziging =
+  | { soort: "taal"; waarde: string; aanwezig: boolean }
+  | { soort: "functie"; waarde: string }
+  | { soort: "middel"; waarde: MiddelType; aanwezig: boolean }
+  | { soort: "team"; waarde: string; aanwezig: boolean }
+  | { soort: "dienstverband"; uitDienst: boolean };
 
 export interface AssistantCanvasContextValue extends AssistantCanvasState {
   select: (artifact: AssistantArtifact, itemId?: string | null, messageKey?: string | null) => void;
   concept: AssistantConceptState | null;
   besluitConcept: (besluit: "toepassen" | "verwerpen") => void;
+  /** Bewerk een medewerkersrij in de concepttabel; de preview herberekent. */
+  bewerkConceptRij: (naam: string, wijziging: ConceptRijWijziging) => void;
+  /** Schrap één voorgestelde actie; de preview wordt herberekend. */
+  verwijderConceptActie: (index: number) => void;
+  /** Sluit een naam uit binnen een bulk-regel; de preview wordt herberekend. */
+  sluitConceptNaamUit: (index: number, naam: string) => void;
+  /** Vervang de argumenten van een regel (canvas-bewerking); herberekent. */
+  bewerkConceptActie: (index: number, args: Record<string, unknown>) => void;
+  /** Herbereken de preview op de actuele registratie-stand. */
+  herberekenConcept: () => void;
 }
 
 export const AssistantCanvasContext = createContext<AssistantCanvasContextValue | null>(null);

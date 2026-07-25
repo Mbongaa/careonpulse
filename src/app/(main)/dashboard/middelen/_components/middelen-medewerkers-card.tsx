@@ -31,7 +31,30 @@ interface MiddelenRij {
   teams: string[];
   middelen: MiddelType[];
   notitie: string;
+  uitDienst: boolean;
   verwijderbaar: boolean;
+}
+
+// Dienstverband-toggle: uit dienst laat de registratie staan (historie) —
+// de assistent-tool zet_dienstverband doet hetzelfde en neemt bovendien de
+// middelen in; handmatig innemen kan hier per toggle.
+function DienstKnop({ rij }: Readonly<{ rij: MiddelenRij }>) {
+  const { setUitDienst } = useCareonMiddelen();
+  return (
+    <button
+      type="button"
+      aria-pressed={rij.uitDienst}
+      aria-label={`${rij.naam} ${rij.uitDienst ? "weer in dienst zetten" : "uit dienst zetten"}`}
+      className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-xs transition-colors ${
+        rij.uitDienst
+          ? "border-amber-500/50 bg-amber-500/10 text-amber-800 dark:text-amber-300"
+          : "text-muted-foreground hover:bg-muted"
+      }`}
+      onClick={() => setUitDienst(rij.naam, !rij.uitDienst)}
+    >
+      {rij.uitDienst ? "Uit dienst" : "In dienst"}
+    </button>
+  );
 }
 
 function MiddelToggles({ naam, middelen }: Readonly<{ naam: string; middelen: MiddelType[] }>) {
@@ -295,6 +318,7 @@ export function MiddelenMedewerkersCard({ bronMedewerkers }: Readonly<{ bronMede
         teams: registratie?.teams ?? [],
         middelen: registratie?.middelen ?? [],
         notitie: registratie?.notitie ?? "",
+        uitDienst: registratie?.uitDienst === true,
         verwijderbaar: false,
       };
     }),
@@ -311,6 +335,7 @@ export function MiddelenMedewerkersCard({ bronMedewerkers }: Readonly<{ bronMede
         teams: rij.teams ?? [],
         middelen: rij.middelen,
         notitie: rij.notitie ?? "",
+        uitDienst: rij.uitDienst === true,
         verwijderbaar: true,
       })),
   ];
@@ -333,7 +358,10 @@ export function MiddelenMedewerkersCard({ bronMedewerkers }: Readonly<{ bronMede
               <li key={rij.naam} className="space-y-3 p-4">
                 <div className="flex items-start justify-between gap-2">
                   <CareonPersonCell naam={rij.naam} sub={rij.sub} />
-                  <VerwijderKnop rij={rij} />
+                  <span className="flex items-center gap-1.5">
+                    <DienstKnop rij={rij} />
+                    <VerwijderKnop rij={rij} />
+                  </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <FunctieSelect naam={rij.naam} functie={rij.functie} />
@@ -381,7 +409,10 @@ export function MiddelenMedewerkersCard({ bronMedewerkers }: Readonly<{ bronMede
                       <NotitieInput naam={rij.naam} notitie={rij.notitie} />
                     </TableCell>
                     <TableCell className="pr-4 text-right">
-                      <VerwijderKnop rij={rij} />
+                      <span className="inline-flex items-center gap-1.5">
+                        <DienstKnop rij={rij} />
+                        <VerwijderKnop rij={rij} />
+                      </span>
                     </TableCell>
                   </TableRow>
                 ))}

@@ -1,14 +1,8 @@
 "use client";
 
-import type { PushResult } from "../careon-production/remote.client";
-import { isMiddelenState, type MiddelenState } from "./types";
-
-// Dunne client voor de centrale middelenopslag, zelfde patroon als de
-// productie-state: zonder geconfigureerde Supabase-omgeving antwoordt de
-// route met 501 en blijft localStorage de bron.
+import { isMiddelenState, type MiddelenChangeAudit, type MiddelenState } from "./types";
 
 const ENDPOINT = "/api/careon/middelen";
-
 const SYNC_TOKEN = process.env.NEXT_PUBLIC_CAREON_SYNC_TOKEN;
 
 function syncHeaders(extra?: HeadersInit): HeadersInit {
@@ -16,39 +10,63 @@ function syncHeaders(extra?: HeadersInit): HeadersInit {
 }
 
 export interface RemoteMiddelenResult {
-  /** true: centrale opslag werkt (ook wanneer er nog niets is opgeslagen). */
-  configured: boolean;
+  status: "ok" | "unconfigured" | "failed";
   state: MiddelenState | null;
+  revision: number;
 }
 
-// "Geconfigureerd maar nog leeg" en "niet geconfigureerd" zijn verschillende
-// situaties: de eerste hoort géén lokale-opslag-waarschuwing te tonen.
 export async function fetchRemoteMiddelenState(): Promise<RemoteMiddelenResult> {
   try {
     const response = await fetch(ENDPOINT, { cache: "no-store", headers: syncHeaders() });
-    if (!response.ok) {
-      return { configured: false, state: null };
-    }
-    const payload = (await response.json()) as { configured?: boolean; state?: unknown };
+    if (response.status === 501) return { status: "unconfigured", state: null, revision: 0 };
+    if (!response.ok) return { status: "failed", state: null, revision: 0 };
+
+    const payload = (await response.json()) as { configured?: boolean; state?: unknown; revision?: unknown };
     return {
-      configured: payload.configured === true,
+      status: payload.configured === true ? "ok" : "unconfigured",
       state: isMiddelenState(payload.state) ? payload.state : null,
+      revision:
+        Number.isInteger(payload.revision) && (payload.revision as number) >= 0 ? (payload.revision as number) : 0,
     };
   } catch {
-    return { configured: false, state: null };
+    return { status: "failed", state: null, revision: 0 };
   }
 }
 
-export async function pushRemoteMiddelenState(state: MiddelenState): Promise<PushResult> {
+export interface PushMiddelenOptions {
+  baseRevision: number;
+  operationId: string;
+  audit: MiddelenChangeAudit;
+}
+
+export type PushMiddelenResult =
+  | { status: "ok"; revision: number }
+  | { status: "conflict"; revision: number; state: MiddelenState | null }
+  | { status: "unconfigured" | "failed" };
+
+export async function pushRemoteMiddelenState(
+  state: MiddelenState,
+  options: PushMiddelenOptions,
+): Promise<PushMiddelenResult> {
   try {
     const response = await fetch(ENDPOINT, {
       method: "POST",
       headers: syncHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify(state),
+      body: JSON.stringify({ state, ...options }),
     });
-    if (response.status === 501) return "unconfigured";
-    return response.ok ? "ok" : "failed";
+    if (response.status === 501) return { status: "unconfigured" };
+
+    const payload = (await response.json().catch(() => null)) as { revision?: unknown; state?: unknown } | null;
+    if (response.status === 409) {
+      return {
+        status: "conflict",
+        revision: Number.isInteger(payload?.revision) ? (payload?.revision as number) : options.baseRevision,
+        state: isMiddelenState(payload?.state) ? payload.state : null,
+      };
+    }
+    if (!response.ok || !Number.isInteger(payload?.revision)) return { status: "failed" };
+    return { status: "ok", revision: payload?.revision as number };
   } catch {
-    return "failed";
+    return { status: "failed" };
   }
 }

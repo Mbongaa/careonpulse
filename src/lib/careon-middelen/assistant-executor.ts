@@ -24,6 +24,7 @@ export interface MiddelenActieApi {
   getState: () => MiddelenState;
   setMiddel: (naam: string, middel: MiddelType, aanwezig: boolean) => void;
   setFunctie: (naam: string, functie: string) => void;
+  setUitDienst: (naam: string, uitDienst: boolean) => void;
   setTaal: (naam: string, taal: string, aanwezig: boolean) => void;
   setTeamTag: (naam: string, team: string, aanwezig: boolean) => void;
   setNotitie: (naam: string, notitie: string) => void;
@@ -112,13 +113,27 @@ const MAX_LEES_MEDEWERKERS = MIDDELEN_LIMITS.medewerkers;
 
 // Doelbepaling voor bulk-tools: iedereen=true is de deterministische garantie
 // voor "elke medewerker" (registratie ∪ databron; geen model-opsomming nodig);
-// anders een expliciete namenlijst, per naam geresolveerd.
+// anders een expliciete namenlijst, per naam geresolveerd. `uitzonderingen`
+// haalt namen uit het doelwit — het model kan "iedereen behalve X" uitdrukken
+// en de gebruiker kan in het concept-canvas namen uitsluiten (replay draagt
+// die uitsluitingen als ditzelfde argument).
 function bulkDoelen(
   args: Record<string, unknown>,
   state: MiddelenState,
   bron: MiddelenBron,
 ): { doelen: string[]; onbekend: string[] } | { melding: string } {
-  if (args.iedereen === true) return { doelen: persoonKandidaten(state, bron), onbekend: [] };
+  const uitgesloten = new Set(
+    (Array.isArray(args.uitzonderingen) ? args.uitzonderingen : [])
+      .filter((naam): naam is string => typeof naam === "string")
+      .map((naam) => naam.toLowerCase()),
+  );
+  const zonderUitzonderingen = (doelen: string[]) => doelen.filter((naam) => !uitgesloten.has(naam.toLowerCase()));
+
+  if (args.iedereen === true) {
+    const doelen = zonderUitzonderingen(persoonKandidaten(state, bron));
+    if (doelen.length === 0) return { melding: "Alle medewerkers zijn uitgesloten — geen doelwit over." };
+    return { doelen, onbekend: [] };
+  }
   if (!Array.isArray(args.namen) || args.namen.length === 0) {
     return { melding: "Geef iedereen=true of een namenlijst op." };
   }
@@ -136,22 +151,34 @@ function bulkDoelen(
       onbekend.push(typeof invoer === "string" ? invoer : "?");
     }
   }
-  if (doelen.length === 0) return { melding: `Geen enkele naam herkend: ${onbekend.slice(0, 8).join(", ")}.` };
-  return { doelen, onbekend };
+  const overgebleven = zonderUitzonderingen(doelen);
+  if (overgebleven.length === 0) {
+    return {
+      melding: onbekend.length
+        ? `Geen enkele naam herkend: ${onbekend.slice(0, 8).join(", ")}.`
+        : "Alle opgegeven namen zijn uitgesloten.",
+    };
+  }
+  return { doelen: overgebleven, onbekend };
 }
 
 type Handler = (args: Record<string, unknown>, api: MiddelenActieApi, bron: MiddelenBron) => MiddelenActieResultaat;
 
 const HANDLERS: Record<MiddelenToolName, Handler> = {
-  lees_middelen_registratie: (_args, api, bron) => {
+  lees_middelen_registratie: (args, api, bron) => {
     const state = api.getState();
     const geregistreerd = new Set(state.medewerkers.map((rij) => rij.naam));
     const zonderRegistratie = bron.medewerkers.filter((naam) => !geregistreerd.has(naam));
+    const inclusiefNotities = args.inclusiefNotities === true;
     return {
       status: "ok",
       melding: `Registratie gelezen: ${state.medewerkers.length + zonderRegistratie.length} medewerkers in totaal (${state.medewerkers.length} met registratierij, ${zonderRegistratie.length} uit de databron zonder registratie), ${state.inventaris.length} inventarislocaties.`,
       registratie: {
-        medewerkers: state.medewerkers.slice(0, MAX_LEES_MEDEWERKERS),
+        medewerkers: state.medewerkers.slice(0, MAX_LEES_MEDEWERKERS).map((rij) => {
+          if (inclusiefNotities) return rij;
+          const { notitie: _notitie, ...zonderNotitie } = rij;
+          return zonderNotitie;
+        }),
         ...(state.medewerkers.length > MAX_LEES_MEDEWERKERS
           ? { let_op: `Afgekapt op ${MAX_LEES_MEDEWERKERS} van ${state.medewerkers.length} medewerkers.` }
           : {}),
@@ -288,6 +315,28 @@ const HANDLERS: Record<MiddelenToolName, Handler> = {
     );
   },
 
+  zet_dienstverband: (args, api, bron) => {
+    const uitDienst = args.uitDienst === true;
+    const state = api.getState();
+    const persoon = zoek(args.naam, persoonKandidaten(state, bron), "medewerker");
+    if (!("naam" in persoon)) return fout(persoon.melding);
+    const rij = state.medewerkers.find((kandidaat) => kandidaat.naam === persoon.naam);
+    if ((rij?.uitDienst === true) === uitDienst) {
+      return geen(`${persoon.naam} staat al ${uitDienst ? "uit" : "in"} dienst.`, { naam: persoon.naam });
+    }
+    api.setUitDienst(persoon.naam, uitDienst);
+    if (!uitDienst) return ok(`${persoon.naam} weer in dienst gezet.`, { naam: persoon.naam });
+    // Uit dienst = operationeel ook alle uitgegeven middelen innemen.
+    const ingenomen = rij?.middelen ?? [];
+    for (const middel of ingenomen) {
+      api.setMiddel(persoon.naam, middel, false);
+    }
+    return ok(
+      `${persoon.naam} uit dienst gezet${ingenomen.length ? `; ingenomen: ${ingenomen.join(", ")}` : ""} (registratie blijft bewaard).`,
+      { naam: persoon.naam },
+    );
+  },
+
   wijzig_taal: (args, api, bron) => {
     const invoer = str(args, "taal");
     if (!invoer || invoer.length > MIDDELEN_LIMITS.taal) return fout("Ongeldige taal.");
@@ -371,19 +420,23 @@ const HANDLERS: Record<MiddelenToolName, Handler> = {
       : geen(`${naam} staat al in de registratie.`, { naam });
   },
 
-  verwijder_medewerker: (args, api, _bron) => {
+  verwijder_medewerker: (args, api, bron) => {
     const state = api.getState();
-    const persoon = zoek(
-      args.naam,
-      state.medewerkers.map((rij) => rij.naam),
-      "medewerker",
-    );
+    const persoon = zoek(args.naam, persoonKandidaten(state, bron), "medewerker");
     if (!("naam" in persoon)) return fout(persoon.melding);
+    // Zelfde regel als de pagina (VerwijderKnop alleen bij niet-bron-rijen):
+    // databron-medewerkers zijn niet te verwijderen — vertrek/ontslag hoort
+    // via zet_dienstverband, dat de historie bewaart.
+    if (bron.medewerkers.includes(persoon.naam)) {
+      return fout(
+        `${persoon.naam} staat in de databron en kan niet worden verwijderd. Bedoelt u uit dienst zetten? Gebruik zet_dienstverband met uitDienst=true.`,
+      );
+    }
+    if (!state.medewerkers.some((rij) => rij.naam === persoon.naam)) {
+      return geen(`${persoon.naam} heeft geen registratierij om te verwijderen.`, { naam: persoon.naam });
+    }
     api.removePersoon(persoon.naam);
-    return ok(
-      `${persoon.naam} verwijderd uit de registratie (een medewerker uit de databron blijft daar zichtbaar, zonder registratie).`,
-      { naam: persoon.naam },
-    );
+    return ok(`${persoon.naam} verwijderd uit de registratie.`, { naam: persoon.naam });
   },
 
   voeg_team_toe: (args, api, bron) => {

@@ -293,7 +293,7 @@ function NavItemBadge({ badge }: { badge?: NavBadge }) {
       className={cn(
         "rounded-sm border capitalize",
         badge === "new" &&
-          "border-green-700 text-green-700 peer-hover/menu-button:text-green-700 peer-data-active/menu-button:text-green-700 dark:border-green-400 dark:text-green-400 dark:peer-hover/menu-button:text-green-400 dark:peer-data-active/menu-button:text-green-400",
+          "border-green-700 text-green-700 peer-hover/menu-button:text-green-700 peer-data-active/menu-button:text-green-700 dark:border-green-400 dark:text-green-400 dark:peer-data-active/menu-button:text-green-400 dark:peer-hover/menu-button:text-green-400",
         badge === "soon" && "border-muted-foreground text-muted-foreground",
       )}
     >

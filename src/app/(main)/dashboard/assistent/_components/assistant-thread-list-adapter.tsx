@@ -10,9 +10,15 @@ import {
 } from "@assistant-ui/react";
 import { createAssistantStream } from "assistant-stream";
 
-const THREADS_KEY = "careon:assistent:threads:v1";
-const MESSAGES_PREFIX = "careon:assistent:messages:v1:";
+import {
+  ASSISTANT_HISTORY_RETENTION_MS,
+  ASSISTANT_MESSAGES_PREFIX,
+  ASSISTANT_THREADS_KEY,
+  careonAssistantStorage,
+} from "@/lib/careon-assistant/storage.client";
+
 const FALLBACK_TITLE = "Nieuwe chat";
+const MAX_THREADS = 50;
 
 interface StoredThread {
   remoteId: string;
@@ -32,19 +38,6 @@ interface StoredRepository {
   messages: StoredMessageEntry[];
   headId?: string;
   [key: string]: unknown;
-}
-
-function safeStorage(): Storage | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const storage = window.localStorage;
-    const probe = "__careon_assistent_probe__";
-    storage.setItem(probe, "1");
-    storage.removeItem(probe);
-    return storage;
-  } catch {
-    return null;
-  }
 }
 
 function messageText(message: StoredMessageEntry["message"]): string {
@@ -87,11 +80,11 @@ function normalizeRepository(repository: unknown): StoredRepository {
   };
 }
 
-// LocalStorage-backed thread list (falls back to memory when storage is
-// unavailable). Mirrors the audited assistant: auto-titles from the first
-// user message, archive/delete, per-thread message history.
+// Privacy-default: sessionStorage, optioneel korte localStorage-retentie of
+// volledig uit. Valt terug op geheugen wanneer browseropslag niet beschikbaar
+// is. Inhoud wordt nooit naar de servertelemetrie geschreven.
 export class CareonAssistantThreadListAdapter {
-  storage = safeStorage();
+  storage = careonAssistantStorage();
   memoryThreads: StoredThread[] = [];
   memoryMessages = new Map<string, StoredRepository>();
 
@@ -104,8 +97,31 @@ export class CareonAssistantThreadListAdapter {
   readThreads(): StoredThread[] {
     if (!this.storage) return this.memoryThreads;
     try {
-      const parsed = JSON.parse(this.storage.getItem(THREADS_KEY) ?? "[]");
-      return Array.isArray(parsed) ? parsed : [];
+      const parsed: unknown = JSON.parse(this.storage.getItem(ASSISTANT_THREADS_KEY) ?? "[]");
+      if (!Array.isArray(parsed)) return [];
+      const cutoff = Date.now() - ASSISTANT_HISTORY_RETENTION_MS;
+      const valid = parsed.filter(
+        (thread): thread is StoredThread =>
+          Boolean(thread) &&
+          typeof thread === "object" &&
+          typeof (thread as StoredThread).remoteId === "string" &&
+          ((thread as StoredThread).updatedAt === undefined ||
+            ((thread as StoredThread).updatedAt as number) >= cutoff),
+      );
+      for (const thread of parsed) {
+        if (
+          thread &&
+          typeof thread === "object" &&
+          typeof (thread as StoredThread).remoteId === "string" &&
+          !valid.includes(thread as StoredThread)
+        ) {
+          this.storage.removeItem(`${ASSISTANT_MESSAGES_PREFIX}${(thread as StoredThread).remoteId}`);
+        }
+      }
+      if (valid.length !== parsed.length) {
+        this.storage.setItem(ASSISTANT_THREADS_KEY, JSON.stringify(valid));
+      }
+      return valid;
     } catch {
       return [];
     }
@@ -118,10 +134,14 @@ export class CareonAssistantThreadListAdapter {
   }
 
   writeThreads(threads: StoredThread[]) {
-    const sorted = [...threads].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+    const sorted = [...threads].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, MAX_THREADS);
     if (this.storage) {
       try {
-        this.storage.setItem(THREADS_KEY, JSON.stringify(sorted));
+        const kept = new Set(sorted.map((thread) => thread.remoteId));
+        for (const thread of threads) {
+          if (!kept.has(thread.remoteId)) this.storage.removeItem(`${ASSISTANT_MESSAGES_PREFIX}${thread.remoteId}`);
+        }
+        this.storage.setItem(ASSISTANT_THREADS_KEY, JSON.stringify(sorted));
         return;
       } catch {
         this.fallbackToMemory();
@@ -218,7 +238,7 @@ export class CareonAssistantThreadListAdapter {
     this.writeThreads(this.readThreads().filter((thread) => thread.remoteId !== remoteId));
     if (this.storage) {
       try {
-        this.storage.removeItem(`${MESSAGES_PREFIX}${remoteId}`);
+        this.storage.removeItem(`${ASSISTANT_MESSAGES_PREFIX}${remoteId}`);
         return;
       } catch {
         this.fallbackToMemory();
@@ -254,7 +274,7 @@ class CareonAssistantHistoryAdapter {
   ) {}
 
   key() {
-    return `${MESSAGES_PREFIX}${this.threadId}`;
+    return `${ASSISTANT_MESSAGES_PREFIX}${this.threadId}`;
   }
 
   readRepository(): StoredRepository {

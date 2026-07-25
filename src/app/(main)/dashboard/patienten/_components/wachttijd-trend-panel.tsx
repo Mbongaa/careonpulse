@@ -37,20 +37,20 @@ export function WachttijdTrendPanel({ className }: Readonly<{ className?: string
       footer={`Rood = maanden met starters boven de Treeknorm (${TREEKNORM_WEKEN} wkn); ${nl.format(totaalOverTreek)} starter(s) overschreden de norm (${CAREON_TIMEFRAME_LABELS[timeframe].toLowerCase()}). Kleine aantallen per maand: lees de n mee.`}
     >
       <CareonBarList
-        items={trend.map((maand) => ({
-          label: maand.m,
-          value: maand.mediaanDagen ?? 0,
-          display:
-            maand.mediaanDagen === null
-              ? "— · n=0"
-              : `${nl.format(maand.mediaanDagen)} dgn · n=${nl.format(maand.n)}${maand.overTreek > 0 ? ` · ${maand.overTreek}× >norm` : ""}`,
-          tone:
-            maand.mediaanDagen !== null && maand.mediaanDagen > TREEKNORM_DAGEN
-              ? ("bad" as const)
-              : maand.overTreek > 0
-                ? ("warn" as const)
-                : undefined,
-        }))}
+        items={trend.map((maand) => {
+          let tone: "bad" | "warn" | undefined;
+          if (maand.mediaanDagen !== null && maand.mediaanDagen > TREEKNORM_DAGEN) tone = "bad";
+          else if (maand.overTreek > 0) tone = "warn";
+          return {
+            label: maand.m,
+            value: maand.mediaanDagen ?? 0,
+            display:
+              maand.mediaanDagen === null
+                ? "— · n=0"
+                : `${nl.format(maand.mediaanDagen)} dgn · n=${nl.format(maand.n)}${maand.overTreek > 0 ? ` · ${maand.overTreek}× >norm` : ""}`,
+            tone,
+          };
+        })}
       />
     </CareonChartCard>
   );

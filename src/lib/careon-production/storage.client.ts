@@ -43,6 +43,7 @@ export function saveProductionState(state: ProductionState): boolean {
 export function clearProductionState(): void {
   try {
     window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(OPTOUT_KEY);
   } catch {
     // localStorage niet beschikbaar — niets te wissen.
   }

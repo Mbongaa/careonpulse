@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { type ClientRecord, isClientRecord, type ProductionState } from "@/lib/careon-production/types";
+import { InvalidJsonBodyError, RequestPayloadTooLargeError, readJsonBodyLimited } from "@/lib/http/read-json.server";
 
 // Optionele Supabase-persistentie voor productie-modus. Zonder geconfigureerde
 // omgeving (zie .env.example) antwoordt deze route met 501 en valt de client
@@ -20,6 +21,8 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SYNC_TOKEN = process.env.NEXT_PUBLIC_CAREON_SYNC_TOKEN;
 
 const MAX_RECORDS = 20_000;
+const MAX_BODY_BYTES = 25_000_000;
+const INSERT_BATCH_SIZE = 500;
 
 function restHeaders(): HeadersInit {
   return {
@@ -27,6 +30,15 @@ function restHeaders(): HeadersInit {
     Authorization: `Bearer ${SERVICE_KEY}`,
     "Content-Type": "application/json",
   };
+}
+
+async function storageFetch(input: string, init?: RequestInit): Promise<Response | null> {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    console.error("Production storage request unavailable", error);
+    return null;
+  }
 }
 
 function notConfigured() {
@@ -70,11 +82,11 @@ type RecordsResult =
 async function fetchRunRecords(runId: string, totalRows: number): Promise<RecordsResult> {
   const records: ClientRecord[] = [];
   while (records.length < totalRows && records.length < MAX_RECORDS) {
-    const response = await fetch(
+    const response = await storageFetch(
       `${SUPABASE_URL}/rest/v1/careon_import_records?select=record&run_id=eq.${runId}&order=id.asc&limit=${PAGE_SIZE}&offset=${records.length}`,
       { headers: restHeaders(), cache: "no-store" },
     );
-    if (!response.ok) {
+    if (!response?.ok) {
       return { status: "error" };
     }
     const rows = (await response.json()) as { record: ClientRecord }[];
@@ -94,11 +106,11 @@ export async function GET(request: Request) {
   // Drie runs i.p.v. één, plus een volledigheidscontrole: een run waarvan de
   // records-insert halverwege faalde mag niet als "laatste stand" doorgaan en
   // de vorige goede run verduisteren.
-  const runResponse = await fetch(
+  const runResponse = await storageFetch(
     `${SUPABASE_URL}/rest/v1/careon_import_runs?select=id,file_name,imported_at,total_rows&order=imported_at.desc&limit=3`,
     { headers: restHeaders(), cache: "no-store" },
   );
-  if (!runResponse.ok) {
+  if (!runResponse?.ok) {
     return NextResponse.json({ error: "Supabase niet bereikbaar." }, { status: 502 });
   }
   const runs = (await runResponse.json()) as RunRow[];
@@ -127,14 +139,22 @@ export async function POST(request: Request) {
   const denied = guard(request);
   if (denied) return denied;
 
-  let body: Partial<ProductionState>;
+  let body: Partial<ProductionState> & { operationId?: unknown };
   try {
-    body = (await request.json()) as Partial<ProductionState>;
-  } catch {
+    body = await readJsonBodyLimited<Partial<ProductionState> & { operationId?: unknown }>(request, MAX_BODY_BYTES);
+  } catch (error) {
+    if (error instanceof RequestPayloadTooLargeError) {
+      return NextResponse.json({ error: "Productie-import is te groot." }, { status: 413 });
+    }
+    if (!(error instanceof InvalidJsonBodyError)) {
+      console.error("Production import body read failed", error);
+    }
     return NextResponse.json({ error: "Ongeldige JSON." }, { status: 400 });
   }
 
   if (
+    typeof body.operationId !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.operationId) ||
     typeof body.fileName !== "string" ||
     typeof body.importedAt !== "string" ||
     !Array.isArray(body.records) ||
@@ -145,34 +165,53 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Ongeldige productie-state." }, { status: 400 });
   }
 
-  const runResponse = await fetch(`${SUPABASE_URL}/rest/v1/careon_import_runs`, {
+  const runResponse = await storageFetch(`${SUPABASE_URL}/rest/v1/careon_import_runs`, {
     method: "POST",
     headers: { ...restHeaders(), Prefer: "return=representation" },
     body: JSON.stringify({
       file_name: body.fileName,
       imported_at: body.importedAt,
       total_rows: body.records.length,
+      operation_id: body.operationId,
     }),
   });
-  if (!runResponse.ok) {
+  if (!runResponse?.ok) {
+    if (runResponse?.status === 409) {
+      const existing = await storageFetch(
+        `${SUPABASE_URL}/rest/v1/careon_import_runs?select=id,total_rows&operation_id=eq.${body.operationId}&limit=1`,
+        { headers: restHeaders(), cache: "no-store" },
+      );
+      if (existing?.ok) {
+        const [row] = (await existing.json()) as { id: string; total_rows: number }[];
+        if (row) {
+          const result = await fetchRunRecords(row.id, row.total_rows);
+          if (result.status === "ok") {
+            return NextResponse.json({ configured: true, runId: row.id, idempotent: true });
+          }
+          return NextResponse.json({ error: "Deze import wordt nog verwerkt; probeer opnieuw." }, { status: 409 });
+        }
+      }
+    }
     return NextResponse.json({ error: "Import-run kon niet worden opgeslagen." }, { status: 502 });
   }
   const [run] = (await runResponse.json()) as { id: string }[];
 
-  const recordsResponse = await fetch(`${SUPABASE_URL}/rest/v1/careon_import_records`, {
-    method: "POST",
-    headers: restHeaders(),
-    body: JSON.stringify(body.records.map((record) => ({ run_id: run.id, record }))),
-  });
-  if (!recordsResponse.ok) {
-    // Compenserende delete: zonder deze opruiming blijft een lege run als
-    // "nieuwste" staan (de GET-volledigheidscontrole vangt dat ook, maar een
-    // wees-run hoort niet in de historie).
-    await fetch(`${SUPABASE_URL}/rest/v1/careon_import_runs?id=eq.${run.id}`, {
-      method: "DELETE",
+  for (let offset = 0; offset < body.records.length; offset += INSERT_BATCH_SIZE) {
+    const batch = body.records.slice(offset, offset + INSERT_BATCH_SIZE);
+    const recordsResponse = await storageFetch(`${SUPABASE_URL}/rest/v1/careon_import_records`, {
+      method: "POST",
       headers: restHeaders(),
-    }).catch(() => undefined);
-    return NextResponse.json({ error: "Records konden niet worden opgeslagen." }, { status: 502 });
+      body: JSON.stringify(batch.map((record) => ({ run_id: run.id, record }))),
+    });
+    if (!recordsResponse?.ok) {
+      // Compenserende delete cascades every completed batch, so an incomplete
+      // run can never become the latest visible snapshot.
+      await storageFetch(`${SUPABASE_URL}/rest/v1/careon_import_runs?id=eq.${run.id}`, {
+        method: "DELETE",
+        headers: restHeaders(),
+      }).catch(() => undefined);
+      return NextResponse.json({ error: "Records konden niet volledig worden opgeslagen." }, { status: 502 });
+    }
   }
 
   return NextResponse.json({ configured: true, runId: run.id });

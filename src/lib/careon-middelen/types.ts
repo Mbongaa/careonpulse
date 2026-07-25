@@ -40,6 +40,8 @@ export interface MedewerkerMiddelen {
   naam: string;
   /** Handmatig toegevoegd persoon (bijv. kantoorpersoneel, niet in de behandelarenbron). */
   handmatig?: boolean;
+  /** Uit dienst: registratie blijft bewaard (historie), middelen zijn ingenomen. */
+  uitDienst?: boolean;
   middelen: MiddelType[];
   /** Functie/kwalificatie (bijv. Basispsycholoog, GZ-psycholoog) — vrije registratie. */
   functie?: string;
@@ -77,6 +79,13 @@ export interface MiddelenState {
   updatedAt: string;
 }
 
+/** Metadata bij een centrale wijziging. Bevat bewust geen namen of tool-args. */
+export interface MiddelenChangeAudit {
+  source: "assistant" | "manual";
+  toolNames?: string[];
+  requestIds?: string[];
+}
+
 // Grenzen voor de API-route: ruim boven reëel gebruik, maar een harde rem
 // tegen misvormde of kwaadwillige payloads.
 export const MIDDELEN_LIMITS = {
@@ -105,6 +114,7 @@ function isMedewerkerMiddelen(value: unknown): value is MedewerkerMiddelen {
     row.naam.trim().length > 0 &&
     row.naam.length <= MIDDELEN_LIMITS.naam &&
     (row.handmatig === undefined || typeof row.handmatig === "boolean") &&
+    (row.uitDienst === undefined || typeof row.uitDienst === "boolean") &&
     Array.isArray(row.middelen) &&
     row.middelen.every((middel) => (MIDDEL_TYPES as readonly string[]).includes(middel as string)) &&
     (row.functie === undefined || (typeof row.functie === "string" && row.functie.length <= MIDDELEN_LIMITS.functie)) &&

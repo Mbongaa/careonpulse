@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { headers } from "next/headers";
+
 import type { Metadata, Viewport } from "next";
 
 import { ServiceWorkerRegister } from "@/components/pwa/sw-register";
@@ -35,9 +37,10 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   const { theme_mode, theme_preset, content_layout, navbar_style, sidebar_variant, sidebar_collapsible, font } =
     PREFERENCE_DEFAULTS;
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html
       lang="nl"
@@ -52,7 +55,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
     >
       <head>
         {/* Applies theme and layout preferences on load to avoid flicker and unnecessary server rerenders. */}
-        <ThemeBootScript />
+        <ThemeBootScript nonce={nonce} />
       </head>
       <body className={`${fontVars} min-h-screen antialiased`}>
         <TooltipProvider>

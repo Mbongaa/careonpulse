@@ -10,7 +10,10 @@ async function loginViaSession(page: Page) {
 
 test.describe("auth", () => {
   test("unauthenticated dashboard visit redirects to login", async ({ page }) => {
-    await page.goto("/dashboard/directiecockpit");
+    const response = await page.goto("/dashboard/directiecockpit");
+    const csp = response?.headers()["content-security-policy"] ?? "";
+    expect(csp).toContain("script-src 'self' 'nonce-");
+    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
     await page.waitForURL(`**${LOGIN_URL}`);
     await expect(page.getByPlaceholder("Gebruikersnaam")).toBeVisible();
   });
@@ -50,9 +53,33 @@ test.describe("auth", () => {
     await page.waitForURL("**/dashboard/directiecockpit");
     await expect(page.getByRole("heading", { name: "Directiecockpit" })).toBeVisible();
 
+    await page.evaluate(async () => {
+      window.localStorage.setItem("careon-production-v1", '{"sensitive":true}');
+      window.localStorage.setItem("careon-middelen-v2", '{"sensitive":true}');
+      window.localStorage.setItem("careon-hr-v2", '{"sensitive":true}');
+      window.sessionStorage.setItem("careon-assistant-session-v1", "session-test");
+      const cache = await window.caches.open("careon-sensitive-test");
+      await cache.put("/dashboard/sensitive", new Response("sensitive"));
+    });
     await page.getByRole("button", { name: "Peter Verstraten" }).click();
     await page.getByRole("menuitem", { name: "Uitloggen" }).click();
     await page.waitForURL(`**${LOGIN_URL}`);
+    const cleared = await page.evaluate(async () => ({
+      auth: window.sessionStorage.getItem("careon-auth"),
+      session: window.sessionStorage.getItem("careon-assistant-session-v1"),
+      production: window.localStorage.getItem("careon-production-v1"),
+      middelen: window.localStorage.getItem("careon-middelen-v2"),
+      hr: window.localStorage.getItem("careon-hr-v2"),
+      sensitiveCache: (await window.caches.keys()).includes("careon-sensitive-test"),
+    }));
+    expect(cleared).toEqual({
+      auth: null,
+      session: null,
+      production: null,
+      middelen: null,
+      hr: null,
+      sensitiveCache: false,
+    });
   });
 });
 
@@ -173,6 +200,18 @@ test.describe("behandelaren", () => {
 });
 
 test.describe("assistant api", () => {
+  test("liveness is healthy and readiness reports missing isolated dependencies", async ({ request }) => {
+    const live = await request.get("/api/health/live");
+    expect(live.status()).toBe(200);
+    expect((await live.json()).status).toBe("ok");
+
+    const ready = await request.get("/api/health/ready");
+    expect(ready.status()).toBe(503);
+    const payload = await ready.json();
+    expect(payload.status).toBe("not_ready");
+    expect(payload.checks.database).toBe(false);
+  });
+
   test("health probe reports fallback mode and posts are refused without live AI", async ({ request }) => {
     // The e2e webServer sets CAREON_ASSISTANT_LIVE=0, so live must be false
     // and the POST endpoint must refuse with 503 (client then falls back).
@@ -325,6 +364,51 @@ test.describe("middelen & inventaris", () => {
     await badge.click();
     await page.waitForURL("**/dashboard/middelen");
     await expect(page.getByRole("heading", { name: "Medewerkers & middelen" })).toBeVisible();
+  });
+});
+
+test.describe("hr (handmatige registratie)", () => {
+  test("page shows manual KPIs and the editors (handmatig)", async ({ page }) => {
+    await loginViaSession(page);
+    await page.goto("/dashboard/hr");
+    // Herkomst is expliciet handmatig, geen demo.
+    await expect(page.getByText("Handmatig", { exact: true }).first()).toBeVisible();
+    // De drie handmatige editors.
+    await expect(page.getByRole("heading", { name: "HR-kerncijfers bijwerken" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Ziekteverzuim-reeks & benchmark" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "BIG-registraties beheren" })).toBeVisible();
+    // KPI-invoer met de geauditeerde seedwaarde.
+    await expect(page.getByLabel("Ziekteverzuim — huidige waarde")).toHaveValue("5.8");
+    // Seed levert precies drie BIG-registraties in de beheertabel.
+    await expect(page.getByRole("textbox", { name: /^Naam — rij \d+$/ })).toHaveCount(3);
+  });
+
+  test("editing a KPI value persists across a reload", async ({ page }) => {
+    await loginViaSession(page);
+    await page.goto("/dashboard/hr");
+    const input = page.getByLabel("Ziekteverzuim — huidige waarde");
+    await input.fill("4.2");
+    await expect(input).toHaveValue("4.2");
+    await page.reload();
+    await expect(page.getByLabel("Ziekteverzuim — huidige waarde")).toHaveValue("4.2");
+  });
+
+  test("adding and removing a BIG registration", async ({ page }) => {
+    await loginViaSession(page);
+    await page.goto("/dashboard/hr");
+    const rows = page.getByRole("textbox", { name: /^Naam — rij \d+$/ });
+    await expect(rows).toHaveCount(3);
+    // Toevoegen: naam + verloopdatum invullen en opslaan.
+    await page.getByLabel("Naam nieuwe BIG-registratie").fill("K. Test");
+    await page.getByLabel("Functie nieuwe BIG-registratie").fill("SPV");
+    await page.getByLabel("Verloopdatum nieuwe BIG-registratie").fill("2026-12-01");
+    await page.getByRole("button", { name: "Registratie toevoegen" }).click();
+    // Het formulier maakt zich leeg en er staat nu een vierde rij.
+    await expect(page.getByLabel("Naam nieuwe BIG-registratie")).toHaveValue("");
+    await expect(rows).toHaveCount(4);
+    // Verwijderen brengt het terug naar drie.
+    await page.getByRole("button", { name: "Verwijder registratie K. Test" }).click();
+    await expect(rows).toHaveCount(3);
   });
 });
 

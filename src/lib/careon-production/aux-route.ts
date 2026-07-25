@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { InvalidJsonBodyError, RequestPayloadTooLargeError, readJsonBodyLimited } from "@/lib/http/read-json.server";
+
 // Gedeelde route-fabriek voor de aanvullende-exportopslag (agenda,
 // verwijzers): zelfde patroon en drempels als /api/careon/middelen —
 // PostgREST-fetch met server-side service-role key, sync-token als drempel
@@ -21,6 +23,15 @@ function restHeaders(): HeadersInit {
   };
 }
 
+async function storageFetch(input: string, init?: RequestInit): Promise<Response | null> {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    console.error("Auxiliary storage request unavailable", error);
+    return null;
+  }
+}
+
 function guard(request: Request): NextResponse | null {
   if (!SUPABASE_URL || !SERVICE_KEY || !SYNC_TOKEN) {
     return NextResponse.json({ configured: false }, { status: 501 });
@@ -36,11 +47,11 @@ export function createAuxStateHandlers<T>(table: string, isValid: (value: unknow
     const denied = guard(request);
     if (denied) return denied;
 
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=state&order=saved_at.desc&limit=1`, {
+    const response = await storageFetch(`${SUPABASE_URL}/rest/v1/${table}?select=state&order=saved_at.desc&limit=1`, {
       headers: restHeaders(),
       cache: "no-store",
     });
-    if (!response.ok) {
+    if (!response?.ok) {
       return NextResponse.json({ error: "Supabase niet bereikbaar." }, { status: 502 });
     }
     const rows = (await response.json()) as { state: unknown }[];
@@ -52,31 +63,41 @@ export function createAuxStateHandlers<T>(table: string, isValid: (value: unknow
     const denied = guard(request);
     if (denied) return denied;
 
-    let raw: string;
+    let body: { state?: unknown; operationId?: unknown };
     try {
-      raw = await request.text();
-    } catch {
+      body = await readJsonBodyLimited<{ state?: unknown; operationId?: unknown }>(request, MAX_BODY_BYTES);
+    } catch (error) {
+      if (error instanceof RequestPayloadTooLargeError) {
+        return NextResponse.json({ error: `${label} is te groot voor centrale opslag.` }, { status: 413 });
+      }
+      if (!(error instanceof InvalidJsonBodyError)) {
+        console.error(`Auxiliary ${label} body read failed`, error);
+      }
       return NextResponse.json({ error: "Ongeldige aanvraag." }, { status: 400 });
     }
-    if (raw.length > MAX_BODY_BYTES) {
-      return NextResponse.json({ error: `${label} is te groot voor centrale opslag.` }, { status: 413 });
-    }
-    let body: unknown;
-    try {
-      body = JSON.parse(raw);
-    } catch {
-      return NextResponse.json({ error: "Ongeldige JSON." }, { status: 400 });
-    }
-    if (!isValid(body)) {
+    if (
+      typeof body.operationId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.operationId) ||
+      !isValid(body.state)
+    ) {
       return NextResponse.json({ error: `Ongeldige ${label}.` }, { status: 400 });
     }
 
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+    const response = await storageFetch(`${SUPABASE_URL}/rest/v1/${table}`, {
       method: "POST",
       headers: restHeaders(),
-      body: JSON.stringify({ state: body }),
+      body: JSON.stringify({ state: body.state, operation_id: body.operationId }),
     });
-    if (!response.ok) {
+    if (!response?.ok) {
+      if (response?.status === 409) {
+        const existing = await storageFetch(
+          `${SUPABASE_URL}/rest/v1/${table}?select=id&operation_id=eq.${body.operationId}&limit=1`,
+          { headers: restHeaders(), cache: "no-store" },
+        );
+        if (existing?.ok && ((await existing.json()) as unknown[]).length === 1) {
+          return NextResponse.json({ configured: true, idempotent: true });
+        }
+      }
       return NextResponse.json({ error: `${label} kon niet worden opgeslagen.` }, { status: 502 });
     }
     return NextResponse.json({ configured: true });

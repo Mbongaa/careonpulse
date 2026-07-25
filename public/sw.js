@@ -2,9 +2,8 @@
 // Strategy: network-first for page navigations (offline.html as fallback),
 // cache-first for hashed build assets, stale-while-revalidate for other
 // same-origin static files. Bump VERSION to invalidate all runtime caches.
-const VERSION = "careon-pwa-v2"; // v2: nieuwe brand-iconen ("C · Open Beat")
+const VERSION = "careon-pwa-v3";
 const STATIC_CACHE = `${VERSION}-static`;
-const PAGE_CACHE = `${VERSION}-pages`;
 const OFFLINE_URL = "/offline.html";
 
 const PRECACHE = [
@@ -44,18 +43,11 @@ function isStaticFile(url) {
 }
 
 async function networkFirstPage(request) {
-  const cache = await caches.open(PAGE_CACHE);
   try {
-    const response = await fetch(request);
-    if (response.ok) {
-      cache.put(request, response.clone());
-    }
-    return response;
+    // Dashboard HTML is never persisted. A logged-out/shared browser cannot
+    // replay a previous user's dashboard document from CacheStorage.
+    return await fetch(request);
   } catch {
-    const cached = await cache.match(request);
-    if (cached) {
-      return cached;
-    }
     const offline = await caches.match(OFFLINE_URL);
     return offline ?? Response.error();
   }

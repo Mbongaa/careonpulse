@@ -7,9 +7,19 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+  ...(process.env.NODE_ENV === "production"
+    ? [
+        // Preload is an irreversible domain-wide commitment. Enable it only
+        // after every subdomain is verified as HTTPS-only.
+        { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+      ]
+    : []),
 ];
 
 const nextConfig = {
+  poweredByHeader: false,
   // Aparte build-map instelbaar via env: Windows-dev en WSL-builds delen deze
   // map via /mnt/c en corrumperen anders elkaars .next-cache/lockfile.
   // WSL-kant: NEXT_DIST_DIR=.next-wsl npm run dev/build.
@@ -22,7 +32,8 @@ const nextConfig = {
   },
   reactCompiler: true,
   compiler: {
-    removeConsole: process.env.NODE_ENV === "production",
+    // Keep operational warnings and failures observable in production.
+    removeConsole: process.env.NODE_ENV === "production" ? { exclude: ["warn", "error"] } : false,
   },
   async headers() {
     return [
