@@ -307,6 +307,32 @@ export function computeProductionSnapshot(
     omzetRmoRma: null,
   }));
 
+  // Volledige historie (klantverzoek 2026-07-25): dezelfde maandreeks, maar
+  // vanaf de vroegste databron-maand i.p.v. de laatste 12. Alléén de
+  // tijdvenster-grafieken gebruiken deze reeks (de "Alles"-optie); de
+  // 12-maands-KPI's, sparklines, wachttijdtrend en per-behandelaar/dossiers-
+  // productie-cijfers blijven bewust op `monthly` (12). Maandlabels dragen het
+  // jaar ("apr '25") zodat een meerjarige as niet dubbelzinnig is.
+  const monthNr = (key: string) => Number(key.slice(0, 4)) * 12 + Number(key.slice(5, 7));
+  const vroegsteStartMaand = [...startsPerMaand.keys()].sort()[0];
+  const volledigAantalMaanden = vroegsteStartMaand
+    ? Math.max(12, monthNr(lastMonth.key) - monthNr(vroegsteStartMaand) + 1)
+    : 12;
+  const monthsFull = lastFullMonths(referenceIso, volledigAantalMaanden);
+  const monthlyFull: ProductionMonthPoint[] = monthsFull.map((month) => ({
+    m: `${MAAND_LABELS[month.month0]} '${String(month.year).slice(2)}`,
+    key: month.key,
+    aanmeldingen: startsPerMaand.get(month.key) ?? 0,
+    uitstroom: eindesPerMaand.get(month.key) ?? 0,
+    caseload: records.filter((record) => activeAt(record, month.endIso)).length,
+    verwijzingen: verwijzingenPerMaand.get(month.key) ?? 0,
+    noshowPct: null,
+    omzet: null,
+    omzetVecozo: null,
+    omzetServicebureau: null,
+    omzetRmoRma: null,
+  }));
+
   const actieveClienten = records.filter((record) => activeAt(record, referenceIso));
   const actiefNu = actieveClienten.length;
   const actiefVorigeMaand = monthly[monthly.length - 1].caseload;
@@ -433,18 +459,24 @@ export function computeProductionSnapshot(
     ),
     (record) => monthKeyOf(record.episodeStart),
   );
-  const wachttijdTrend = months.map((month) => {
+  const wachttijdRij = (month: MonthRef, label: string) => {
     const dagen = (wachtPerStartmaand.get(month.key) ?? [])
       .map((record) => daysBetween(record.verwijsdatum as string, record.episodeStart as string))
       .sort((a, b) => a - b);
     return {
-      m: month.label,
+      m: label,
       key: month.key,
       n: dagen.length,
       mediaanDagen: mediaan(dagen),
       overTreek: dagen.filter((d) => d > treeknormDagen).length,
     };
-  });
+  };
+  const wachttijdTrend = months.map((month) => wachttijdRij(month, month.label));
+  // Volledige historie voor de wachttijdgrafiek ("Alles"-optie); de facts en
+  // het kwartaalgemiddelde blijven op de 12-maands `wachttijdTrend`.
+  const wachttijdTrendFull = monthsFull.map((month) =>
+    wachttijdRij(month, `${MAAND_LABELS[month.month0]} '${String(month.year).slice(2)}`),
+  );
 
   const kwartaalStart = months[months.length - 3].key.concat("-01");
   const vorigKwartaalStart = months[months.length - 6].key.concat("-01");
@@ -1061,6 +1093,13 @@ export function computeProductionSnapshot(
     const prevAgendaMonth = agendaMonths[agendaMonths.length - 2];
     const maandLabel = MAAND_NAMEN[lastAgendaMonth.month0];
     const agendaKeys = new Set(agendaMonths.map((month) => month.key));
+    // Volledige agenda-historie voor de tijdvenster-grafieken ("Alles"-optie:
+    // maandreeks, omzet per koepel/locatie). De 12-maands rollups, kaarten en
+    // per-behandelaar/dossiers-productie-cijfers blijven op agendaMonths/agendaKeys.
+    const agendaVroegsteMaand = agendaFacts.bronVan.slice(0, 7);
+    const agendaVolledigAantal = Math.max(12, monthNr(lastAgendaMonth.key) - monthNr(agendaVroegsteMaand) + 1);
+    const agendaMonthsFull = lastFullMonths(agendaRefIso, agendaVolledigAantal);
+    const agendaFullKeys = new Set(agendaMonthsFull.map((month) => month.key));
 
     const NUM_VELDEN = [
       "sessies",
@@ -1409,8 +1448,10 @@ export function computeProductionSnapshot(
     // Ongeaffronde bedragen: afronden gebeurt pas ná de som per venster.
     const koepelMaand = new Map<string, number>();
     const locatieMaand = new Map<string, number>();
+    // Volledige historie zodat de "Alles"-optie op Financieel klopt; het venster
+    // wordt client-side gekozen via timeframeKeys(maandreeks-keys, ...).
     const telVenster = (doel: Map<string, number>, key: string, groep: string, omzet: number) => {
-      if (!agendaKeys.has(key)) return;
+      if (!agendaFullKeys.has(key)) return;
       const sleutel = `${key}|${groep}`;
       doel.set(sleutel, (doel.get(sleutel) ?? 0) + omzet);
     };
@@ -1623,10 +1664,36 @@ export function computeProductionSnapshot(
       secondary: verwachtUitbetaald(rmoLaatste, 1, "100%"),
     };
 
+    // Afgeleide kopkaart voor de directie (klantverzoek 2026-07-25): totale
+    // omzet = som van de drie splitkaarten (Vecozo + servicebureau + RMO/RMA),
+    // zodat het kopcijfer live meebeweegt en nooit een "Demo"-badge toont.
+    cockpitKpis.omzettotaal = {
+      label: "Totale omzet",
+      value: Math.round(vecozoLaatste + sbLaatste + rmoLaatste),
+      prev: Math.round(vecozoVorige + sbVorige + rmoVorige),
+      spark: agendaMonths.map((month) =>
+        Math.round(
+          (omzetVecozoPerMaand.get(month.key) ?? 0) +
+            (omzetSbPerMaand.get(month.key) ?? 0) +
+            (omzetRmoPerMaand.get(month.key) ?? 0),
+        ),
+      ),
+      windowLabel: `behandelmaand ${maandLabel}`,
+      // Verwacht uitbetaald: zelfde blend als de Financieel-kopkaart
+      // (Vecozo + servicebureau × 65%, RMO/RMA 100%).
+      secondary: {
+        label: "Verwacht uitbetaald (65% · RMO/RMA 100%)",
+        value: verwachtTotaal(vecozoLaatste, sbLaatste, rmoLaatste),
+        f: "eurK",
+      },
+    };
+
     // ---- Maandreeks verrijken (no-show-trend en omzetontwikkeling) ----
+    // Dezelfde verrijking op zowel de 12-maandsreeks als de volledige historie
+    // (de per-maand-maps dekken álle maanden — alleen de aggregaten zijn gevensterd).
     const bronVanMaand = agendaFacts.bronVan.slice(0, 7);
     const bronTotMaand = agendaFacts.bronTot.slice(0, 7);
-    for (const point of monthly) {
+    const verrijkMaand = (point: ProductionMonthPoint) => {
       const rollup = perMaand.get(point.key);
       point.noshowPct =
         rollup && rollup.sessies - rollup.tijdigAfgezegd > 0
@@ -1637,7 +1704,9 @@ export function computeProductionSnapshot(
       point.omzetVecozo = binnenBereik ? Math.round(omzetVecozoPerMaand.get(point.key) ?? 0) : null;
       point.omzetServicebureau = binnenBereik ? Math.round(omzetSbPerMaand.get(point.key) ?? 0) : null;
       point.omzetRmoRma = binnenBereik ? Math.round(omzetRmoPerMaand.get(point.key) ?? 0) : null;
-    }
+    };
+    for (const point of monthly) verrijkMaand(point);
+    for (const point of monthlyFull) verrijkMaand(point);
 
     // ---- Signaleringen uit de agenda ----
     if (z60 > 0) {
@@ -1705,7 +1774,7 @@ export function computeProductionSnapshot(
       });
     }
 
-    const maandreeks = agendaMonths.map((month) => {
+    const maandreeks = agendaMonthsFull.map((month) => {
       const rollup = van(month.key);
       return {
         key: month.key,
@@ -2035,12 +2104,14 @@ export function computeProductionSnapshot(
     // De (op vestiging gefilterde) records zelf: bron voor de KPI-drilldowns.
     records,
     monthly,
+    monthlyFull,
     cockpitKpis,
     cockpitSummary,
     cockpitInsights,
     patientenMetrics,
     zorgvorm,
     wachttijdTrend,
+    wachttijdTrendFull,
     treekLocaties,
     risicoLijst,
     gemWachttijdWkn: {

@@ -3,7 +3,6 @@
  * calls are mocked; no network, API key, or database is used.
  */
 
-import { isSensitiveProxyInference } from "../lib/careon-assistant/policy";
 import { RequestPayloadTooLargeError, readJsonBodyLimited } from "../lib/http/read-json.server";
 
 let passes = 0;
@@ -42,19 +41,6 @@ function sse(...events: unknown[]): Response {
 }
 
 async function main() {
-  check(
-    "gevoelige taal-inferentie uit naam geblokkeerd",
-    isSensitiveProxyInference("Schat de tweede taal in op basis van de achternaam."),
-  );
-  check(
-    "gevoelige afkomst-inferentie uit foto geblokkeerd",
-    isSensitiveProxyInference("Leid de afkomst af aan de hand van de foto."),
-  );
-  check(
-    "expliciet geregistreerde taal blijft toegestaan",
-    !isSensitiveProxyInference("Gebruik de expliciet geregistreerde tweede taal."),
-  );
-
   const parsed = await readJsonBodyLimited<{ ok: boolean }>(
     new Request("http://careon.test/body", { method: "POST", body: '{"ok":true}' }),
     32,
@@ -169,10 +155,11 @@ async function main() {
     check("moderation-uitval bereikt modelprovider niet", providerCalls === callsBeforeModerationFailure);
 
     providerMode = "complete";
-    const callsBeforePolicyBlock = providerCalls;
-    const policyBlocked = await POST(assistantRequest("Voeg een taal toe op basis van zijn naam."));
-    check("proxy-inferentie route antwoordt 400", policyBlocked.status === 400);
-    check("proxy-inferentie bereikt provider niet", providerCalls === callsBeforePolicyBlock);
+    const callsBeforeConceptRequest = providerCalls;
+    const conceptResponse = await POST(assistantRequest("Voeg een taal toe op basis van zijn naam."));
+    const conceptBody = await conceptResponse.text();
+    check("aanname-opdracht bereikt de modelprovider", providerCalls === callsBeforeConceptRequest + 1);
+    check("aanname-opdracht kan een concepttool opleveren", conceptBody.includes('"t":"tool"'));
   } finally {
     globalThis.fetch = originalFetch;
   }

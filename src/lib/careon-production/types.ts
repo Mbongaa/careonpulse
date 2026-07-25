@@ -282,7 +282,11 @@ export interface ProductionSnapshot {
   };
   /** De (op vestiging gefilterde) records — bron voor de KPI-drilldown-tabellen. */
   records: ClientRecord[];
+  /** Laatste 12 volle maanden — voedt KPI's, sparklines en de 12-maandsvensters. */
   monthly: ProductionMonthPoint[];
+  /** Volledige historie (vanaf de vroegste databron-maand) met jaar-labels —
+   * alléén voor de tijdvenster-grafieken ("Alles"-optie). */
+  monthlyFull: ProductionMonthPoint[];
   /** Per cockpit-KPI-id (alleen live/proxy ids aanwezig). */
   /** `label` overschrijft het demo-kaartlabel (bijv. "Omzet Vecozo (VGZ + DSW)"). */
   cockpitKpis: Record<
@@ -304,6 +308,8 @@ export interface ProductionSnapshot {
   /** Gerealiseerde wachttijd (verwijzing → start) per startmaand — de trend die
    * het kwartaalgemiddelde verbergt. */
   wachttijdTrend: { m: string; key: string; n: number; mediaanDagen: number | null; overTreek: number }[];
+  /** Volledige historie met jaar-labels — alléén voor de wachttijdgrafiek ("Alles"). */
+  wachttijdTrendFull: { m: string; key: string; n: number; mediaanDagen: number | null; overTreek: number }[];
   treekLocaties: {
     loc: string;
     intake: number | null;

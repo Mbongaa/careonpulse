@@ -92,10 +92,21 @@ test.describe("cockpit + filters", () => {
 
   test("shows audited KPI values and insights carousel", async ({ page }) => {
     await expect(page.getByText("1.248", { exact: true }).first()).toBeVisible();
+    // Totale omzet-kopkaart (klantverzoek 2026-07-25): € 493K = som van de splitsing.
+    await expect(page.getByText("Totale omzet")).toBeVisible();
+    await expect(page.getByText("€ 493K", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Careon Insights").first()).toBeVisible();
     await expect(page.getByText("No-show daalde van 4,1% naar 3,4%", { exact: false })).toBeVisible();
     await page.getByRole("button", { name: "Insight 2" }).click();
     await expect(page.getByText("Wachtlijst intake Roermond (15,2 wkn)", { exact: false })).toBeVisible();
+  });
+
+  test("charts expose an Alles (full history) timeframe option", async ({ page }) => {
+    // Klantverzoek 2026-07-25: naast 12m/6m/3m/1m een "Alles"-venster.
+    const alles = page.getByLabel("Alle maanden").first();
+    await expect(alles).toBeVisible();
+    await alles.click();
+    await expect(alles).toHaveAttribute("data-state", "on");
   });
 
   test("location filter scales KPIs and persists across pages", async ({ page }) => {
@@ -122,6 +133,12 @@ test.describe("cockpit + filters", () => {
     await page.getByRole("link", { name: "Open Planning" }).click();
     await page.waitForURL("**/dashboard/planning");
     await expect(page.getByRole("heading", { name: "Planning" })).toBeVisible();
+  });
+
+  test("Totale omzet card drills down to its detail page", async ({ page }) => {
+    await page.getByRole("link", { name: "Totale omzet" }).click();
+    await page.waitForURL("**/dashboard/details/omzettotaal");
+    await expect(page.getByRole("heading", { name: "Totale omzet" })).toBeVisible();
   });
 
   test("bell and urgent panel route to signaleringen", async ({ page }) => {
@@ -174,12 +191,16 @@ test.describe("signaleringen", () => {
     await page.goto("/dashboard/signaleringen");
   });
 
-  test("shows severity groups and routes Bekijk to domain page", async ({ page }) => {
+  test("shows severity groups; the whole alert card routes to its domain page", async ({ page }) => {
     await expect(page.getByText("Kritiek — direct actie")).toBeVisible();
     await expect(page.getByText("Hoog — deze week")).toBeVisible();
     await expect(page.getByText("Middel — monitoren")).toBeVisible();
     await expect(page.getByText("Wachtlijst boven Treeknorm")).toBeVisible();
-    await page.getByRole("link", { name: "Bekijk" }).first().click();
+    // De hele kaart is nu klikbaar (niet alleen de "Bekijk"-knop).
+    await page
+      .getByRole("link", { name: /Wachtlijst boven Treeknorm/ })
+      .first()
+      .click();
     await page.waitForURL("**/dashboard/patienten");
   });
 });

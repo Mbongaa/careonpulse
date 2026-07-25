@@ -60,6 +60,7 @@ export const CAREON_PROVENANCE: Record<string, PageProvenance> = {
       "No-show": "demo",
       "Zonder vervolgafspraak": "demo",
       "Dossiers niet compleet": "proxy",
+      "Totale omzet": "demo",
       "Omzet verzekeraars": "demo",
       "Omzet Infomedics": "demo",
       "Omzet RMO/RMA": "demo",
@@ -243,6 +244,8 @@ export const AGENDA_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
   cockpit: {
     "No-show": "live",
     "No-show trend": "live",
+    // Afgeleide som van de drie splitkaarten → Afgeleid (proxy).
+    "Totale omzet": "proxy",
     "Omzet verzekeraars": "live",
     "Omzet Infomedics": "proxy",
     "Omzet RMO/RMA": "live",

@@ -24,7 +24,7 @@ export function WachttijdTrendPanel({ className }: Readonly<{ className?: string
     return null;
   }
 
-  const trend = sliceTimeframe(production.wachttijdTrend, timeframe);
+  const trend = sliceTimeframe(production.wachttijdTrendFull, timeframe);
   const totaalOverTreek = trend.reduce((sum, maand) => sum + maand.overTreek, 0);
 
   return (

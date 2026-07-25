@@ -58,7 +58,7 @@ export function CareonOmzetChart({
   const agendaActief = production?.agenda != null;
   const data: OmzetReeksPunt[] = production?.agenda
     ? sliceTimeframe(
-        production.monthly.map((point) => ({
+        production.monthlyFull.map((point) => ({
           m: point.m,
           omzetVecozo: point.omzetVecozo === null ? null : Math.round(point.omzetVecozo / 1000),
           omzetSb: point.omzetServicebureau === null ? null : Math.round(point.omzetServicebureau / 1000),

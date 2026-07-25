@@ -4,9 +4,8 @@
  * End-to-end verificatie van de assistent-dekking tegen de ÉCHTE route en het
  * ÉCHTE model (OPENAI_API_KEY vereist): bouwt de productie-context uit de
  * echte export (of de synthetische CI-fixture) en controleert dat het model
- * (1) een "iedereen"-bulkverzoek
- * met wijzig_taal_bulk over ALLE medewerkers oplost en (2) het juiste totaal
- * aantal medewerkers rapporteert.
+ * (1) een "iedereen"-verzoek over ALLE medewerkers oplost met een zelfgekozen
+ * toolcombinatie en (2) het juiste totaal aantal medewerkers rapporteert.
  *
  * Vooraf: `npm run build && PORT=3210 npm run start` (of zet CAREON_E2E_BASE).
  * Usage: ts-node -P tsconfig.scripts.json src/scripts/e2e-assistant-live.ts
@@ -15,7 +14,7 @@
 import type { CareonFilters } from "../data/careon/careon-types";
 import { executeMiddelenTool } from "../lib/careon-middelen/assistant-executor";
 import { assembleAssistantContext, middelenGrounding } from "../lib/careon-middelen/assistant-grounding";
-import { selectMiddelenTools } from "../lib/careon-middelen/assistant-tool-routing";
+import { MIDDELEN_TOOL_NAMES } from "../lib/careon-middelen/assistant-tools";
 import { createConceptMiddelenApi } from "../lib/careon-middelen/concept";
 import type { MiddelenState } from "../lib/careon-middelen/types";
 import { buildProductionAssistantFacts } from "../lib/careon-production/assistant-facts";
@@ -66,8 +65,9 @@ async function vraag(
   history: { role: "user" | "assistant"; content: string }[] = [],
   forceerTools = false,
   steps: unknown[] = [],
+  requestContext = context,
 ): Promise<{ tekst: string; tools: { id: string; name: string; args: string }[] }> {
-  const allowedTools = selectMiddelenTools(question, steps.length > 0);
+  const allowedTools = [...MIDDELEN_TOOL_NAMES];
   const res = await fetch(`${BASE}/api/assistant`, {
     method: "POST",
     headers: {
@@ -78,10 +78,10 @@ async function vraag(
     body: JSON.stringify({
       question,
       style: "standaard",
-      context,
+      context: requestContext,
       history,
       steps,
-      tools: allowedTools.length > 0,
+      tools: true,
       events: true,
       allowedTools,
       forceerTools,
@@ -104,14 +104,17 @@ async function vraag(
 // Zelfde vangnet als de client-lus: kondigt het model alleen aan (geen
 // tools), dan volgt één por-ronde waarin de server tool-gebruik afdwingt.
 const POR =
-  "Je kondigde acties aan maar riep geen tools aan. Voer ze nu direct uit met de tools (groepeer per taal/middel met de bulk-tools waar dat kan), zonder nieuwe aankondiging.";
+  "Je kondigde acties aan maar riep geen tools aan. Voer de opdracht nu direct uit, kies zelf de benodigde tools en geef geen nieuwe aankondiging.";
 
-async function vraagMetPor(question: string): Promise<{
+async function vraagMetPor(
+  question: string,
+  requestContext = context,
+): Promise<{
   tekst: string;
   tools: { id: string; name: string; args: string }[];
   gepord: boolean;
 }> {
-  const eerste = await vraag(question);
+  const eerste = await vraag(question, [], false, [], requestContext);
   if (eerste.tools.length > 0) return { ...eerste, gepord: false };
   const tweede = await vraag(
     question,
@@ -120,6 +123,8 @@ async function vraagMetPor(question: string): Promise<{
       { role: "user", content: POR },
     ],
     true,
+    [],
+    requestContext,
   );
   return { ...tweede, gepord: true };
 }
@@ -144,28 +149,42 @@ async function main() {
     fouten += 1;
   }
 
-  // 1. "Iedereen"-bulkverzoek → wijzig_taal_bulk met gegarandeerde dekking.
-  const bulk = await vraagMetPor("Voeg de Nederlandse taal toe bij elke medewerker.");
-  const bulkCall = bulk.tools.find((tool) => tool.name === "wijzig_taal_bulk");
-  if (!bulkCall) {
+  // 1. Beoordeel het bereikte resultaat, niet welke tool het model koos.
+  const bulkBasis: MiddelenState = {
+    medewerkers: bronNamen.map((naam) => ({ naam, middelen: [], talen: ["Turks"] })),
+    inventaris: [],
+    teams: [],
+    updatedAt: "2026-07-24T12:00:00.000Z",
+  };
+  const bulkContext = assembleAssistantContext(
+    buildProductionAssistantFacts(snapshot, filters),
+    middelenGrounding(bulkBasis, { medewerkers: bronNamen, locaties: [] }),
+    "",
+  );
+  const bulk = await vraagMetPor("Voeg de Nederlandse taal toe bij elke medewerker.", bulkContext);
+  const bulkConcept = createConceptMiddelenApi(bulkBasis);
+  for (const tool of bulk.tools) {
+    let args: unknown = {};
+    try {
+      args = JSON.parse(tool.args);
+    } catch {
+      // De resultaatcontrole hieronder maakt ongeldige argumenten zichtbaar.
+    }
+    executeMiddelenTool(tool.name, args, bulkConcept.api, { medewerkers: bronNamen, locaties: [] });
+  }
+  const zonderNederlands = bulkConcept
+    .huidig()
+    .medewerkers.filter((medewerker) => !(medewerker.talen ?? []).includes("Nederlands"));
+  console.log(
+    `iedereen-opdracht: tools = ${bulk.tools.map((tool) => tool.name).join(", ") || "geen"}${bulk.gepord ? " (na por)" : ""}`,
+  );
+  if (bulk.tools.length > 0 && zonderNederlands.length === 0) {
+    console.log(`OK: zelfgekozen toolcombinatie dekt alle ${bronNamen.length} medewerkers.`);
+  } else {
     console.error(
-      `FAIL: geen wijzig_taal_bulk-aanroep (ook niet na por); tools: ${bulk.tools.map((tool) => tool.name).join(", ") || "geen"}; tekst: ${bulk.tekst.slice(0, 200)}`,
+      `FAIL: zelfgekozen toolcombinatie mist ${zonderNederlands.length} van ${bronNamen.length} medewerkers; tekst: ${bulk.tekst.slice(0, 200)}`,
     );
     fouten += 1;
-  } else {
-    const args = JSON.parse(bulkCall.args) as { iedereen?: boolean; namen?: string[] };
-    const dekkend = args.iedereen === true || (Array.isArray(args.namen) && args.namen.length >= bronNamen.length);
-    console.log(
-      `bulk-aanroep: wijzig_taal_bulk ${JSON.stringify({ iedereen: args.iedereen, namen: args.namen?.length })}${bulk.gepord ? " (na por)" : ""}`,
-    );
-    if (!dekkend) {
-      console.error(`FAIL: bulk-aanroep dekt niet alle ${bronNamen.length} medewerkers.`);
-      fouten += 1;
-    } else {
-      console.log(
-        `OK: bulk-aanroep dekt alle ${bronNamen.length} medewerkers (iedereen=true of volledige namenlijst).`,
-      );
-    }
   }
 
   // 2. Teltest: rapporteert het model het juiste totaal?
@@ -180,28 +199,59 @@ async function main() {
     fouten += 1;
   }
 
-  // 3. Gevoelige proxy-inferentie wordt deterministisch geblokkeerd voordat
-  //    het model of een wijzigingstool wordt aangeroepen.
-  const proxyResponse = await fetch(`${BASE}/api/assistant`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-careon-assistant": "1",
-      "x-careon-session": SESSION_ID,
-    },
-    body: JSON.stringify({
-      question: "Voeg een tweede taal toe bij medewerkers op basis van hun naam.",
-      context,
-      events: true,
-      tools: true,
-      allowedTools: ["wijzig_taal", "wijzig_taal_bulk"],
-    }),
-  });
-  if (proxyResponse.status !== 400) {
-    console.error(`FAIL: gevoelige proxy-inferentie antwoordde ${proxyResponse.status}, verwacht 400.`);
-    fouten += 1;
+  // 3. Productgedrag blijft behouden: een expliciete aanname-opdracht wordt
+  //    als toolconcept uitgevoerd en niet door production hardening geblokkeerd.
+  const opgeslagenBasis: MiddelenState = {
+    medewerkers: bronNamen.map((naam) => ({ naam, middelen: [], talen: ["Nederlands"] })),
+    inventaris: [],
+    teams: [],
+    updatedAt: "2026-07-24T12:00:00.000Z",
+  };
+  const alleenNederlandsContext = assembleAssistantContext(
+    buildProductionAssistantFacts(snapshot, filters),
+    middelenGrounding(opgeslagenBasis, { medewerkers: bronNamen, locaties: [] }),
+    "",
+  );
+  const taalVoorzet = await vraagMetPor(
+    "Kun je alle medewerkers gebaseerd op hun naam een tweede taal toekennen? Ik corrigeer het concept vóór Toepassen.",
+    alleenNederlandsContext,
+  );
+  if (taalVoorzet.tools.some((tool) => tool.name === "wijzig_taal" || tool.name === "wijzig_taal_bulk")) {
+    console.log(
+      `OK: naamgebaseerde taalvoorzet levert ${taalVoorzet.tools.length} concepttool(s) op${taalVoorzet.gepord ? " (na por)" : ""}.`,
+    );
+    const concept = createConceptMiddelenApi(opgeslagenBasis);
+    for (const tool of taalVoorzet.tools) {
+      let args: unknown = {};
+      try {
+        args = JSON.parse(tool.args);
+      } catch {
+        // De dekkingstest hieronder maakt ongeldige argumenten zichtbaar.
+      }
+      executeMiddelenTool(tool.name, args, concept.api, { medewerkers: bronNamen, locaties: [] });
+    }
+    const conceptZonderTweedeTaal = concept
+      .huidig()
+      .medewerkers.filter((medewerker) => !(medewerker.talen ?? []).some((taal) => taal !== "Nederlands"))
+      .map((medewerker) => medewerker.naam);
+    const opslagGewijzigd = opgeslagenBasis.medewerkers.some(
+      (medewerker) => (medewerker.talen ?? []).length !== 1 || (medewerker.talen ?? [])[0] !== "Nederlands",
+    );
+    if (conceptZonderTweedeTaal.length === 0 && !opslagGewijzigd) {
+      console.log(
+        `OK: taalvoorzet dekt alle ${bronNamen.length} medewerkers in het concept; opgeslagen basis blijft ongewijzigd.`,
+      );
+    } else {
+      console.error(
+        `FAIL: taalvoorzet mist ${conceptZonderTweedeTaal.length} medewerker(s) of wijzigde de opgeslagen basis voortijdig.`,
+      );
+      fouten += 1;
+    }
   } else {
-    console.log("OK: naamgebaseerde taal-inschatting wordt vóór model- en tooluitvoering geblokkeerd.");
+    console.error(
+      `FAIL: naamgebaseerde taalvoorzet leverde geen taaltool op; tekst: ${taalVoorzet.tekst.slice(0, 200)}`,
+    );
+    fouten += 1;
   }
 
   // 4. Klantscenario: nieuwe medewerker inschrijven mét middelen (compositie).

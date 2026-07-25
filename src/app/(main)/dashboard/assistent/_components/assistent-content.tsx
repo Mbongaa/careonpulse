@@ -49,13 +49,8 @@ import {
   type MiddelenBron,
 } from "@/lib/careon-middelen/assistant-executor";
 import { assembleAssistantContext, middelenGrounding } from "@/lib/careon-middelen/assistant-grounding";
-import {
-  includeMiddelenNames,
-  includeMiddelenNotes,
-  isMiddelenAction,
-  isMiddelenRelevant,
-  selectMiddelenTools,
-} from "@/lib/careon-middelen/assistant-tool-routing";
+import { includeMiddelenNotes, isMiddelenAction } from "@/lib/careon-middelen/assistant-tool-routing";
+import { MIDDELEN_TOOL_NAMES } from "@/lib/careon-middelen/assistant-tools";
 import { type ConceptActie, createConceptMiddelenApi, replayConceptActies } from "@/lib/careon-middelen/concept";
 import { buildProductionAssistantArtifact } from "@/lib/careon-production/assistant-artifact";
 import { buildProductionAssistantFacts } from "@/lib/careon-production/assistant-facts";
@@ -656,10 +651,12 @@ export function AssistentContent() {
         const conceptApi = createConceptMiddelenApi(conceptBasis);
         const uitgevoerd: AssistantActieRegel[] = openConcept ? [...openConcept.regels] : [];
         const requestIds = new Set(openConcept?.requestIds ?? []);
-        const selectedTools = selectMiddelenTools(text, Boolean(openConcept));
-        const middelenRelevant = isMiddelenRelevant(text) || Boolean(openConcept);
+        const conversationHistory = historyFromMessages(options.messages);
+        // Het model krijgt bij iedere live beurt de volledige operationele
+        // toolset. Het kiest zelf of en welke tools nodig zijn; uitvoering
+        // blijft veilig binnen de bestaande, nog niet opgeslagen concept-kopie.
+        const selectedTools = [...MIDDELEN_TOOL_NAMES];
         const notesRelevant = includeMiddelenNotes(text);
-        const namesRelevant = includeMiddelenNames(text) || Boolean(openConcept);
         let toolsUsed = false;
         // Aankondigings-vangnet: één deterministische por wanneer het model
         // acties aankondigt maar stopt zonder tool-aanroepen.
@@ -711,12 +708,10 @@ export function AssistentContent() {
             : "";
           const grounding = assembleAssistantContext(
             buildGrounding(response, turnContextRef.current, text),
-            middelenRelevant
-              ? middelenGrounding(conceptBasis, middelenRef.current.bron, {
-                  includeNotes: notesRelevant,
-                  includeNames: namesRelevant,
-                })
-              : "",
+            middelenGrounding(conceptBasis, middelenRef.current.bron, {
+              includeNotes: notesRelevant,
+              includeNames: true,
+            }),
             conceptNotitie,
           );
           const steps: unknown[] = [];
@@ -735,14 +730,14 @@ export function AssistentContent() {
                 question: text,
                 style: reasoningRef.current,
                 context: grounding,
-                history: [...historyFromMessages(options.messages), ...porHistorie],
+                history: [...conversationHistory, ...porHistorie],
                 steps,
                 events: true,
-                tools: selectedTools.length > 0,
+                tools: true,
                 allowedTools: selectedTools,
                 // Na de por dwingt de server tool-gebruik af (tool_choice
                 // "required") zodat een tweede aankondiging onmogelijk is.
-                forceerTools: selectedTools.length > 0 && gepord && !toolsUsed,
+                forceerTools: gepord && !toolsUsed,
               }),
             });
             if (!res.ok || !res.body) {
@@ -793,7 +788,7 @@ export function AssistentContent() {
                     {
                       role: "user",
                       content:
-                        "Je kondigde acties aan maar riep geen tools aan. Voer ze nu direct uit met de tools (groepeer per taal/middel met de bulk-tools waar dat kan), zonder nieuwe aankondiging.",
+                        "Je kondigde acties aan maar riep geen tools aan. Voer de opdracht nu direct uit, kies zelf de benodigde tools en geef geen nieuwe aankondiging.",
                     },
                   );
                   continue;

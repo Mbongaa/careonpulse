@@ -447,17 +447,20 @@ export function productionDetailTrend(
   snapshot: ProductionSnapshot,
   id: string,
 ): { labels: string[]; values: number[] } | null {
-  const labels = snapshot.monthly.map((point) => point.m);
+  // Volledige historie voedt de "Alles"-optie op de drilldown; outreach houdt
+  // zijn 12-maands spark (die reeks bestaat niet in de volledige historie).
+  const labels = snapshot.monthlyFull.map((point) => point.m);
+  const labels12 = snapshot.monthly.map((point) => point.m);
   switch (id) {
     case "actief":
-      return { labels, values: snapshot.monthly.map((point) => point.caseload) };
+      return { labels, values: snapshot.monthlyFull.map((point) => point.caseload) };
     case "aanmeldingen":
-      return { labels, values: snapshot.monthly.map((point) => point.aanmeldingen) };
+      return { labels, values: snapshot.monthlyFull.map((point) => point.aanmeldingen) };
     case "gesloten":
-      return { labels, values: snapshot.monthly.map((point) => point.uitstroom) };
+      return { labels, values: snapshot.monthlyFull.map((point) => point.uitstroom) };
     case "outreach": {
       const spark = snapshot.cockpitKpis.outreach.spark;
-      return spark.length === labels.length ? { labels, values: spark } : null;
+      return spark.length === labels12.length ? { labels: labels12, values: spark } : null;
     }
     default:
       return agendaTrend(snapshot, id);
@@ -469,17 +472,18 @@ function agendaTrend(snapshot: ProductionSnapshot, id: string): { labels: string
   const agenda = snapshot.agenda;
   if (!agenda) return null;
   const reeks = agenda.maandreeks;
-  const reeksLabels = reeks.map((maand) => maand.label.split(" ")[0]);
+  // Jaar behouden ("apr '25") — de volledige historie loopt over meerdere jaren.
+  const reeksLabels = reeks.map((maand) => maand.label);
   const uitReeks = (veld: (maand: (typeof reeks)[number]) => number) =>
     reeks.length > 0 ? { labels: reeksLabels, values: reeks.map(veld) } : null;
-  const monthlyLabels = snapshot.monthly.map((point) => point.m);
+  const monthlyLabels = snapshot.monthlyFull.map((point) => point.m);
   switch (id) {
     case "afspraken":
       return uitReeks((maand) => maand.sessies);
     case "noshow":
       return {
         labels: monthlyLabels,
-        values: snapshot.monthly.map((point) => point.noshowPct ?? 0),
+        values: snapshot.monthlyFull.map((point) => point.noshowPct ?? 0),
       };
     case "geannuleerd":
       return uitReeks((maand) => maand.tijdigAfgezegd);
@@ -497,13 +501,13 @@ function agendaTrend(snapshot: ProductionSnapshot, id: string): { labels: string
     case "uren-indirect":
       return uitReeks((maand) => maand.indirecteUren);
     case "omzettotaal":
-      return { labels: monthlyLabels, values: snapshot.monthly.map((point) => point.omzet ?? 0) };
+      return { labels: monthlyLabels, values: snapshot.monthlyFull.map((point) => point.omzet ?? 0) };
     case "omzetverz":
-      return { labels: monthlyLabels, values: snapshot.monthly.map((point) => point.omzetVecozo ?? 0) };
+      return { labels: monthlyLabels, values: snapshot.monthlyFull.map((point) => point.omzetVecozo ?? 0) };
     case "omzetinfo":
-      return { labels: monthlyLabels, values: snapshot.monthly.map((point) => point.omzetServicebureau ?? 0) };
+      return { labels: monthlyLabels, values: snapshot.monthlyFull.map((point) => point.omzetServicebureau ?? 0) };
     case "omzetrmo":
-      return { labels: monthlyLabels, values: snapshot.monthly.map((point) => point.omzetRmoRma ?? 0) };
+      return { labels: monthlyLabels, values: snapshot.monthlyFull.map((point) => point.omzetRmoRma ?? 0) };
     case "omzet-client":
     case "omzet-traject":
       return uitReeks((maand) => maand.omzetGerealiseerd);

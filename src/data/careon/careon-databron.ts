@@ -9,9 +9,14 @@ export const EPD_PROVIDERS = [
 
 export const SAMPLE_CSV_FILENAME = "careon-kpi-export.csv";
 
+// "omzettotaal" is een afgeleide kopkaart (som van de splitkaarten), geen
+// zelfstandig importeerbare KPI — hij staat niet in het voorbeeldbestand en
+// wordt bij import berekend uit de deelbedragen (zie parseKpiCsv).
+const DERIVED_KPI_IDS = new Set(["omzettotaal"]);
+
 export const SAMPLE_CSV_CONTENT = [
   "kpi;huidig;vorige_maand",
-  ...COCKPIT_KPIS.map((k) => `${k.id};${k.value};${k.prev}`),
+  ...COCKPIT_KPIS.filter((k) => !DERIVED_KPI_IDS.has(k.id)).map((k) => `${k.id};${k.value};${k.prev}`),
 ].join("\n");
 
 export const API_SUCCESS_COPY =
@@ -40,7 +45,7 @@ export function parseKpiCsv(fileName: string, text: string): CsvParseResult {
     };
   }
 
-  const knownIds = new Set(COCKPIT_KPIS.map((k) => k.id));
+  const knownIds = new Set(COCKPIT_KPIS.filter((k) => !DERIVED_KPI_IDS.has(k.id)).map((k) => k.id));
   const overrides: Record<string, { value: number; prev: number }> = {};
 
   for (const rawLine of text.split(/\r?\n/)) {
@@ -64,6 +69,20 @@ export function parseKpiCsv(fileName: string, text: string): CsvParseResult {
       ok: false,
       message: `Geen herkenbare KPI's in ${fileName} — gebruik het voorbeeldbestand als basis.`,
     };
+  }
+
+  // Afgeleide kopkaart: Totale omzet = som van de deelbedragen. Reflecteert de
+  // ge-importeerde waarden (of de bestaande demo-waarden waar een deel ontbreekt),
+  // zodat het kopcijfer nooit uit de pas loopt met de splitsing.
+  if ("omzetverz" in overrides || "omzetinfo" in overrides) {
+    const deel = (id: string): { value: number; prev: number } => {
+      if (id in overrides) return overrides[id];
+      const kpi = COCKPIT_KPIS.find((k) => k.id === id);
+      return { value: kpi?.value ?? 0, prev: kpi?.prev ?? 0 };
+    };
+    const verz = deel("omzetverz");
+    const info = deel("omzetinfo");
+    overrides.omzettotaal = { value: verz.value + info.value, prev: verz.prev + info.prev };
   }
 
   return {

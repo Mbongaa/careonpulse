@@ -43,7 +43,7 @@ interface MaandPunt {
 export function InstroomUitstroomChart({ className }: Readonly<{ className?: string }>) {
   const { production } = useCareon();
   const [timeframe, setTimeframe] = useState<CareonTimeframe>("12m");
-  const data = sliceTimeframe<MaandPunt>(production ? production.monthly : CAREON_MONTHLY, timeframe);
+  const data = sliceTimeframe<MaandPunt>(production ? production.monthlyFull : CAREON_MONTHLY, timeframe);
   return (
     <CareonChartCard
       title="Instroom & uitstroom"
@@ -112,7 +112,7 @@ export function NoShowChart({ className }: Readonly<{ className?: string }>) {
   const agendaActief = production?.agenda != null;
   // In productie mét agenda: echte no-show-percentages per afspraakmaand.
   const data = sliceTimeframe(
-    agendaActief ? production.monthly.map((point) => ({ m: point.m, noshow: point.noshowPct })) : CAREON_MONTHLY,
+    agendaActief ? production.monthlyFull.map((point) => ({ m: point.m, noshow: point.noshowPct })) : CAREON_MONTHLY,
     timeframe,
   );
   return (
@@ -155,7 +155,7 @@ const caseloadConfig = {
 export function CaseloadChart({ className }: Readonly<{ className?: string }>) {
   const { production } = useCareon();
   const [timeframe, setTimeframe] = useState<CareonTimeframe>("12m");
-  const data = sliceTimeframe<MaandPunt>(production ? production.monthly : CAREON_MONTHLY, timeframe);
+  const data = sliceTimeframe<MaandPunt>(production ? production.monthlyFull : CAREON_MONTHLY, timeframe);
   return (
     <CareonChartCard
       title="Caseload"

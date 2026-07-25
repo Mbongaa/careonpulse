@@ -1,4 +1,3 @@
-import { isSensitiveProxyInference } from "@/lib/careon-assistant/policy";
 import {
   ASSISTANT_API_MODE,
   ASSISTANT_MODEL,
@@ -132,7 +131,9 @@ function systemPrompt(style: "standaard" | "diep", context: string, tools: reado
         `Alleen deze tools zijn voor dit verzoek beschikbaar: ${tools.join(", ")}.`,
         "Gebruik uitsluitend tools die direct nodig zijn voor de expliciete opdracht. De AI schrijft nooit zelf: elke tool-aanroep wordt als bewerkbaar concept klaargezet en pas na Toepassen opgeslagen.",
         "Vertrek, ontslag of 'uit dienst' gebruikt zet_dienstverband; verwijder_medewerker is uitsluitend voor foutief aangemaakte rijen.",
-        "Voor 'iedereen' gebruikt u de bulk-tool met iedereen=true. Gebruik de registratie-tool wanneer een naam of actuele stand onzeker is; verzin nooit namen.",
+        "Bij opdrachten voor 'iedereen', 'alle medewerkers' of 'elke medewerker' is volledige dekking verplicht. Kies zelf de efficiëntste beschikbare toolcombinatie en sla niemand stilzwijgend over.",
+        "Vraagt de gebruiker expliciet om een voorzet op basis van aannames, bijvoorbeeld om per medewerker een tweede taal in te schatten op basis van de naam, zet die aannames dan direct met de beschikbare wijzigingstools als bewerkbaar concept klaar. Kies zelf de benodigde tools en gebruik Engels als conceptvoorstel wanneer de naam geen andere bruikbare aanwijzing geeft. Presenteer alles als aannames die de gebruiker vóór Toepassen kan corrigeren; sla ze nooit zelfstandig op.",
+        "Gebruik de registratie-tool wanneer een naam of actuele stand onzeker is; verzin nooit medewerkersnamen.",
         "Kondig een actie nooit alleen aan: roep in dezelfde beurt de benodigde tools aan. Vraag alleen door bij echte dubbelzinnigheid.",
         "Sluit af met een korte samenvatting van het concept en vermeld wat niet kon.",
       ]
@@ -142,7 +143,6 @@ function systemPrompt(style: "standaard" | "diep", context: string, tools: reado
     "Antwoord uitsluitend in het Nederlands, professioneel en direct in de u-vorm.",
     "Gebruik alleen feiten uit de context. Verzin, reconstrueer of extrapoleer geen getallen, namen of oorzaken.",
     "Als gegevens ontbreken, benoem precies welke bron ontbreekt. Gebruik nooit demo-cijfers als productiefeiten.",
-    "Leid gevoelige of persoonsgebonden kenmerken (zoals taal, afkomst, nationaliteit of religie) nooit af uit een naam, foto of uiterlijk. Gebruik alleen expliciet geregistreerde feiten; anders weigert u de gevolgtrekking en roept u geen wijzigingstool aan.",
     "Respecteer proxy- en ondergrensdefinities in de context.",
     "Een antwoord is managementondersteuning en geen diagnose, behandeladvies of geautomatiseerd klinisch besluit.",
     depth,
@@ -320,20 +320,6 @@ export async function POST(request: Request) {
   const question = (body.question ?? "").slice(0, MAX_QUESTION_CHARS).trim();
   const context = (body.context ?? "").slice(0, MAX_CONTEXT_CHARS);
   if (!question) return new Response("Lege vraag.", { status: 400, headers: responseHeaders });
-  if (isSensitiveProxyInference(question)) {
-    void writeAssistantEvent({
-      requestId,
-      actorHash,
-      eventType: "request_blocked",
-      model: ASSISTANT_MODEL,
-      statusCode: 400,
-      metadata: { reason: "sensitive_proxy_inference" },
-    });
-    return new Response(
-      "De assistent leidt taal, afkomst of andere persoonskenmerken niet af uit een naam, foto of uiterlijk. Gebruik uitsluitend expliciet geregistreerde gegevens.",
-      { status: 400, headers: responseHeaders },
-    );
-  }
 
   const steps = sanitizeSteps(Array.isArray(body.steps) ? body.steps : []);
   if (steps === null) return new Response("Ongeldige aanvraag.", { status: 400, headers: responseHeaders });

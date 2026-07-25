@@ -1,12 +1,12 @@
 /**
  * Deterministic release gate for the AI execution boundary. No network or
- * provider key is used: this checks schemas, least-privilege routing, privacy
+ * provider key is used: this checks schemas, full tool availability, privacy
  * redaction and production-fact scoping.
  */
 
 import type { CareonFilters } from "../data/careon/careon-types";
 import { assembleAssistantContext, middelenGrounding } from "../lib/careon-middelen/assistant-grounding";
-import { includeMiddelenNames, selectMiddelenTools } from "../lib/careon-middelen/assistant-tool-routing";
+import { includeMiddelenNames } from "../lib/careon-middelen/assistant-tool-routing";
 import {
   getAssistantChatTools,
   getAssistantResponsesTools,
@@ -58,23 +58,7 @@ for (const tool of responsesTools) {
   strictObjectSchema(`${tool.name} Responses`, tool.parameters);
 }
 
-check(
-  "read-only KPI-vraag krijgt geen mutatietools",
-  selectMiddelenTools("Hoe ontwikkelt de omzet zich?", false).length === 0,
-);
-check(
-  "middelenoverzicht gebruikt context, niet mutatietools",
-  selectMiddelenTools("Welke medewerkers hebben een laptop?", false).length === 0,
-);
-check(
-  "uit dienst alleen lees + dienstverband",
-  JSON.stringify(selectMiddelenTools("Zet medewerker Jan uit dienst.", false).sort()) ===
-    JSON.stringify(["lees_middelen_registratie", "zet_dienstverband"].sort()),
-);
-check(
-  "taalactie bevat geen verwijdertools",
-  !selectMiddelenTools("Voeg Turks toe bij alle medewerkers.", false).some((tool) => tool.startsWith("verwijder_")),
-);
+check("model ontvangt de volledige operationele toolset", MIDDELEN_TOOL_NAMES.length === 16);
 
 const middelen: MiddelenState = {
   medewerkers: [

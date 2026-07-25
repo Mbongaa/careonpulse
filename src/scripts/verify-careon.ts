@@ -88,6 +88,7 @@ const cockpitDelta: Record<string, [string, string]> = {
   noshow: ["-0,7", "good"],
   zondervervolg: ["-11", "good"],
   dossiersnc: ["-9", "good"],
+  omzettotaal: ["+7,2%", "good"],
   omzetverz: ["+6,0%", "good"],
   omzetinfo: ["+15,3%", "good"],
   outreach: ["+5", "good"],
@@ -97,6 +98,19 @@ for (const kpi of COCKPIT_KPIS) {
   const d = formatCareonDelta(kpi);
   check(`cockpit delta ${kpi.id}`, [d.text, d.tone], cockpitDelta[kpi.id]);
 }
+
+// Totale-omzet-kopkaart (klantverzoek 2026-07-25) = som van de splitkaarten;
+// blijft synchroon als iemand de deelbedragen wijzigt.
+const cTotal = COCKPIT_KPIS.find((k) => k.id === "omzettotaal");
+const cVerz = COCKPIT_KPIS.find((k) => k.id === "omzetverz");
+const cInfo = COCKPIT_KPIS.find((k) => k.id === "omzetinfo");
+check("cockpit omzettotaal value = verz + info", cTotal?.value, (cVerz?.value ?? 0) + (cInfo?.value ?? 0));
+check("cockpit omzettotaal prev = verz + info", cTotal?.prev, (cVerz?.prev ?? 0) + (cInfo?.prev ?? 0));
+check(
+  "cockpit omzettotaal spark = verz + info",
+  cTotal?.spark,
+  (cVerz?.spark ?? []).map((v, i) => v + (cInfo?.spark ?? [])[i]),
+);
 
 const patientenDelta: [string, string, string][] = [
   ["Actieve patiënten", "+2,7%", "good"],
@@ -231,6 +245,7 @@ const expectedKpiRoutes: Record<string, string> = {
   noshow: "/dashboard/details/noshow",
   zondervervolg: "/dashboard/details/zondervervolg",
   dossiersnc: "/dashboard/details/dossiersnc",
+  omzettotaal: "/dashboard/details/omzettotaal",
   omzetverz: "/dashboard/details/omzetverz",
   omzetinfo: "/dashboard/details/omzetinfo",
   outreach: "/dashboard/details/outreach",
@@ -248,6 +263,7 @@ const expectedOnwardRoutes: Record<string, string> = {
   noshow: "/dashboard/planning",
   zondervervolg: "/dashboard/patienten",
   dossiersnc: "/dashboard/dossiercontrole",
+  omzettotaal: "/dashboard/financieel",
   omzetverz: "/dashboard/financieel",
   omzetinfo: "/dashboard/financieel",
   outreach: "/dashboard/patienten",
@@ -830,6 +846,18 @@ check(
   "tijdvenster: sleutelselectie pakt laatste venster",
   [...timeframeKeys(["2026-04", "2026-05", "2026-06"], "1m")],
   ["2026-06"],
+);
+// "all" toont de volledige reeks, ongeacht lengte.
+check(
+  "tijdvenster: all = volledige reeks",
+  sliceTimeframe(CAREON_MONTHLY, "all").map((punt) => punt.m),
+  CAREON_MONTHLY.map((punt) => punt.m),
+);
+check("tijdvenster: all op langere reeks = alles", sliceTimeframe(["a", "b", "c", "d"], "all"), ["a", "b", "c", "d"]);
+check(
+  "tijdvenster: all sleutels = alles",
+  [...timeframeKeys(["2026-04", "2026-05", "2026-06"], "all")],
+  ["2026-04", "2026-05", "2026-06"],
 );
 
 // ---- HR handmatige registratie (handoff 12): seed reconcilieert met de audit ----

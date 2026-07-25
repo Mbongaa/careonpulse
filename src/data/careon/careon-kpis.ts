@@ -9,6 +9,7 @@ import {
   Smile,
   UserPlus,
   Users,
+  Wallet,
 } from "lucide-react";
 
 import type { CareonKpi } from "./careon-types";
@@ -81,6 +82,23 @@ export const COCKPIT_KPIS: CareonKpi[] = [
     betterLow: true,
     spark: [41, 38, 39, 35, 36, 33, 30, 31, 28, 29, 27, 18],
     page: "dossiers",
+    scale: true,
+  },
+  {
+    // Kopcijfer voor de directie: totale gefactureerde omzet — leidt de
+    // omzetcluster (klantverzoek 2026-07-25). In de audit stond alleen de
+    // splitsing verzekeraars/Infomedics; deze kaart is de som daarvan en linkt
+    // naar de bestaande "Totale omzet"-drilldown. In productie wordt de waarde
+    // live gesommeerd uit de splitkaarten (compute-snapshot).
+    id: "omzettotaal",
+    label: "Totale omzet",
+    icon: Wallet,
+    value: 493000,
+    prev: 460000,
+    f: "eurK",
+    // Elementgewijze som van omzetverz + omzetinfo (× € 1.000).
+    spark: [359, 376, 369, 388, 380, 401, 413, 428, 439, 456, 460, 493],
+    page: "financieel",
     scale: true,
   },
   {

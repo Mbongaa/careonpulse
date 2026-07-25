@@ -5,8 +5,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { CAREON_ROUTES } from "@/data/careon/careon-pages";
+import { CAREON_PAGE_META, CAREON_ROUTES } from "@/data/careon/careon-pages";
 import type { CareonAlert } from "@/data/careon/careon-types";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +13,7 @@ import { CareonSeverityBadge } from "./careon-severity";
 
 export function CareonAlertRow({ alert, compact }: Readonly<{ alert: CareonAlert; compact?: boolean }>) {
   const href = CAREON_ROUTES[alert.page];
+  const doel = CAREON_PAGE_META[alert.page].title;
 
   if (compact) {
     return (
@@ -33,8 +33,20 @@ export function CareonAlertRow({ alert, compact }: Readonly<{ alert: CareonAlert
     );
   }
 
+  // De hele kaart is klikbaar en linkt naar de domeinpagina waar de betrokken
+  // regels/records staan (de "Bekijk"-affordance is nu een visuele hint binnen
+  // de link — geen geneste interactieve elementen).
   return (
-    <div className={cn("flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center")}>
+    <Link
+      prefetch={false}
+      href={href}
+      aria-label={`${alert.titel} — bekijk op ${doel}`}
+      className={cn(
+        "group flex flex-col gap-3 rounded-lg border p-4 outline-none transition-colors",
+        "hover:border-primary/40 hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring",
+        "sm:flex-row sm:items-center",
+      )}
+    >
       {/* On mobile the count tile sits inline next to the text (sm:contents
           restores the exact desktop flex layout from sm upward). */}
       <div className="flex items-start gap-3 sm:contents">
@@ -52,12 +64,15 @@ export function CareonAlertRow({ alert, compact }: Readonly<{ alert: CareonAlert
           <p className="text-muted-foreground text-sm">{alert.detail}</p>
         </div>
       </div>
-      <Button asChild variant="outline" size="sm" className="shrink-0 self-start sm:self-center">
-        <Link prefetch={false} href={href}>
-          Bekijk
-          <ArrowRight className="size-3.5" />
-        </Link>
-      </Button>
-    </div>
+      <span
+        className={cn(
+          "inline-flex shrink-0 items-center gap-1 self-start rounded-md border px-3 py-1.5 font-medium text-muted-foreground text-sm transition-colors",
+          "group-hover:border-primary/40 group-hover:text-foreground sm:self-center",
+        )}
+      >
+        Bekijk
+        <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+      </span>
+    </Link>
   );
 }

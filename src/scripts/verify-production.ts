@@ -254,6 +254,21 @@ check("caseload spark laatste punt", snap.cockpitKpis.actief.spark[11], 8);
 check("monthly lengte", snap.monthly.length, 12);
 check("monthly laatste maand", snap.monthly[11].key, "2026-06");
 check("monthly labels", snap.monthly[11].m, "jun");
+// Volledige historie (klantverzoek 2026-07-25) voedt de "Alles"-optie: eindigt
+// op dezelfde maand als de 12-maandsreeks, gaat minstens even ver terug, en
+// draagt jaar-labels ("jun '26"). De 12-maandsreeks zelf blijft ongewijzigd.
+check("monthlyFull minstens 12 maanden", snap.monthlyFull.length >= 12, true);
+check("monthlyFull eindigt op dezelfde maand", snap.monthlyFull.at(-1)?.key, snap.monthly[11].key);
+check("monthlyFull begint niet later dan monthly", snap.monthlyFull[0].key <= snap.monthly[0].key, true);
+check("monthlyFull draagt jaar-labels", /'\d{2}$/.test(snap.monthlyFull.at(-1)?.m ?? ""), true);
+// Wachttijdtrend heeft dezelfde volledige-historie-variant voor de patiënten-grafiek.
+check("wachttijdTrendFull minstens 12 maanden", snap.wachttijdTrendFull.length >= 12, true);
+check(
+  "wachttijdTrendFull eindigt op dezelfde maand",
+  snap.wachttijdTrendFull.at(-1)?.key,
+  snap.wachttijdTrend.at(-1)?.key,
+);
+check("wachttijdTrendFull draagt jaar-labels", /'\d{2}$/.test(snap.wachttijdTrendFull.at(-1)?.m ?? ""), true);
 
 check("patiënten wachtlijst intake", snap.patientenMetrics["Wachtlijst intake"].value, 2);
 check("patiënten wachtlijst behandeling", snap.patientenMetrics["Wachtlijst behandeling"].value, 1);
@@ -595,7 +610,15 @@ check("provenance hr geen live", pageLiveCounts("hr").live, 0);
 check("provenance hr verzuim handmatig", widgetSource("hr", "Ziekteverzuim"), "handmatig");
 check("provenance hr big handmatig", widgetSource("hr", "BIG-registraties"), "handmatig");
 const cockpitCounts = pageLiveCounts("cockpit");
-check("provenance cockpit telling", [cockpitCounts.live, cockpitCounts.total], [10, 18]);
+// 19 widgets sinds de "Totale omzet"-kopkaart (klantverzoek 2026-07-25); base
+// register = demo voor die kaart, dus de live-telling blijft 10.
+check("provenance cockpit telling", [cockpitCounts.live, cockpitCounts.total], [10, 19]);
+check("provenance cockpit totale omzet base demo", widgetSource("cockpit", "Totale omzet"), "demo");
+check(
+  "provenance cockpit totale omzet agenda proxy",
+  widgetSource("cockpit", "Totale omzet", { agenda: true }),
+  "proxy",
+);
 
 // ---- Drift-bewaking: widget-sleutels zijn vrije strings; deze checks maken
 // een hernoemd KPI-label of alert-titel zonder bijgewerkt provenance-register
