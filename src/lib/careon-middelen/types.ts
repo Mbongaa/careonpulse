@@ -16,11 +16,15 @@ export const FUNCTIE_OPTIES = [
   "Basispsycholoog",
   "GZ-psycholoog",
   "Klinisch psycholoog",
+  "Psycholoog",
   "Psychotherapeut",
   "Psychiater",
+  "Orthopedagoog",
   "Verpleegkundig specialist GGZ",
   "SPV",
   "Basisarts",
+  "Sociaal werker",
+  "Ambulante begeleider",
   "Overig",
 ] as const;
 

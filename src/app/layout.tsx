@@ -16,6 +16,10 @@ import { PreferencesStoreProvider } from "@/stores/preferences/preferences-provi
 import "./globals.css";
 
 export const metadata: Metadata = {
+  // Absolute basis voor og-/twitter-afbeeldingen: WhatsApp en andere
+  // link-previews vereisen absolute URL's (zonder deze base valt WhatsApp
+  // terug op de kleine favicon — het wazige voorbeeld).
+  metadataBase: new URL("https://www.careonpulse.com"),
   title: {
     default: APP_CONFIG.meta.title,
     template: `%s · ${APP_CONFIG.name}`,
@@ -29,6 +33,18 @@ export const metadata: Metadata = {
   },
   icons: {
     apple: "/icons/apple-touch-icon.png",
+  },
+  // De og-afbeelding zelf komt uit src/app/opengraph-image.png (file-conventie).
+  openGraph: {
+    type: "website",
+    locale: "nl_NL",
+    siteName: APP_CONFIG.name,
+    title: APP_CONFIG.meta.title,
+    description: APP_CONFIG.meta.description,
+    url: "/",
+  },
+  twitter: {
+    card: "summary_large_image",
   },
 };
 
