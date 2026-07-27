@@ -37,7 +37,7 @@ export function buildProductionAssistantFacts(
     toelichting: [
       "Outreachend = proxy op ZPM-setting S04 (bevestiging instelling gevraagd).",
       "'>30/60 dgn geen registratie' is een ondergrens wanneer afspraakdata ontbreken.",
-      "'Hoog-risico' = zorgvraagtypen ZT05/ZT08 (proxy voor crisisrisico).",
+      "'Hoog-risico' = zorgvraagtypen ZT05/ZT08 (proxy voor crisisrisico); mét agenda-crisisvelden toont de Patiënten-pagina 'Crisiscliënten (90 dgn)' = gehouden crisis-sessies in de laatste 90 dagen.",
       "Productie-uren = cumulatief geregistreerde tijd over de looptijd, geen maandproductie.",
       "Urgent op wachtlijst = wachtduur >60 dagen, gemeten sinds episodestart of verwijsdatum.",
       `${snapshot.meta.zonderVestiging} actieve cliënten hebben geen vestigingslabel en vallen buiten locatiefilters.`,

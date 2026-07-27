@@ -1,6 +1,11 @@
 "use client";
 
-import { AGENDA_PROXY_NOTES, PROXY_NOTES, widgetSource } from "@/lib/careon-production/provenance";
+import {
+  AGENDA_CRISIS_PROXY_NOTES,
+  AGENDA_PROXY_NOTES,
+  PROXY_NOTES,
+  widgetSource,
+} from "@/lib/careon-production/provenance";
 import { cn } from "@/lib/utils";
 
 import { useCareon } from "./careon-provider";
@@ -35,6 +40,7 @@ export function CareonSourceBadge({
     agenda: production?.agenda != null,
     agendaToekomst: production?.agenda?.vooruitblik != null,
     agendaKwaliteit: production?.agenda?.kwaliteit != null,
+    agendaCrisis: production?.agenda?.crisisPerClient != null,
     verwijzers: production?.verwijzerNetwerk != null,
     toeslagen: production?.toeslagen != null,
     declaraties: production?.declaraties != null,
@@ -43,6 +49,7 @@ export function CareonSourceBadge({
   let note = "Berekend uit de geïmporteerde EPD-export.";
   if (source === "proxy") {
     note =
+      (caps.agendaCrisis ? AGENDA_CRISIS_PROXY_NOTES[widget] : undefined) ??
       (caps.agenda ? AGENDA_PROXY_NOTES[widget] : undefined) ??
       PROXY_NOTES[widget] ??
       "Afgeleide waarde — zie Databron voor de definitie.";

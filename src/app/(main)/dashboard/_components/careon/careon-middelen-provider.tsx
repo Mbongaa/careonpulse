@@ -55,6 +55,8 @@ interface CareonMiddelenContextValue {
   addTeam: (locatie: string, naam: string) => boolean;
   removeTeam: (locatie: string, naam: string) => void;
   setNotitie: (naam: string, notitie: string) => void;
+  /** Koppel (of wis, met lege string) het e-mailadres van het dashboardaccount. */
+  setAccountEmail: (naam: string, email: string) => void;
   addPersoon: (naam: string) => boolean;
   removePersoon: (naam: string) => void;
   setInventarisVeld: (locatie: string, veld: InventarisVeld, aantal: number) => void;
@@ -524,6 +526,29 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
     [mutate],
   );
 
+  const setAccountEmail = useCallback(
+    (naam: string, email: string) => {
+      mutate((draft) => {
+        const bestaand = draft.medewerkers.find((row) => row.naam === naam);
+        const genormaliseerd = email.trim() === "" ? undefined : email.trim().toLowerCase();
+        if (!bestaand) {
+          if (genormaliseerd === undefined) return draft;
+          return {
+            ...draft,
+            medewerkers: [...draft.medewerkers, { naam, middelen: [], accountEmail: genormaliseerd }],
+          };
+        }
+        return {
+          ...draft,
+          medewerkers: draft.medewerkers.map((row) =>
+            row.naam === naam ? { ...row, accountEmail: genormaliseerd } : row,
+          ),
+        };
+      });
+    },
+    [mutate],
+  );
+
   const addPersoon = useCallback(
     (naam: string): boolean => {
       const schoon = naam.trim();
@@ -624,6 +649,7 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
       addTeam,
       removeTeam,
       setNotitie,
+      setAccountEmail,
       addPersoon,
       removePersoon,
       setInventarisVeld,
@@ -652,6 +678,7 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
       addTeam,
       removeTeam,
       setNotitie,
+      setAccountEmail,
       addPersoon,
       removePersoon,
       setInventarisVeld,

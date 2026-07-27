@@ -4,6 +4,7 @@ import {
   listMemberships,
   listOrganizations,
 } from "@/lib/careon-admin/admin.server";
+import { requireSuperadminPage } from "@/lib/supabase/session.server";
 
 import { AdminCard, AdminEmpty, formatMoment } from "../_components/admin-ui";
 import { OrgCreateForm } from "./_components/org-create-form";
@@ -19,6 +20,8 @@ const REGISTRATIES: { table: string; label: string }[] = [
 ];
 
 export default async function AdminOrganizationsPage() {
+  // Superadmin-check op de databoundary zelf (layout rendert parallel).
+  await requireSuperadminPage();
   if (!adminConfigured()) {
     return <AdminEmpty>Supabase is niet geconfigureerd.</AdminEmpty>;
   }

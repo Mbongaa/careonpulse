@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
 
 import { isCareonDemoMode, isSupabaseAuthConfigured } from "./config";
@@ -11,6 +12,8 @@ import { supabaseServer } from "./server";
 export interface CareonSession {
   userId: string;
   email: string;
+  /** Weergavenaam uit de accountmetadata; leeg wanneer niet ingevuld. */
+  fullName: string;
   /** Eerste (en in de praktijk enige) organisatie van de gebruiker. */
   orgId: string | null;
   orgRole: "org_admin" | "member" | null;
@@ -59,6 +62,7 @@ export async function getCareonSession(): Promise<CareonSessionResult> {
     session: {
       userId: user.id,
       email: user.email ?? "",
+      fullName: typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : "",
       orgId: membership ? membership.org_id : null,
       orgRole: membership ? membership.role : null,
       isSuperadmin,
@@ -80,6 +84,34 @@ export async function requireSuperadmin(): Promise<{ session: CareonSession } | 
     return { denied: NextResponse.json({ error: "Alleen voor platformbeheer." }, { status: 403 }) };
   }
   return { session: result.session };
+}
+
+/**
+ * Beheerpagina's (server components): superadmin afdwingen op de databoundary
+ * zelf — layout en pagina renderen parallel, dus de layout-redirect alleen
+ * volstaat niet voordat service-role-reads draaien.
+ */
+export async function requireSuperadminPage(): Promise<CareonSession> {
+  const result = await getCareonSession();
+  if (result.status !== "ok" || !result.session.isSuperadmin) {
+    redirect("/dashboard/directiecockpit");
+  }
+  return result.session;
+}
+
+/**
+ * Organisatiebeheer-routes: org_admin binnen de eigen organisatie (een
+ * superadmin mét org-lidmaatschap telt ook). Gewone leden krijgen 403 —
+ * beheer is een rol, geen lidmaatschapsrecht. Cross-org beheer blijft
+ * exclusief bij requireSuperadmin (admin-routes).
+ */
+export async function requireOrgAdmin(): Promise<{ session: CareonSession } | { denied: NextResponse }> {
+  const result = await requireCareonSession();
+  if ("denied" in result) return result;
+  if (result.session.orgRole !== "org_admin" && !result.session.isSuperadmin) {
+    return { denied: NextResponse.json({ error: "Alleen voor organisatiebeheerders." }, { status: 403 }) };
+  }
+  return result;
 }
 
 /**

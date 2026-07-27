@@ -228,6 +228,8 @@ export function parseAgendaExport(
             laatsteMdo: null,
             farmaco: 0,
             laatsteFarmaco: null,
+            crisis: 0,
+            laatsteCrisis: null,
           } satisfies AgendaClientFact);
         if (fact.volgende === null || fact.volgende === undefined || datum < fact.volgende) {
           fact.volgende = datum;
@@ -300,7 +302,11 @@ export function parseAgendaExport(
     if (isJa(cell("Ondertekend"))) cel.ondertekend += 1;
     if (prijs !== null) {
       cel.omzetGerealiseerd += prijs;
-      if (!factuurNummer) {
+      // Alleen échte factureerbare waarde telt als onderhanden werk: rijen met
+      // prijs 0 zijn structureel niet-declarabel (in de export krijgen ze nooit
+      // een factuurnummer) en zouden de ">90 dgn niet gefactureerd"-telling
+      // blijvend vervuilen.
+      if (!factuurNummer && prijs > 0) {
         cel.onderhanden += prijs;
         cel.onderhandenSessies += 1;
       }
@@ -367,6 +373,8 @@ export function parseAgendaExport(
           laatsteMdo: null,
           farmaco: 0,
           laatsteFarmaco: null,
+          crisis: 0,
+          laatsteCrisis: null,
         } satisfies AgendaClientFact);
       fact.sessies += 1;
       if (noShow) fact.noShows += 1;
@@ -389,6 +397,14 @@ export function parseAgendaExport(
           fact.farmaco = (fact.farmaco ?? 0) + 1;
           if (fact.laatsteFarmaco == null || datum > fact.laatsteFarmaco) {
             fact.laatsteFarmaco = datum;
+          }
+        }
+        // Crisiscontacten: gehouden crisis-sessies ("Crisis -beoordeling" /
+        // "Crisis - tijdens behandeling") — bron voor de Crisiscliënten-proxy.
+        if (naamLower.startsWith("crisis")) {
+          fact.crisis = (fact.crisis ?? 0) + 1;
+          if (fact.laatsteCrisis == null || datum > fact.laatsteCrisis) {
+            fact.laatsteCrisis = datum;
           }
         }
       }

@@ -49,15 +49,32 @@ test.describe("auth", () => {
     await page.getByPlaceholder("Gebruikersnaam").fill("USER1");
     await page.getByPlaceholder("Wachtwoord").fill("demo1234");
     await page.getByRole("button", { name: "Inloggen" }).click();
-    await page.waitForURL("**/dashboard/directiecockpit");
-    await expect(page.getByRole("heading", { name: "Directiecockpit" })).toBeVisible();
+    await page.waitForURL("**/modules");
+    await expect(page.getByRole("heading", { name: "Kies een module" })).toBeVisible();
   });
 
-  test("valid login lands on Directiecockpit, logout returns to login", async ({ page }) => {
+  test("unauthenticated module launcher visit redirects to login", async ({ page }) => {
+    await page.goto("/modules");
+    await page.waitForURL(`**${LOGIN_URL}`);
+    await expect(page.getByPlaceholder("Gebruikersnaam")).toBeVisible();
+  });
+
+  test("valid login lands on module launcher; Directie-tegel opens dashboard, logout returns to login", async ({
+    page,
+  }) => {
     await page.goto(LOGIN_URL);
     await page.getByPlaceholder("Gebruikersnaam").fill("user1");
     await page.getByPlaceholder("Wachtwoord").fill("demo1234");
     await page.getByRole("button", { name: "Inloggen" }).click();
+    await page.waitForURL("**/modules");
+    await expect(page.getByRole("heading", { name: "Kies een module" })).toBeVisible();
+
+    // YAAZ staat als "binnenkort" op het scherm en is bewust geen link.
+    await expect(page.getByText("YAAZ", { exact: true })).toBeVisible();
+    await expect(page.getByText("Binnenkort beschikbaar")).toBeVisible();
+    await expect(page.getByRole("link", { name: /YAAZ/ })).toHaveCount(0);
+
+    await page.getByRole("link", { name: /Careon Pulse Directie/ }).click();
     await page.waitForURL("**/dashboard/directiecockpit");
     await expect(page.getByRole("heading", { name: "Directiecockpit" })).toBeVisible();
 

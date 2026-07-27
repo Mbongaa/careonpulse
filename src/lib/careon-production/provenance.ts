@@ -241,6 +241,11 @@ export interface ProvenanceCaps {
    * aggregaten van vóór die velden vereisen een her-import van de agenda.
    */
   agendaKwaliteit?: boolean;
+  /**
+   * Agenda-aggregaat mét de crisis-velden (crisis-sessies per cliënt) —
+   * aggregaten van vóór die velden vereisen een her-import van de agenda.
+   */
+  agendaCrisis?: boolean;
   verwijzers?: boolean;
   /** Toeslagen-export (declared surcharges) gekoppeld. */
   toeslagen?: boolean;
@@ -343,6 +348,17 @@ export const AGENDA_KWALITEIT_PROVENANCE: Record<string, Record<string, WidgetSo
   },
 };
 
+// Crisiscliënten uit de agenda (crisis-sessietypen): vereist een aggregaat mét
+// de crisis-velden (cap agendaCrisis) — een ouder aggregaat toont nog de
+// Hoog-risico-proxy en mag niet als crisis-afleiding gelabeld worden.
+export const AGENDA_CRISIS_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
+  patienten: {
+    "Crisiscliënten (90 dgn)": "proxy",
+    // Statische sleutel van de KPI-detailpagina (careon-kpi-details).
+    Crisiscliënten: "proxy",
+  },
+};
+
 export const VERWIJZERS_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
   dossiersProductie: {
     Verwijzers: "live",
@@ -372,6 +388,15 @@ export const DECLARATIES_PROVENANCE: Record<string, Record<string, WidgetSource>
 export const DECLARATIES_PROXY_NOTES: Record<string, string> = {
   "Afgekeurde declaraties":
     "Tekort op toekenning: verschil tussen gefactureerd en toegekend op deels-toegekende facturen. Of dit afwijzing of nabetaling wordt, vereist de Vecozo-retourinformatie.",
+};
+
+// Toelichtingen bij de crisis-afleiding — alleen tonen wanneer de cap
+// agendaCrisis actief is (zelfde reden als AGENDA_CRISIS_PROVENANCE).
+export const AGENDA_CRISIS_PROXY_NOTES: Record<string, string> = {
+  "Crisiscliënten (90 dgn)":
+    "Cliënten met een gehouden crisis-sessie ('Crisis -beoordeling' / 'Crisis - tijdens behandeling') in de laatste 90 dagen — venster en definitie ter bevestiging aan de instelling.",
+  Crisiscliënten:
+    "Cliënten met een gehouden crisis-sessie ('Crisis -beoordeling' / 'Crisis - tijdens behandeling') in de laatste 90 dagen — venster en definitie ter bevestiging aan de instelling.",
 };
 
 // Proxy-toelichtingen voor de agenda-afleidingen (zelfde mechaniek als PROXY_NOTES).
@@ -404,6 +429,10 @@ export function widgetSource(pageId: string, widgetId: string, caps?: Provenance
     const override = AGENDA_KWALITEIT_PROVENANCE[pageId]?.[widgetId];
     if (override) return override;
   }
+  if (caps?.agendaCrisis) {
+    const override = AGENDA_CRISIS_PROVENANCE[pageId]?.[widgetId];
+    if (override) return override;
+  }
   if (caps?.verwijzers) {
     const override = VERWIJZERS_PROVENANCE[pageId]?.[widgetId];
     if (override) return override;
@@ -427,12 +456,18 @@ export function widgetSource(pageId: string, widgetId: string, caps?: Provenance
   return CAREON_PROVENANCE[pageId]?.widgets[widgetId] ?? "demo";
 }
 
-export function pageLiveCounts(pageId: string, caps?: ProvenanceCaps): { live: number; total: number } {
+export function pageLiveCounts(
+  pageId: string,
+  caps?: ProvenanceCaps,
+): { live: number; handmatig: number; total: number } {
   const widgets = CAREON_PROVENANCE[pageId]?.widgets ?? {};
   const sources = Object.keys(widgets).map((widgetId) => widgetSource(pageId, widgetId, caps));
   return {
     // "live" telt echte EPD-herkomst (live/proxy); demo én handmatig tellen niet.
     live: sources.filter((source) => source !== "demo" && source !== "handmatig").length,
+    // Apart geteld zodat de banner een handmatige registratie (HR) niet
+    // onterecht "demo-data" noemt.
+    handmatig: sources.filter((source) => source === "handmatig").length,
     total: sources.length,
   };
 }

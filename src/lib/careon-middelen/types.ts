@@ -51,6 +51,8 @@ export interface MedewerkerMiddelen {
   teams?: string[];
   /** Vrije notitie: kenteken, sleutelnummer, laptop-tag … */
   notitie?: string;
+  /** E-mail van het gekoppelde dashboardaccount (aangemaakt via Gebruikersbeheer). */
+  accountEmail?: string;
 }
 
 /** Eén team binnen de organisatiestructuur (teams per Vektis-locatie). */
@@ -100,6 +102,7 @@ export const MIDDELEN_LIMITS = {
   teamnaam: 60,
   teamtags: 10,
   aantal: 100_000,
+  accountEmail: 254,
 } as const;
 
 function isCount(value: unknown): value is number {
@@ -118,6 +121,10 @@ function isMedewerkerMiddelen(value: unknown): value is MedewerkerMiddelen {
     Array.isArray(row.middelen) &&
     row.middelen.every((middel) => (MIDDEL_TYPES as readonly string[]).includes(middel as string)) &&
     (row.functie === undefined || (typeof row.functie === "string" && row.functie.length <= MIDDELEN_LIMITS.functie)) &&
+    (row.accountEmail === undefined ||
+      (typeof row.accountEmail === "string" &&
+        row.accountEmail.trim().length > 0 &&
+        row.accountEmail.length <= MIDDELEN_LIMITS.accountEmail)) &&
     (row.talen === undefined ||
       (Array.isArray(row.talen) &&
         row.talen.length <= MIDDELEN_LIMITS.talen &&

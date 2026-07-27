@@ -32,6 +32,7 @@ export async function GET() {
     {
       authed: true,
       email: session.email,
+      fullName: session.fullName,
       orgId: session.orgId,
       orgRole: session.orgRole,
       isSuperadmin: session.isSuperadmin,

@@ -7,6 +7,7 @@ import {
   recentAssistantEvents,
   recentAuditEvents,
 } from "@/lib/careon-admin/admin.server";
+import { requireSuperadminPage } from "@/lib/supabase/session.server";
 import { cn } from "@/lib/utils";
 
 import { AdminCard, AdminEmpty, formatMoment } from "../_components/admin-ui";
@@ -16,6 +17,8 @@ export const dynamic = "force-dynamic";
 export default async function AdminActivityPage({
   searchParams,
 }: Readonly<{ searchParams: Promise<{ org?: string; actie?: string }> }>) {
+  // Superadmin-check op de databoundary zelf (layout rendert parallel).
+  await requireSuperadminPage();
   if (!adminConfigured()) {
     return <AdminEmpty>Supabase is niet geconfigureerd.</AdminEmpty>;
   }

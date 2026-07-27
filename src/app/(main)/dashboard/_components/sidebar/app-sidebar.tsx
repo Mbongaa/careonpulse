@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
+
 import Link from "next/link";
 
-import { CircleHelp, ClipboardList, Database, File, Search, Settings } from "lucide-react";
+import { CircleHelp, ClipboardList, Database, File, Search, Settings, UserPlus } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 
 import {
@@ -72,6 +74,35 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const variant = isSynced ? sidebarVariant : props.variant;
   const collapsible = isSynced ? sidebarCollapsible : props.collapsible;
 
+  // Gebruikersbeheer (handoff 13, fase 6) alleen tonen aan organisatie-
+  // beheerders; in demo-modus (501) of voor gewone leden blijft de sidebar
+  // exact het geauditeerde origineel. Zelfde sessie-probe als nav-user.
+  const [beheerZichtbaar, setBeheerZichtbaar] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/auth/session", { cache: "no-store", signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { orgRole?: string; isSuperadmin?: boolean } | null) => {
+        if (payload?.orgRole === "org_admin" || payload?.isSuperadmin) setBeheerZichtbaar(true);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+  const navItems = useMemo(() => {
+    if (!beheerZichtbaar) return sidebarItems;
+    return sidebarItems.map((group) =>
+      group.label === "Systeem"
+        ? {
+            ...group,
+            items: [
+              ...group.items,
+              { id: "beheer", title: "Gebruikersbeheer", url: "/dashboard/beheer", icon: UserPlus },
+            ],
+          }
+        : group,
+    );
+  }, [beheerZichtbaar]);
+
   return (
     <Sidebar {...props} variant={variant} collapsible={collapsible}>
       <SidebarHeader>
@@ -94,7 +125,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={sidebarItems} />
+        <NavMain items={navItems} />
         {/* <NavDocuments items={data.documents} /> */}
         {/* <NavSecondary items={data.navSecondary} className="mt-auto" /> */}
       </SidebarContent>

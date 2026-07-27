@@ -94,3 +94,15 @@ Keep a component inside its route until it is reused by another feature. Do not 
 - Include screenshots for new screens and material visual changes. Include mobile and dark-theme states when relevant.
 - Explain new reusable patterns or dependencies in the pull request.
 - Follow `CONTRIBUTING.md` for the contribution workflow.
+
+## Platform context (Careon Pulse)
+
+This repository is one module of the **Careon Pulse** multi-module platform: a Flutter shell app + a Supabase identity hub (OAuth 2.1 / OIDC) + independent modules (this dashboard, the HumHub communication platform, JaaS meetings, and the recording/AI module).
+
+Platform-level architecture, the decision log (D1–D18), the roadmap, and cross-repo rules live in `docs/platform/PLATFORM_BLUEPRINT.md`. Read it before any work that touches authentication, organizations/roles, tile entitlements, the OAuth 2.1 server configuration, or integration with other modules. Decisions marked **Confirmed** there must not be changed silently — propose alternatives explicitly with consequences.
+
+Current platform state, phase progress, and next milestones are tracked in `docs/platform/PROJECT_STATUS.md` — update it when a milestone changes state.
+
+Sibling repositories: `careonpulse-shell` (Flutter shell app), `humhub-meeting-modules` (meeting-core / meeting-recordings / meeting-intelligence), `platform-deploy` (Hetzner/Coolify Compose stack). Each has its own AGENTS.md for local conventions; all defer to the umbrella blueprint for platform-level decisions.
+
+This file continues to govern local dashboard conventions (structure, shadcn rules, Biome, commits) exactly as above.

@@ -3,6 +3,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 const ROUTES = [
   "/auth/v1/login",
+  "/modules",
   "/dashboard/assistent",
   "/dashboard/directiecockpit",
   "/dashboard/signaleringen",

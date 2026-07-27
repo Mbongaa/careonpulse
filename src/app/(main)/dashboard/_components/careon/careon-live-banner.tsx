@@ -3,6 +3,7 @@
 import { Database } from "lucide-react";
 
 import { pageLiveCounts } from "@/lib/careon-production/provenance";
+import { agendaHistorischEinde } from "@/lib/careon-production/types";
 
 import { useCareon } from "./careon-provider";
 
@@ -24,6 +25,7 @@ export function CareonLiveBanner({ page }: Readonly<{ page: string }>) {
     agenda: production.agenda != null,
     agendaToekomst: production.agenda?.vooruitblik != null,
     agendaKwaliteit: production.agenda?.kwaliteit != null,
+    agendaCrisis: production.agenda?.crisisPerClient != null,
     verwijzers: production.verwijzerNetwerk != null,
     toeslagen: production.toeslagen != null,
     declaraties: production.declaraties != null,
@@ -37,10 +39,13 @@ export function CareonLiveBanner({ page }: Readonly<{ page: string }>) {
     timeZone: "UTC",
   });
 
-  const coverage =
-    counts.live === 0
-      ? "Deze pagina heeft nog geen EPD-bron — alle widgets tonen demo-data tot de aanvullende exports zijn gekoppeld."
-      : `${counts.live} van ${counts.total} widgets tonen EPD-data; de rest is gemarkeerd als demo.`;
+  let coverage = `${counts.live} van ${counts.total} widgets tonen EPD-data; de rest is gemarkeerd als demo.`;
+  if (counts.live === 0) {
+    coverage =
+      counts.handmatig === counts.total
+        ? "Deze pagina toont een handmatig bijgehouden registratie — deze cijfers komen niet uit het EPD."
+        : "Deze pagina heeft nog geen EPD-bron — alle widgets tonen demo-data tot de aanvullende exports zijn gekoppeld.";
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-violet-600/30 bg-violet-500/5 px-3 py-2 text-muted-foreground text-xs">
@@ -56,8 +61,9 @@ export function CareonLiveBanner({ page }: Readonly<{ page: string }>) {
         <>
           <span>·</span>
           <span>
+            {/* Historische dekking — zelfde klem als alle agenda-vensters. */}
             Agenda t/m{" "}
-            {new Date(`${production.agenda.meta.bronTot}T00:00:00Z`).toLocaleDateString("nl-NL", {
+            {new Date(`${agendaHistorischEinde(production.agenda.meta)}T00:00:00Z`).toLocaleDateString("nl-NL", {
               day: "numeric",
               month: "short",
               timeZone: "UTC",

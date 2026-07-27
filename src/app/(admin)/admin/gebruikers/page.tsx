@@ -6,6 +6,7 @@ import {
   listPlatformAdmins,
   listProfiles,
 } from "@/lib/careon-admin/admin.server";
+import { requireSuperadminPage } from "@/lib/supabase/session.server";
 
 import { AdminCard, AdminEmpty, formatMoment } from "../_components/admin-ui";
 import { UserActions } from "./_components/user-actions";
@@ -14,6 +15,8 @@ import { UserCreateForm } from "./_components/user-create-form";
 export const dynamic = "force-dynamic";
 
 export default async function AdminUsersPage() {
+  // Superadmin-check op de databoundary zelf (layout rendert parallel).
+  await requireSuperadminPage();
   if (!adminConfigured()) {
     return <AdminEmpty>Supabase is niet geconfigureerd.</AdminEmpty>;
   }

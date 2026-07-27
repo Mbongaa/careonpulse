@@ -6,6 +6,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 const ROUTES = [
   "/auth/v1/login",
+  "/modules",
   "/dashboard/directiecockpit",
   "/dashboard/signaleringen",
   "/dashboard/patienten",

@@ -39,7 +39,7 @@ export function CareonLoginForm({ initiallyUnavailable = false }: Readonly<{ ini
     // oorspronkelijke lokale controle (met de geauditeerde laadtoestand).
     const result = await careonSignIn(username, password);
     if (result === "ok") {
-      router.replace("/dashboard/directiecockpit");
+      router.replace("/modules");
       return;
     }
     setSubmitting(false);

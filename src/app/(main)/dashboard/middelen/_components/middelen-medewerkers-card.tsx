@@ -1,12 +1,13 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 
-import { Check, Languages, UserRoundPlus, UsersRound, X } from "lucide-react";
+import { Check, Languages, Loader2, UserRoundPlus, UsersRound, X } from "lucide-react";
 
 import { useCareonMiddelen } from "@/app/(main)/dashboard/_components/careon/careon-middelen-provider";
 import { CareonHandmatigBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import { CareonPersonCell } from "@/app/(main)/dashboard/_components/careon/careon-table-cells";
+import { WachtwoordLink } from "@/app/(main)/dashboard/_components/careon/wachtwoord-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -31,8 +32,155 @@ interface MiddelenRij {
   teams: string[];
   middelen: MiddelType[];
   notitie: string;
+  accountEmail: string;
   uitDienst: boolean;
   verwijderbaar: boolean;
+}
+
+/** Accountstatus per e-mailadres uit /api/org/members (alleen org-admins). */
+interface AccountInfo {
+  banned: boolean;
+  lastSignIn: string | null;
+}
+
+// Dashboardaccount per medewerker (variant A): alleen zichtbaar voor
+// organisatiebeheerders — voor leden en in demo-modus blijft de kaart exact
+// zoals voorheen. Aanmaken vraagt alleen het e-mailadres; de naam komt uit de
+// registratie en de collega kiest zelf een wachtwoord via de link.
+function AccountCel({
+  rij,
+  accounts,
+  onChanged,
+}: Readonly<{ rij: MiddelenRij; accounts: Map<string, AccountInfo>; onChanged: () => void }>) {
+  const { setAccountEmail } = useCareonMiddelen();
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+
+  // Zolang de wachtwoord-link of feedback nog niet is gezien blijft de popover
+  // staan — setAccountEmail herrendert de rij en de statusbadge zou de link
+  // anders vóór weergave unmounten.
+  if (rij.accountEmail && !link && !feedback) {
+    const info = accounts.get(rij.accountEmail);
+    let status: "onbekend" | "geblokkeerd" | "actief" | "uitgenodigd" = "onbekend";
+    if (info) {
+      if (info.banned) status = "geblokkeerd";
+      else if (info.lastSignIn) status = "actief";
+      else status = "uitgenodigd";
+    }
+    const stijl = {
+      actief: "border-emerald-600/40 text-emerald-700 dark:text-emerald-400",
+      uitgenodigd: "border-blue-600/40 text-blue-700 dark:text-blue-400",
+      geblokkeerd: "border-destructive/40 text-destructive",
+      onbekend: "border-border text-muted-foreground",
+    }[status];
+    return (
+      <span
+        title={`${rij.accountEmail}${status === "onbekend" ? " — niet (meer) gevonden in Gebruikersbeheer" : ""}`}
+        className={cn("inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-xs", stijl)}
+      >
+        {status}
+      </span>
+    );
+  }
+
+  if (rij.uitDienst) {
+    return <span className="text-muted-foreground text-xs">—</span>;
+  }
+
+  async function maakAccount(event: FormEvent) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setFeedback(null);
+    const normalized = email.trim().toLowerCase();
+    try {
+      const response = await fetch("/api/org/members", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: normalized, fullName: rij.naam, role: "member" }),
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+        inviteLink?: string | null;
+      } | null;
+      // 409 = e-mailadres bestaat al ergens op het platform. Alleen koppelen
+      // wanneer het écht een lid van deze organisatie is (accounts-map) —
+      // anders zou de badge "gekoppeld" beloven terwijl de collega de
+      // organisatiedata nooit kan zien.
+      if (response.status === 409) {
+        if (accounts.has(normalized)) {
+          setAccountEmail(rij.naam, normalized);
+          setFeedback("Dit account bestond al en is aan de registratie gekoppeld.");
+          onChanged();
+        } else {
+          setFeedback(
+            "Dit e-mailadres heeft al een account buiten uw organisatie — koppelen kan niet; neem contact op met platformbeheer.",
+          );
+        }
+        return;
+      }
+      if (!response.ok) {
+        setFeedback(payload?.error ?? "Aanmaken mislukt.");
+        return;
+      }
+      setAccountEmail(rij.naam, normalized);
+      setLink(payload?.inviteLink ?? null);
+      if (!payload?.inviteLink) {
+        setFeedback("Account aangemaakt — genereer de wachtwoord-link via Gebruikersbeheer.");
+      }
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Popover
+      onOpenChange={(open) => {
+        // Niet opruimen terwijl het verzoek nog loopt: de link die daarna
+        // binnenkomt moet bij heropenen alsnog te zien zijn.
+        if (!open && !busy) {
+          setLink(null);
+          setFeedback(null);
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-7 px-2 text-xs" aria-label={`Account aanmaken — ${rij.naam}`}>
+          <UserRoundPlus className="size-3.5" />
+          Account
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 space-y-2 p-3">
+        {link ? (
+          <WachtwoordLink link={link} />
+        ) : (
+          <form onSubmit={(event) => void maakAccount(event)} className="space-y-2">
+            <p className="font-medium text-sm">Dashboardaccount voor {rij.naam}</p>
+            <Input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="naam@organisatie.nl"
+              aria-label={`E-mail voor account van ${rij.naam}`}
+              className="h-8 text-xs"
+              required
+            />
+            <Button type="submit" size="sm" disabled={busy || email.trim() === ""}>
+              {busy && <Loader2 className="size-3.5 animate-spin" />}
+              Account aanmaken
+            </Button>
+            <p className="text-[11px] text-muted-foreground">
+              De collega kiest zelf een wachtwoord via de link die hierna verschijnt.
+            </p>
+          </form>
+        )}
+        {feedback && <p className="text-muted-foreground text-xs">{feedback}</p>}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 // Dienstverband-toggle: uit dienst laat de registratie staan (historie) —
@@ -304,6 +452,32 @@ function PersoonToevoegen() {
 export function MiddelenMedewerkersCard({ bronMedewerkers }: Readonly<{ bronMedewerkers: MiddelenBronRij[] }>) {
   const { state } = useCareonMiddelen();
 
+  // Accountstatus per e-mail; null = geen beheerrechten (lid/demo) → de
+  // Account-kolom wordt dan helemaal niet gerenderd.
+  const [accounts, setAccounts] = useState<Map<string, AccountInfo> | null>(null);
+  const laadAccounts = useCallback(async () => {
+    try {
+      const response = await fetch("/api/org/members", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = (await response.json()) as {
+        members: { email: string; banned: boolean; lastSignIn: string | null }[];
+      };
+      setAccounts(
+        new Map(
+          payload.members.map((member) => [
+            member.email.toLowerCase(),
+            { banned: member.banned, lastSignIn: member.lastSignIn },
+          ]),
+        ),
+      );
+    } catch {
+      // Netwerkfout: kolom blijft verborgen; Gebruikersbeheer blijft de ingang.
+    }
+  }, []);
+  useEffect(() => {
+    void laadAccounts();
+  }, [laadAccounts]);
+
   const registratieByNaam = new Map(state.medewerkers.map((rij) => [rij.naam, rij]));
   const bronNamen = new Set(bronMedewerkers.map((rij) => rij.naam));
 
@@ -318,6 +492,7 @@ export function MiddelenMedewerkersCard({ bronMedewerkers }: Readonly<{ bronMede
         teams: registratie?.teams ?? [],
         middelen: registratie?.middelen ?? [],
         notitie: registratie?.notitie ?? "",
+        accountEmail: registratie?.accountEmail ?? "",
         uitDienst: registratie?.uitDienst === true,
         verwijderbaar: false,
       };
@@ -335,6 +510,7 @@ export function MiddelenMedewerkersCard({ bronMedewerkers }: Readonly<{ bronMede
         teams: rij.teams ?? [],
         middelen: rij.middelen,
         notitie: rij.notitie ?? "",
+        accountEmail: rij.accountEmail ?? "",
         uitDienst: rij.uitDienst === true,
         verwijderbaar: true,
       })),
@@ -359,6 +535,7 @@ export function MiddelenMedewerkersCard({ bronMedewerkers }: Readonly<{ bronMede
                 <div className="flex items-start justify-between gap-2">
                   <CareonPersonCell naam={rij.naam} sub={rij.sub} />
                   <span className="flex items-center gap-1.5">
+                    {accounts && <AccountCel rij={rij} accounts={accounts} onChanged={laadAccounts} />}
                     <DienstKnop rij={rij} />
                     <VerwijderKnop rij={rij} />
                   </span>
@@ -384,6 +561,7 @@ export function MiddelenMedewerkersCard({ bronMedewerkers }: Readonly<{ bronMede
                   <TableHead>Teams</TableHead>
                   <TableHead>Middelen</TableHead>
                   <TableHead className="w-56">Notitie</TableHead>
+                  {accounts && <TableHead>Account</TableHead>}
                   <TableHead className="w-10 pr-4" aria-label="Acties" />
                 </TableRow>
               </TableHeader>
@@ -408,6 +586,11 @@ export function MiddelenMedewerkersCard({ bronMedewerkers }: Readonly<{ bronMede
                     <TableCell>
                       <NotitieInput naam={rij.naam} notitie={rij.notitie} />
                     </TableCell>
+                    {accounts && (
+                      <TableCell>
+                        <AccountCel rij={rij} accounts={accounts} onChanged={laadAccounts} />
+                      </TableCell>
+                    )}
                     <TableCell className="pr-4 text-right">
                       <span className="inline-flex items-center gap-1.5">
                         <DienstKnop rij={rij} />

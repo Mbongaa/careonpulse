@@ -16,6 +16,12 @@ const SOURCE_BADGE_LABEL: Record<CareonSourceMode, string> = {
 export function CareonAlertsNavBadge() {
   const { alertCount } = useCareon();
 
+  // Geen rode "0" in een gezonde productiestand — zelfde gedrag als de
+  // alert-bel en de mobiele bottom-nav (demo blijft 3, geauditeerd).
+  if (alertCount === 0) {
+    return null;
+  }
+
   return (
     <SidebarMenuBadge className="rounded-full bg-red-500 px-1.5 text-white peer-hover/menu-button:text-white peer-data-active/menu-button:text-white">
       {alertCount}

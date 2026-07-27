@@ -1280,6 +1280,20 @@ check(
   [pageLiveCounts("kwaliteit").live, pageLiveCounts("kwaliteit", { agendaKwaliteit: true }).live],
   [1, 4],
 );
+// Crisiscliënten flipt uitsluitend op de agendaCrisis-cap — een aggregaat van
+// vóór de crisis-velden toont nog de Hoog-risico-proxy en mag op de
+// detailpagina geen crisis-methodologie claimen.
+check(
+  "provenance crisis alleen via agendaCrisis-cap",
+  [
+    widgetSource("patienten", "Crisiscliënten"),
+    widgetSource("patienten", "Crisiscliënten", { agenda: true }),
+    widgetSource("patienten", "Crisiscliënten", { agendaCrisis: true }),
+    widgetSource("patienten", "Crisiscliënten (90 dgn)", { agenda: true }),
+    widgetSource("patienten", "Crisiscliënten (90 dgn)", { agendaCrisis: true }),
+  ],
+  ["demo", "demo", "proxy", "demo", "proxy"],
+);
 check("provenance dossiers Dossierkwaliteit proxy", widgetSource("dossiers", "Dossierkwaliteit"), "proxy");
 check(
   "provenance signaleringen BIG handmatig (live uit HR-registratie)",
@@ -1773,9 +1787,11 @@ if (fs.existsSync(nieuwClientPath) && fs.existsSync(nieuwAgendaPath) && fs.exist
     [209, 50],
   );
   check(
+    // 282 sinds prijs-0-sessies niet meer als onderhanden tellen (structureel
+    // niet-declarabel; 14 historische €0-rijen zaten permanent in de telling).
     "nieuw: signalering niet-gefactureerd >90 dgn",
     nieuwSnap.signaleringen.find((alert) => alert.titel === "Sessies >90 dgn niet gefactureerd")?.n,
-    296,
+    282,
   );
   check("nieuw: verwijzernetwerk zorgmail", nieuwSnap.verwijzerNetwerk?.zorgmailPct, 95);
   check(
@@ -1788,6 +1804,53 @@ if (fs.existsSync(nieuwClientPath) && fs.existsSync(nieuwAgendaPath) && fs.exist
     177,
   );
   check("nieuw: actief zonder vestiging", nieuwSnap.meta.zonderVestiging, 27);
+
+  // ---- Crisiscliënten-proxy uit de agenda (crisis-sessietypen) ----
+  check(
+    "nieuw: crisiscliënten (90 dgn) vervangt de hoog-risico-proxy",
+    [nieuwSnap.patientenMetrics.Crisiscliënten.label, nieuwSnap.patientenMetrics.Crisiscliënten.value],
+    ["Crisiscliënten (90 dgn)", 5],
+  );
+  check("nieuw: crisis-drilldown volgt de kaart", PRODUCTION_DETAIL_ROWS.crisis(nieuwSnap).length, 5);
+
+  // ---- Ouderdom-tabel en >90-kaart delen dezelfde maandconventie ----
+  check(
+    "nieuw: ouderdom >90-bucket spoort met de >90 dgn-kaart",
+    nieuwAgendaSnap.financieel.onderhandenOuderdom[3].bedrag,
+    nieuwAgendaSnap.financieel.metrics["Declaraties >90 dgn"].value,
+  );
+
+  // ---- Regressie: verouderde agenda bij nieuwere cliënten-import ----
+  // bronTot loopt door het toekomstvenster tot 2028-01; de agenda-vensters
+  // moeten op de peildatum (2026-07-22) blijven hangen wanneer de cliënten-
+  // export later opnieuw wordt geïmporteerd zonder verse agenda — anders
+  // verschijnen valse 0-maanden en opgeblazen contactalerts.
+  const staleAgendaSnap = computeProductionSnapshot(
+    { fileName: "cli_ntendata_export.csv", importedAt: "2026-09-15T09:00:00.000Z", records: nieuwClient.records },
+    { locatie: "Alle locaties" },
+    new Date(Date.UTC(2026, 8, 15)),
+    { agenda: nieuwAgendaFacts, verwijzers: nieuwVerwijzers.facts },
+  );
+  const staleAgenda = staleAgendaSnap.agenda;
+  if (!staleAgenda) {
+    throw new Error("agenda-snapshot bij latere cliënten-import ontbreekt");
+  }
+  check("regressie: agenda-maand klemt op peildatum bij latere cliënten-import", staleAgenda.meta.maandKey, "2026-06");
+  check(
+    "regressie: afspraken-kaart houdt juni-waarde (geen valse 0-maand)",
+    staleAgenda.planningMetrics["Afspraken deze maand"].value,
+    nieuwAgendaSnap.planningMetrics["Afspraken deze maand"].value,
+  );
+  check(
+    "regressie: contactvensters klemmen op de peildatum",
+    [staleAgenda.contact.z30, staleAgenda.contact.z60],
+    [nieuwAgendaSnap.contact.z30, nieuwAgendaSnap.contact.z60],
+  );
+  check(
+    "regressie: omzetmaand ná peildatum is null (niet €0)",
+    staleAgendaSnap.monthly.find((point) => point.key === "2026-08")?.omzet,
+    null,
+  );
 } else {
   console.log("(nieuwe exports niet aanwezig — sanity-pass Exports EPD overgeslagen)");
 }

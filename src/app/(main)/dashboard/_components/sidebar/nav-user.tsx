@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { useRouter } from "next/navigation";
 
-import { EllipsisVertical, LogOut, ShieldCheck } from "lucide-react";
+import { EllipsisVertical, LayoutGrid, LogOut, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -32,21 +32,30 @@ export function NavUser({
   const { isMobile } = useSidebar();
   const router = useRouter();
   const [isSuperadmin, setIsSuperadmin] = useState(false);
+  const [sessionUser, setSessionUser] = useState<{ name: string; email: string } | null>(null);
 
   // Beheer-link alleen voor platformbeheerders (Supabase-modus); de
-  // (admin)-layout dwingt de rol daarnaast server-side af.
+  // (admin)-layout dwingt de rol daarnaast server-side af. Dezelfde probe
+  // levert de echte accountidentiteit — in demo-modus (501) blijft de
+  // geauditeerde demo-persona staan.
   useEffect(() => {
     const controller = new AbortController();
     fetch("/api/auth/session", { cache: "no-store", signal: controller.signal })
       .then((response) => (response.ok ? response.json() : null))
-      .then((payload: { isSuperadmin?: boolean } | null) => {
+      .then((payload: { isSuperadmin?: boolean; authed?: boolean; email?: string; fullName?: string } | null) => {
         if (payload?.isSuperadmin) setIsSuperadmin(true);
+        if (payload?.authed && payload.email) {
+          const name = payload.fullName?.trim() ? payload.fullName.trim() : payload.email.split("@")[0];
+          setSessionUser({ name, email: payload.email });
+        }
       })
       .catch(() => undefined);
     return () => {
       controller.abort();
     };
   }, []);
+
+  const shownUser = sessionUser ? { name: sessionUser.name, email: sessionUser.email, avatar: "" } : user;
 
   const handleLogout = async () => {
     const loggedOut = await careonLogout();
@@ -67,12 +76,12 @@ export function NavUser({
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
               <Avatar className="h-8 w-8 rounded-lg">
-                <AvatarImage src={user.avatar || undefined} alt={user.name} />
-                <AvatarFallback className="rounded-lg text-foreground">{getInitials(user.name)}</AvatarFallback>
+                <AvatarImage src={shownUser.avatar || undefined} alt={shownUser.name} />
+                <AvatarFallback className="rounded-lg text-foreground">{getInitials(shownUser.name)}</AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">{user.name}</span>
-                <span className="truncate text-muted-foreground text-xs">{user.email}</span>
+                <span className="truncate font-medium">{shownUser.name}</span>
+                <span className="truncate text-muted-foreground text-xs">{shownUser.email}</span>
               </div>
               <EllipsisVertical className="ml-auto size-4" />
             </SidebarMenuButton>
@@ -86,16 +95,20 @@ export function NavUser({
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                 <Avatar className="h-8 w-8 rounded-lg">
-                  <AvatarImage src={user.avatar || undefined} alt={user.name} />
-                  <AvatarFallback className="rounded-lg text-foreground">{getInitials(user.name)}</AvatarFallback>
+                  <AvatarImage src={shownUser.avatar || undefined} alt={shownUser.name} />
+                  <AvatarFallback className="rounded-lg text-foreground">{getInitials(shownUser.name)}</AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-medium">{user.name}</span>
-                  <span className="truncate text-muted-foreground text-xs">{user.email}</span>
+                  <span className="truncate font-medium">{shownUser.name}</span>
+                  <span className="truncate text-muted-foreground text-xs">{shownUser.email}</span>
                 </div>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => router.push("/modules")}>
+              <LayoutGrid />
+              Modules
+            </DropdownMenuItem>
             {isSuperadmin && (
               <DropdownMenuItem onClick={() => router.push("/admin")}>
                 <ShieldCheck />

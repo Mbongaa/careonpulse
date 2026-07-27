@@ -21,6 +21,7 @@ import type {
   ToeslagenFacts,
   VerwijzersFacts,
 } from "./types";
+import { agendaHistorischEinde } from "./types";
 
 // Alle productie-aggregaties zijn pure functies over de gepseudonimiseerde
 // records: filterbaar per vestiging en deterministisch bij een gegeven
@@ -566,14 +567,23 @@ export function computeProductionSnapshot(
     { label: "Onbekend", aantal: actieveClienten.filter((r) => r.leeftijd === null).length },
   ].filter((groep) => groep.label !== "Onbekend" || groep.aantal > 0);
 
-  const twaalfMaandenTerug = isoFromParts(referenceDate.getUTCFullYear() - 1, referenceDate.getUTCMonth(), 1);
+  // Zelfde venster als élke andere 12-maands-aggregatie: de laatste 12 vólle
+  // maanden — niet "zelfde maand vorig jaar t/m vandaag" (dat is ~13 maanden
+  // incl. de lopende maand en spoort niet met de maandreeksen).
+  const verwijzerVan = months[0].key.concat("-01");
+  const verwijzerTot = lastMonth.endIso;
   // Groepering primair op AGB-code (authoritatief; vangt naamvarianten die
   // tekstuele canonicalisatie mist), terugval op de genormaliseerde naam.
   // Weergavelabel = meest voorkomende naam binnen de groep; gelijknamige
   // groepen worden voor weergave samengeteld (status quo van naamgroepering).
   const verwijzerGroepen = new Map<string, { aantal: number; labels: Map<string, number> }>();
   for (const record of records) {
-    if (record.verwijsdatum === null || record.verwijsdatum < twaalfMaandenTerug || record.verwijzer === null) {
+    if (
+      record.verwijsdatum === null ||
+      record.verwijsdatum < verwijzerVan ||
+      record.verwijsdatum > verwijzerTot ||
+      record.verwijzer === null
+    ) {
       continue;
     }
     const label = verwijzerLabel(record.verwijzer);
@@ -1087,7 +1097,11 @@ export function computeProductionSnapshot(
 
     // Vensters op het agenda-bereik zelf: is de agenda ouder dan de cliënten-
     // import, dan blijft de "laatste volle maand" binnen het agenda-bereik.
-    const agendaRefIso = agendaFacts.bronTot < referenceIso ? agendaFacts.bronTot : referenceIso;
+    // Historisch bereik eindigt op de peildatum van de agenda-import — bronTot
+    // kan jaren verder liggen (geplande afspraken in het toekomstvenster) en
+    // mag het venster nooit voorbij de werkelijke dekking schuiven.
+    const agendaEinde = agendaHistorischEinde(agendaFacts);
+    const agendaRefIso = agendaEinde < referenceIso ? agendaEinde : referenceIso;
     const agendaMonths = lastFullMonths(agendaRefIso, 12);
     const lastAgendaMonth = agendaMonths[agendaMonths.length - 1];
     const prevAgendaMonth = agendaMonths[agendaMonths.length - 2];
@@ -1483,11 +1497,13 @@ export function computeProductionSnapshot(
       Number(lastAgendaMonth.key.slice(0, 4)) * 12 +
       Number(lastAgendaMonth.key.slice(5, 7)) -
       (Number(key.slice(0, 4)) * 12 + Number(key.slice(5, 7)));
+    // Zelfde maand-conventie als de ">90 dgn"-kaart (drempel90 = maand op
+    // afstand 3): afstand 0 = laatste agendamaand, >2 = ouder dan 90 dagen.
     const ouderdomBuckets = [
-      { label: "Binnen 30 dagen", test: (afstand: number) => afstand <= 1 },
-      { label: "30–60 dagen", test: (afstand: number) => afstand === 2 },
-      { label: "60–90 dagen", test: (afstand: number) => afstand === 3 },
-      { label: "Ouder dan 90 dagen", test: (afstand: number) => afstand > 3 },
+      { label: "Binnen 30 dagen", test: (afstand: number) => afstand <= 0 },
+      { label: "30–60 dagen", test: (afstand: number) => afstand === 1 },
+      { label: "60–90 dagen", test: (afstand: number) => afstand === 2 },
+      { label: "Ouder dan 90 dagen", test: (afstand: number) => afstand > 2 },
     ];
     const onderhandenOuderdom = ouderdomBuckets.map(({ label, test }) => {
       const bedrag = cellen.filter((cel) => test(maandAfstand(cel.key))).reduce((sum, cel) => sum + cel.onderhanden, 0);
@@ -1544,6 +1560,34 @@ export function computeProductionSnapshot(
       f: "int",
       betterLow: true,
     };
+
+    // ---- Crisiscliënten (agenda-proxy) ----
+    // Échte crisis-sessies uit de agenda ("Crisis -beoordeling" / "Crisis -
+    // tijdens behandeling") vervangen de Hoog-risico-proxy — alleen op
+    // aggregaten mét de crisis-velden; oudere aggregaten houden ZT05/ZT08
+    // tot een her-import van de agenda-export.
+    const heeftCrisisVelden = agendaFacts.clienten.some((fact) => fact.crisis !== undefined);
+    let crisisPerClient: Record<string, string> | null = null;
+    if (heeftCrisisVelden) {
+      const perClient: Record<string, string> = {};
+      for (const fact of agendaFacts.clienten) {
+        if (fact.laatsteCrisis) perClient[fact.id] = fact.laatsteCrisis;
+      }
+      crisisPerClient = perClient;
+      const crisisClienten = actieveClienten.filter((record) => {
+        const laatsteCrisis = perClient[record.id];
+        return (
+          laatsteCrisis !== undefined && laatsteCrisis <= agendaRefIso && daysBetween(laatsteCrisis, agendaRefIso) <= 90
+        );
+      }).length;
+      patientenMetrics.Crisiscliënten = {
+        label: "Crisiscliënten (90 dgn)",
+        value: crisisClienten,
+        prev: null,
+        f: "int",
+        betterLow: true,
+      };
+    }
 
     // ---- Vooruitblik (alleen wanneer de export een toekomstvenster heeft) ----
     // Zonder toekomstvenster is "geen vervolgafspraak" niet te onderscheiden
@@ -1692,7 +1736,9 @@ export function computeProductionSnapshot(
     // Dezelfde verrijking op zowel de 12-maandsreeks als de volledige historie
     // (de per-maand-maps dekken álle maanden — alleen de aggregaten zijn gevensterd).
     const bronVanMaand = agendaFacts.bronVan.slice(0, 7);
-    const bronTotMaand = agendaFacts.bronTot.slice(0, 7);
+    // Historische dekking eindigt op de peildatum — maanden dáárna zijn geen
+    // €0-maanden maar niet-gedekte maanden (null), ook al loopt bronTot door.
+    const bronTotMaand = agendaEinde.slice(0, 7);
     const verrijkMaand = (point: ProductionMonthPoint) => {
       const rollup = perMaand.get(point.key);
       point.noshowPct =
@@ -1720,17 +1766,31 @@ export function computeProductionSnapshot(
       });
     }
     const kwartaalKeys = new Set(agendaMonths.slice(-3).map((month) => month.key));
-    const kwartaalAccu = new Map<string, { sessies: number; noShows: number }>();
+    const kwartaalAccu = new Map<string, { sessies: number; noShows: number; tijdigAfgezegd: number }>();
     for (const cel of cellen) {
       if (cel.behandelaar === null || !kwartaalKeys.has(cel.key)) continue;
-      const acc = kwartaalAccu.get(cel.behandelaar) ?? { sessies: 0, noShows: 0 };
+      const acc = kwartaalAccu.get(cel.behandelaar) ?? { sessies: 0, noShows: 0, tijdigAfgezegd: 0 };
       acc.sessies += cel.sessies;
       acc.noShows += cel.noShows;
+      acc.tijdigAfgezegd += cel.tijdigAfgezegd;
       kwartaalAccu.set(cel.behandelaar, acc);
     }
+    // Zelfde noemer als élk getoond no-show-percentage: tijdig afgezegde
+    // afspraken tellen niet mee — anders vuurt de signalering niet terwijl de
+    // Behandelaren-tabel wél >5% toont. Volume-eis óók op de effectieve noemer
+    // (≥10, zelfde onderdrukking als behandelaarStats) zodat een bijna geheel
+    // afgezegd kwartaal geen percentage kan produceren dat nergens getoond wordt.
     const noshowBoven5 = [...kwartaalAccu.entries()]
-      .map(([naam, acc]) => ({ naam, sessies: acc.sessies, pct: (acc.noShows / Math.max(1, acc.sessies)) * 100 }))
-      .filter((row) => row.sessies >= 20 && row.pct > 5)
+      .map(([naam, acc]) => {
+        const noemer = acc.sessies - acc.tijdigAfgezegd;
+        return {
+          naam,
+          sessies: acc.sessies,
+          noemer,
+          pct: noemer > 0 ? (acc.noShows / noemer) * 100 : 0,
+        };
+      })
+      .filter((row) => row.sessies >= 20 && row.noemer >= 10 && row.pct > 5)
       .sort((a, b) => b.pct - a.pct);
     if (noshowBoven5.length > 0) {
       signaleringen.push({
@@ -1853,6 +1913,7 @@ export function computeProductionSnapshot(
         importedAt: agendaFacts.importedAt,
         bronVan: agendaFacts.bronVan,
         bronTot: agendaFacts.bronTot,
+        peildatum: agendaFacts.peildatum,
         sessieRows: agendaFacts.sessieRows,
         blokRows: agendaFacts.blokRows,
         maandLabel,
@@ -1924,6 +1985,7 @@ export function computeProductionSnapshot(
           .map((fact) => [fact.id, fact.laatste]),
       ),
       vervolgPerClient,
+      crisisPerClient,
       vooruitblik,
       dossierchecks: {
         verslagOntbreekt: totaalRollup.sessies - totaalRollup.verslagen,

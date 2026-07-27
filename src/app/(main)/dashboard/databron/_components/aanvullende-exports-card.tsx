@@ -12,7 +12,7 @@ import { parseAgendaExport } from "@/lib/careon-production/parse-agenda";
 import { parseDeclaratiesExport } from "@/lib/careon-production/parse-declaraties";
 import { parseToeslagenExport } from "@/lib/careon-production/parse-toeslagen";
 import { parseVerwijzersExport } from "@/lib/careon-production/parse-verwijzers";
-import type { ImportWarning } from "@/lib/careon-production/types";
+import { agendaHistorischEinde, type ImportWarning } from "@/lib/careon-production/types";
 import { cn } from "@/lib/utils";
 
 // Aanvullende EPD-exports naast de cliëntendata: agenda/afspraken (planning,
@@ -229,7 +229,7 @@ export function AanvullendeExportsCard() {
             icoon={<CalendarDays className="size-4 text-violet-600 dark:text-violet-400" />}
             actief={
               agendaMeta
-                ? `Gekoppeld: ${agendaMeta.fileName} — ${nl.format(agendaMeta.sessieRows)} sessies t/m ${datumNl(agendaMeta.bronTot)}. Importeer een nieuwer bestand om te verversen.`
+                ? `Gekoppeld: ${agendaMeta.fileName} — ${nl.format(agendaMeta.sessieRows)} sessies t/m ${datumNl(agendaHistorischEinde(agendaMeta))}. Importeer een nieuwer bestand om te verversen.`
                 : null
             }
             disabled={!isProduction}

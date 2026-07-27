@@ -8,7 +8,7 @@ import {
   threadMessages,
 } from "@/lib/careon-admin/admin.server";
 import { scheduleAuditEvent } from "@/lib/careon-audit/audit.server";
-import { getCareonSession } from "@/lib/supabase/session.server";
+import { requireSuperadminPage } from "@/lib/supabase/session.server";
 import { cn } from "@/lib/utils";
 
 import { AdminCard, AdminEmpty, formatMoment } from "../_components/admin-ui";
@@ -44,6 +44,10 @@ function renderableParts(payload: unknown): { key: string | null; role: string; 
 export default async function AdminChatsPage({
   searchParams,
 }: Readonly<{ searchParams: Promise<{ gebruiker?: string; gesprek?: string }> }>) {
+  // Superadmin-check vóór de cross-org service-role-reads: de layout-redirect
+  // alleen volstaat niet (layout en pagina renderen parallel) en de
+  // admin.chat.view-audit hieronder mag alleen voor échte superadmins vuren.
+  const session = await requireSuperadminPage();
   if (!adminConfigured()) {
     return <AdminEmpty>Supabase is niet geconfigureerd.</AdminEmpty>;
   }
@@ -61,17 +65,14 @@ export default async function AdminChatsPage({
     messages = await threadMessages(activeThread.user_id, activeThread.id);
     // Inzage in een gesprek is zélf auditwaardig — zo blijft superadmin-toegang
     // controleerbaar (AVG-verantwoording).
-    const session = await getCareonSession();
-    if (session.status === "ok") {
-      scheduleAuditEvent({
-        action: "admin.chat.view",
-        resource: "assistant_threads",
-        resourceId: activeThread.id,
-        orgId: activeThread.org_id,
-        userId: session.session.userId,
-        detail: { owner: userEmail.get(activeThread.user_id) ?? activeThread.user_id },
-      });
-    }
+    scheduleAuditEvent({
+      action: "admin.chat.view",
+      resource: "assistant_threads",
+      resourceId: activeThread.id,
+      orgId: activeThread.org_id,
+      userId: session.userId,
+      detail: { owner: userEmail.get(activeThread.user_id) ?? activeThread.user_id },
+    });
   }
 
   const chatUsers = [...new Set((threads ?? []).map((thread) => thread.user_id))];

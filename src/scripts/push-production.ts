@@ -64,11 +64,23 @@ async function main() {
   };
   const importedAt = new Date().toISOString();
 
+  // Multi-tenant (migratie 0010): elke rij draagt een org_id. Dit script vult
+  // altijd de TGC-organisatie (migratie 0014) — de exports in "Exports EPD/"
+  // zijn data van deze instelling.
+  const orgResponse = await fetch(`${supabaseUrl}/rest/v1/organizations?slug=eq.tgc&select=id&limit=1`, { headers });
+  const orgRows = orgResponse.ok ? ((await orgResponse.json()) as { id: string }[]) : [];
+  const orgId = orgRows[0]?.id;
+  if (!orgId) {
+    console.error("Organisatie 'tgc' niet gevonden in Supabase — niets gepusht.");
+    process.exit(1);
+  }
+
   /** Laatste centrale tijdstempel voor een tabel (kolomnaam variabel). */
   async function centraleStand(table: string, kolom: string): Promise<number | null> {
-    const response = await fetch(`${supabaseUrl}/rest/v1/${table}?select=${kolom}&order=${kolom}.desc&limit=1`, {
-      headers,
-    });
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/${table}?select=${kolom}&org_id=eq.${orgId}&order=${kolom}.desc&limit=1`,
+      { headers },
+    );
     if (!response.ok) return null;
     const rows = (await response.json()) as Record<string, string>[];
     return rows[0] ? Date.parse(rows[0][kolom]) : null;
@@ -101,6 +113,7 @@ async function main() {
         method: "POST",
         headers: { ...headers, Prefer: "return=representation" },
         body: JSON.stringify({
+          org_id: orgId,
           file_name: clientFile,
           imported_at: importedAt,
           total_rows: clientParse.records.length,
@@ -150,7 +163,7 @@ async function main() {
     const response = await fetch(`${supabaseUrl}/rest/v1/${table}`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ state: parsed.facts }),
+      body: JSON.stringify({ org_id: orgId, state: parsed.facts }),
     });
     if (!response.ok) {
       console.error(`${label} opslaan faalde: ${response.status} ${await response.text()}`);

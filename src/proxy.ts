@@ -8,7 +8,7 @@ import { isCareonDemoMode, isSupabaseAuthConfigured, SUPABASE_ANON_KEY, SUPABASE
 
 // Bewust hier gedefinieerd: careon-auth.ts trekt client-only modules mee.
 const LOGIN_ROUTE = "/auth/v1/login";
-const HOME_ROUTE = "/dashboard/directiecockpit";
+const HOME_ROUTE = "/modules";
 
 export async function proxy(request: NextRequest) {
   // ── Authenticatie (alleen in Supabase-modus; Playwright draait zonder) ────
@@ -17,7 +17,7 @@ export async function proxy(request: NextRequest) {
   // bewaken zichzelf (requireCareonSession) en vallen buiten de matcher.
   const pendingCookies: { name: string; value: string; options?: CookieOptions }[] = [];
   const path = request.nextUrl.pathname;
-  const needsAuth = path.startsWith("/dashboard") || path.startsWith("/admin");
+  const needsAuth = path.startsWith("/dashboard") || path.startsWith("/admin") || path.startsWith("/modules");
   if (!isCareonDemoMode() && !isSupabaseAuthConfigured() && needsAuth) {
     const url = request.nextUrl.clone();
     url.pathname = LOGIN_ROUTE;

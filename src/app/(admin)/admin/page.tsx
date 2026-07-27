@@ -5,12 +5,16 @@ import {
   listProfiles,
   recentAuditEvents,
 } from "@/lib/careon-admin/admin.server";
+import { requireSuperadminPage } from "@/lib/supabase/session.server";
 
 import { AdminCard, AdminEmpty, AdminStat, formatMoment } from "./_components/admin-ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminOverviewPage() {
+  // Layout en pagina renderen parallel — de superadmin-check moet vóór de
+  // service-role-reads van deze pagina zelf staan.
+  await requireSuperadminPage();
   if (!adminConfigured()) {
     return <AdminEmpty>Supabase is niet geconfigureerd; beheer is alleen beschikbaar in Supabase-modus.</AdminEmpty>;
   }

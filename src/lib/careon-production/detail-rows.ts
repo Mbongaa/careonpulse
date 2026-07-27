@@ -22,6 +22,7 @@ import {
   wachtduurDagen,
 } from "./compute-snapshot";
 import type { ClientRecord, LiveMetric, ProductionSnapshot } from "./types";
+import { agendaHistorischEinde } from "./types";
 
 function clientRow(record: ClientRecord, extra: Record<string, string | number | null> = {}): KpiDetailRow {
   return {
@@ -75,7 +76,8 @@ function contactProxyRows(snapshot: ProductionSnapshot, minDagen: number): KpiDe
   // snapshot-telling (laatste gehouden afspraak, terugval episodestart).
   const agenda = snapshot.agenda;
   if (agenda) {
-    const agendaRefIso = agenda.meta.bronTot < referenceIso ? agenda.meta.bronTot : referenceIso;
+    const agendaEinde = agendaHistorischEinde(agenda.meta);
+    const agendaRefIso = agendaEinde < referenceIso ? agendaEinde : referenceIso;
     return snapshot.records
       .filter((record) => activeAt(record, referenceIso) && !isWachtend(record))
       .map((record) => {
@@ -204,7 +206,8 @@ export const PRODUCTION_DETAIL_ROWS: Record<string, (snapshot: ProductionSnapsho
     const agenda = snapshot.agenda;
     if (!agenda?.vooruitblik) return [];
     const referenceIso = snapshot.meta.referenceDate;
-    const agendaRefIso = agenda.meta.bronTot < referenceIso ? agenda.meta.bronTot : referenceIso;
+    const agendaEinde = agendaHistorischEinde(agenda.meta);
+    const agendaRefIso = agendaEinde < referenceIso ? agendaEinde : referenceIso;
     return snapshot.records
       .filter(
         (record) =>
@@ -242,6 +245,33 @@ export const PRODUCTION_DETAIL_ROWS: Record<string, (snapshot: ProductionSnapsho
 
   crisis: (snapshot) => {
     const referenceIso = snapshot.meta.referenceDate;
+    // Mét crisis-velden in het agenda-aggregaat: cliënten met een gehouden
+    // crisis-sessie in de laatste 90 dagen — zelfde predicaat als de kaart.
+    const agenda = snapshot.agenda;
+    const crisisPerClient = agenda?.crisisPerClient ?? null;
+    if (agenda && crisisPerClient) {
+      const agendaEinde = agendaHistorischEinde(agenda.meta);
+      const agendaRefIso = agendaEinde < referenceIso ? agendaEinde : referenceIso;
+      return snapshot.records
+        .filter((record) => {
+          if (!activeAt(record, referenceIso)) return false;
+          const laatsteCrisis = crisisPerClient[record.id];
+          return (
+            laatsteCrisis !== undefined &&
+            laatsteCrisis <= agendaRefIso &&
+            daysBetween(laatsteCrisis, agendaRefIso) <= 90
+          );
+        })
+        .sort((a, b) => (crisisPerClient[b.id] ?? "").localeCompare(crisisPerClient[a.id] ?? ""))
+        .map((record) =>
+          // Zelfde kolomset als de demo-configuratie (status + Dagen actief);
+          // de crisisdatum — het definiërende gegeven — reist mee in status.
+          clientRow(record, {
+            status: `Crisis-sessie ${crisisPerClient[record.id]} · ${record.zorgvraagtypeOmschrijving ?? record.zorgvraagtype ?? "—"}`,
+            dagen: dagenOpen(record, referenceIso),
+          }),
+        );
+    }
     return snapshot.records
       .filter(
         (record) =>
@@ -295,7 +325,7 @@ export const PRODUCTION_DETAIL_ROWS: Record<string, (snapshot: ProductionSnapsho
           groep.locaties.set(record.vestiging, (groep.locaties.get(record.vestiging) ?? 0) + 1);
         }
       }
-      if (monthKeyOf(record.episodeEind) === lastKey) {
+      if (monthKeyOf(uitstroomDatum(record)) === lastKey) {
         groep.afsluitingen += 1;
       }
       perBehandelaar.set(record.behandelaar, groep);

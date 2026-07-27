@@ -145,6 +145,9 @@ export interface ProductionAgendaSnapshot {
     importedAt: string;
     bronVan: string;
     bronTot: string;
+    /** Einde van de historische dekking (importmoment) — bronTot kan door het
+     * toekomstvenster jaren verder liggen. Ontbreekt bij oudere aggregaten. */
+    peildatum?: string;
     sessieRows: number;
     blokRows: number;
     /** Laatste vólledige maand binnen het agenda-bereik ("juni" / "2026-06"). */
@@ -209,6 +212,9 @@ export interface ProductionAgendaSnapshot {
   contactPerClient: Record<string, string>;
   /** Eerstvolgende geplande afspraak per cliënt-ID (leeg zonder toekomstvenster). */
   vervolgPerClient: Record<string, string>;
+  /** Laatst gehouden crisis-sessie per cliënt-ID; null bij een aggregaat van
+   * vóór de crisis-velden — dan blijft de Hoog-risico-proxy staan. */
+  crisisPerClient: Record<string, string> | null;
   /** Vooruitblik — alleen wanneer de export een toekomstvenster heeft. */
   vooruitblik: {
     peildatum: string;
@@ -519,6 +525,10 @@ export interface AgendaClientFact {
   farmaco?: number;
   /** ISO-datum van de laatst gehouden farmaco-sessie. */
   laatsteFarmaco?: string | null;
+  /** Aantal gehouden crisis-sessies ("Crisis -beoordeling" / "Crisis - tijdens behandeling"). */
+  crisis?: number;
+  /** ISO-datum van de laatst gehouden crisis-sessie. */
+  laatsteCrisis?: string | null;
 }
 
 /** Geplande (toekomstige) sessies per maand × vestiging — vooruitblik. */
@@ -701,6 +711,17 @@ export interface ParseVerwijzersResult {
 // Gedeelde runtime-guards voor alle persistentiepaden (localStorage, Supabase
 // route, remote client). Streng genoeg dat compute-snapshot nooit crasht op
 // een oud/gemanipuleerd record: array- en getalvelden worden echt gecontroleerd.
+/**
+ * Historisch agenda-einde: de peildatum wanneer aanwezig en vóór bronTot —
+ * bronTot kan door het toekomstvenster jaren verder liggen, en andersom kan
+ * een zonder toekomstvenster geëxporteerd bestand ná zijn laatste sessie
+ * geïmporteerd zijn (peildatum > bronTot). Alle vensters én de getoonde
+ * dekking gebruiken déze waarde, zodat UI en berekening nooit uiteenlopen.
+ */
+export function agendaHistorischEinde(meta: { bronTot: string; peildatum?: string }): string {
+  return meta.peildatum && meta.peildatum < meta.bronTot ? meta.peildatum : meta.bronTot;
+}
+
 function isNullableString(value: unknown): boolean {
   return value === null || typeof value === "string";
 }
@@ -849,7 +870,12 @@ export function isAgendaFacts(value: unknown): value is AgendaFacts {
           isFiniteNumber((fact as Record<string, unknown>).farmaco)) &&
         ((fact as Record<string, unknown>).laatsteFarmaco === undefined ||
           (fact as Record<string, unknown>).laatsteFarmaco === null ||
-          isIsoDay((fact as Record<string, unknown>).laatsteFarmaco)),
+          isIsoDay((fact as Record<string, unknown>).laatsteFarmaco)) &&
+        ((fact as Record<string, unknown>).crisis === undefined ||
+          isFiniteNumber((fact as Record<string, unknown>).crisis)) &&
+        ((fact as Record<string, unknown>).laatsteCrisis === undefined ||
+          (fact as Record<string, unknown>).laatsteCrisis === null ||
+          isIsoDay((fact as Record<string, unknown>).laatsteCrisis)),
     ) &&
     Array.isArray(facts.afzegRedenen) &&
     Array.isArray(facts.sessieTypen) &&

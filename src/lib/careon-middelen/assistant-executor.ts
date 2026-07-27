@@ -175,8 +175,11 @@ const HANDLERS: Record<MiddelenToolName, Handler> = {
       melding: `Registratie gelezen: ${state.medewerkers.length + zonderRegistratie.length} medewerkers in totaal (${state.medewerkers.length} met registratierij, ${zonderRegistratie.length} uit de databron zonder registratie), ${state.inventaris.length} inventarislocaties.`,
       registratie: {
         medewerkers: state.medewerkers.slice(0, MAX_LEES_MEDEWERKERS).map((rij) => {
-          if (inclusiefNotities) return rij;
-          const { notitie: _notitie, ...zonderNotitie } = rij;
+          // accountEmail (Gebruikersbeheer) is account-PII en voor geen enkele
+          // assistent-actie nodig — nooit richting het model sturen.
+          const { accountEmail: _accountEmail, ...zonderAccount } = rij;
+          if (inclusiefNotities) return zonderAccount;
+          const { notitie: _notitie, ...zonderNotitie } = zonderAccount;
           return zonderNotitie;
         }),
         ...(state.medewerkers.length > MAX_LEES_MEDEWERKERS
