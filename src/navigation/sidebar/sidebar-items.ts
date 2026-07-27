@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 
 // "alerts" renders the critical-signal count; "source" renders the active
-// Databron mode (DEMO/CSV/LIVE). Both read live Careon state in nav-main.
+// Databron mode (DEMO/CSV/PREVIEW/PROD). Both read live Careon state in nav-main.
 export type NavBadge = "new" | "soon" | "alerts" | "source";
 
 export interface NavSubItem {

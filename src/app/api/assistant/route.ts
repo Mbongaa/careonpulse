@@ -2,8 +2,10 @@ import {
   ASSISTANT_API_MODE,
   ASSISTANT_MODEL,
   ASSISTANT_PROMPT_VERSION,
+  type AssistantEvent,
   type AssistantUsage,
   assistantActorHash,
+  authenticatedActorHash,
   createAssistantRequestId,
   enforceAssistantRateLimit,
   fetchOpenAIWithRetry,
@@ -11,7 +13,7 @@ import {
   moderateAssistantQuestion,
   OPENAI_API_BASE_URL,
   pruneAssistantEvents,
-  writeAssistantEvent,
+  writeAssistantEvent as writeAssistantEventBase,
 } from "@/lib/careon-assistant/runtime.server";
 import { ASSISTANT_MAX_CONTEXT_CHARS } from "@/lib/careon-middelen/assistant-grounding";
 import {
@@ -20,6 +22,7 @@ import {
   MIDDELEN_TOOL_NAMES,
   type MiddelenToolName,
 } from "@/lib/careon-middelen/assistant-tools";
+import { getCareonSession } from "@/lib/supabase/session.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -279,7 +282,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const startedAt = Date.now();
   const requestId = createAssistantRequestId();
-  const actorHash = assistantActorHash(request);
+  let actorHash = assistantActorHash(request);
   const responseHeaders = {
     "Cache-Control": "no-store",
     "X-Careon-Assistant-Model": ASSISTANT_MODEL,
@@ -292,6 +295,25 @@ export async function POST(request: Request) {
   if (request.headers.get("x-careon-assistant") !== "1") {
     return new Response("Ongeldige aanvraag.", { status: 401, headers: responseHeaders });
   }
+
+  // In Supabase-modus is inloggen verplicht: de route kost geld (OpenAI) en
+  // acties moeten herleidbaar zijn naar een account. Demo-modus (geen
+  // Supabase-omgeving) behoudt het oude gedrag.
+  const sessionResult = await getCareonSession();
+  if (sessionResult.status === "misconfigured") {
+    return new Response("Authenticatie is niet geconfigureerd.", { status: 503, headers: responseHeaders });
+  }
+  if (sessionResult.status === "unauthenticated") {
+    return new Response("Niet ingelogd.", { status: 401, headers: responseHeaders });
+  }
+  if (sessionResult.status === "no-org") {
+    return new Response("Geen organisatie gekoppeld aan dit account.", { status: 403, headers: responseHeaders });
+  }
+  const identity = sessionResult.status === "ok" ? sessionResult.session : null;
+  if (identity) actorHash = authenticatedActorHash(identity.userId);
+  // Schaduwt bewust de import: elk event in deze aanvraag draagt de identiteit.
+  const writeAssistantEvent = (event: AssistantEvent) =>
+    writeAssistantEventBase({ ...event, orgId: identity?.orgId ?? null, userId: identity?.userId ?? null });
 
   const limit = await enforceAssistantRateLimit(actorHash);
   if (!limit.allowed) {

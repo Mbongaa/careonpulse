@@ -62,6 +62,7 @@ function RegistratieToevoegen() {
   const [naam, setNaam] = useState("");
   const [functie, setFunctie] = useState("");
   const [verloopt, setVerloopt] = useState("");
+  const [fout, setFout] = useState("");
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -69,6 +70,9 @@ function RegistratieToevoegen() {
       setNaam("");
       setFunctie("");
       setVerloopt("");
+      setFout("");
+    } else {
+      setFout("Controleer de datum; dezelfde medewerker en verloopdatum kunnen niet dubbel worden toegevoegd.");
     }
   }
 
@@ -99,6 +103,11 @@ function RegistratieToevoegen() {
         <UserRoundPlus className="size-3.5" />
         Registratie toevoegen
       </Button>
+      {fout && (
+        <p role="alert" className="basis-full text-red-700 text-xs dark:text-red-400">
+          {fout}
+        </p>
+      )}
     </form>
   );
 }

@@ -16,7 +16,9 @@ function headers(): HeadersInit {
 export async function GET() {
   const requestId = randomUUID();
   const configured = {
-    database: Boolean(SUPABASE_URL && SERVICE_KEY && process.env.NEXT_PUBLIC_CAREON_SYNC_TOKEN),
+    // Sinds handoff 13 hoort de anon key bij een complete configuratie:
+    // sessie-auth en RLS-datatoegang lopen erop; het sync-token is vervallen.
+    database: Boolean(SUPABASE_URL && SERVICE_KEY && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
     assistant:
       process.env.CAREON_ASSISTANT_LIVE === "0" ||
       (Boolean(process.env.OPENAI_API_KEY) && Boolean(process.env.CAREON_ASSISTANT_SAFETY_SALT)),

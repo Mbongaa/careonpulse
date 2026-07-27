@@ -1,27 +1,20 @@
 import { NextResponse } from "next/server";
 
+import { scheduleAuditEvent } from "@/lib/careon-audit/audit.server";
 import { InvalidJsonBodyError, RequestPayloadTooLargeError, readJsonBodyLimited } from "@/lib/http/read-json.server";
+import { POSTGREST_URL, userRestHeaders } from "@/lib/supabase/postgrest.server";
+import { type CareonSession, requireCareonSession } from "@/lib/supabase/session.server";
 
 // Gedeelde route-fabriek voor de aanvullende-exportopslag (agenda,
-// verwijzers): zelfde patroon en drempels als /api/careon/middelen —
-// PostgREST-fetch met server-side service-role key, sync-token als drempel
-// (géén authenticatie), 501 zonder configuratie zodat de client op
-// localStorage terugvalt, en append-only jsonb-rijen (nieuwste wint).
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const SYNC_TOKEN = process.env.NEXT_PUBLIC_CAREON_SYNC_TOKEN;
+// verwijzers, toeslagen, declaraties): zelfde patroon en drempels als
+// /api/careon/middelen — sessie-auth (cookie) en PostgREST met het JWT van de
+// aanvrager zelf, zodat RLS de org-scheiding afdwingt. 501 zonder
+// expliciete demo-modus zodat de client op localStorage terugvalt; ontbrekende
+// productieconfiguratie faalt met 503. Append-only jsonb-rijen (nieuwste per
+// organisatie wint).
 
 // Aggregaten zijn klein (~300 kB); ruim plafond tegen misbruik van de route.
 const MAX_BODY_BYTES = 4_000_000;
-
-function restHeaders(): HeadersInit {
-  return {
-    apikey: SERVICE_KEY as string,
-    Authorization: `Bearer ${SERVICE_KEY}`,
-    "Content-Type": "application/json",
-  };
-}
 
 async function storageFetch(input: string, init?: RequestInit): Promise<Response | null> {
   try {
@@ -32,23 +25,20 @@ async function storageFetch(input: string, init?: RequestInit): Promise<Response
   }
 }
 
-function guard(request: Request): NextResponse | null {
-  if (!SUPABASE_URL || !SERVICE_KEY || !SYNC_TOKEN) {
-    return NextResponse.json({ configured: false }, { status: 501 });
-  }
-  if (request.headers.get("x-careon-sync") !== SYNC_TOKEN) {
-    return NextResponse.json({ error: "Niet geautoriseerd." }, { status: 401 });
-  }
-  return null;
-}
-
 export function createAuxStateHandlers<T>(table: string, isValid: (value: unknown) => value is T, label: string) {
-  async function GET(request: Request) {
-    const denied = guard(request);
-    if (denied) return denied;
+  async function GET() {
+    const auth = await requireCareonSession();
+    if ("denied" in auth) return auth.denied;
+    const session: CareonSession = auth.session;
 
-    const response = await storageFetch(`${SUPABASE_URL}/rest/v1/${table}?select=state&order=saved_at.desc&limit=1`, {
-      headers: restHeaders(),
+    const params = new URLSearchParams({
+      select: "state",
+      org_id: `eq.${session.orgId}`,
+      order: "saved_at.desc",
+      limit: "1",
+    });
+    const response = await storageFetch(`${POSTGREST_URL}/${table}?${params}`, {
+      headers: userRestHeaders(session),
       cache: "no-store",
     });
     if (!response?.ok) {
@@ -60,8 +50,9 @@ export function createAuxStateHandlers<T>(table: string, isValid: (value: unknow
   }
 
   async function POST(request: Request) {
-    const denied = guard(request);
-    if (denied) return denied;
+    const auth = await requireCareonSession();
+    if ("denied" in auth) return auth.denied;
+    const session: CareonSession = auth.session;
 
     let body: { state?: unknown; operationId?: unknown };
     try {
@@ -83,16 +74,16 @@ export function createAuxStateHandlers<T>(table: string, isValid: (value: unknow
       return NextResponse.json({ error: `Ongeldige ${label}.` }, { status: 400 });
     }
 
-    const response = await storageFetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+    const response = await storageFetch(`${POSTGREST_URL}/${table}`, {
       method: "POST",
-      headers: restHeaders(),
-      body: JSON.stringify({ state: body.state, operation_id: body.operationId }),
+      headers: userRestHeaders(session),
+      body: JSON.stringify({ org_id: session.orgId, state: body.state, operation_id: body.operationId }),
     });
     if (!response?.ok) {
       if (response?.status === 409) {
         const existing = await storageFetch(
-          `${SUPABASE_URL}/rest/v1/${table}?select=id&operation_id=eq.${body.operationId}&limit=1`,
-          { headers: restHeaders(), cache: "no-store" },
+          `${POSTGREST_URL}/${table}?select=id&org_id=eq.${session.orgId}&operation_id=eq.${body.operationId}&limit=1`,
+          { headers: userRestHeaders(session), cache: "no-store" },
         );
         if (existing?.ok && ((await existing.json()) as unknown[]).length === 1) {
           return NextResponse.json({ configured: true, idempotent: true });
@@ -100,6 +91,12 @@ export function createAuxStateHandlers<T>(table: string, isValid: (value: unknow
       }
       return NextResponse.json({ error: `${label} kon niet worden opgeslagen.` }, { status: 502 });
     }
+    scheduleAuditEvent({
+      action: "state.append",
+      resource: table,
+      orgId: session.orgId,
+      userId: session.userId,
+    });
     return NextResponse.json({ configured: true });
   }
 

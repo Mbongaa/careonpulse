@@ -33,6 +33,7 @@ interface CareonMiddelenContextValue {
   middelenByNaam: Map<string, MiddelType[]>;
   /** Volledige registratierij per naam (functie/talen op Behandelaren). */
   registratieByNaam: Map<string, MedewerkerMiddelen>;
+  retrySync: () => void;
   /** Actuele staat, ook direct na een mutatie in dezelfde taak (vóór re-render) —
       voor de assistent-executor die meerdere acties in één beurt uitvoert. */
   getState: () => MiddelenState;
@@ -73,6 +74,8 @@ export function useCareonMiddelen(): CareonMiddelenContextValue {
 
 const PUSH_DEBOUNCE_MS = 800;
 const PULL_INTERVAL_MS = 15_000;
+const RETRY_BASE_MS = 5_000;
+const RETRY_MAX_MS = 60_000;
 
 function mergeAudit(huidig: MiddelenChangeAudit | null, volgend: MiddelenChangeAudit): MiddelenChangeAudit {
   if (!huidig) return volgend;
@@ -99,6 +102,8 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
   const conflictRef = useRef<typeof conflictState>(null);
   const centralConfiguredRef = useRef(false);
   const mountedRef = useRef(true);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryAttemptRef = useRef(0);
 
   const state = useMemo(() => {
     const basis = stored ?? (isProduction ? EMPTY_MIDDELEN_STATE : DEMO_MIDDELEN_STATE);
@@ -110,6 +115,7 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
   const stateRef = useRef(state);
   stateRef.current = state;
   const schedulePushRef = useRef<() => void>(() => undefined);
+  const scheduleRetryRef = useRef<() => void>(() => undefined);
 
   const flushPending = useCallback(async () => {
     if (pushingRef.current || conflictRef.current || !dirtyRef.current) return;
@@ -130,6 +136,9 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
     if (!mountedRef.current) return;
 
     if (result.status === "ok") {
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+      retryAttemptRef.current = 0;
       revisionRef.current = result.revision;
       centralConfiguredRef.current = true;
       if (generation === generationRef.current) {
@@ -158,6 +167,7 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
       pendingOperationRef.current ??= operationId;
       pendingAuditRef.current = mergeAudit(audit, pendingAuditRef.current ?? { source: "manual" });
       setSyncStatus(result.status === "unconfigured" ? "lokaal" : "fout");
+      if (result.status === "failed") scheduleRetryRef.current();
     }
 
     saveMiddelenState(stateRef.current, {
@@ -173,6 +183,17 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
     pushTimer.current = setTimeout(() => void flushPending(), PUSH_DEBOUNCE_MS);
   }, [flushPending]);
   schedulePushRef.current = schedulePush;
+
+  const scheduleRetry = useCallback(() => {
+    if (retryTimer.current || conflictRef.current || !dirtyRef.current) return;
+    const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** retryAttemptRef.current);
+    retryTimer.current = setTimeout(() => {
+      retryTimer.current = null;
+      retryAttemptRef.current += 1;
+      void flushPending();
+    }, delay);
+  }, [flushPending]);
+  scheduleRetryRef.current = scheduleRetry;
 
   const persist = useCallback(
     (next: MiddelenState, audit: MiddelenChangeAudit = { source: "manual" }) => {
@@ -253,6 +274,7 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
       cancelled = true;
       mountedRef.current = false;
       if (pushTimer.current) clearTimeout(pushTimer.current);
+      if (retryTimer.current) clearTimeout(retryTimer.current);
     };
   }, []);
 
@@ -272,6 +294,36 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
     }, PULL_INTERVAL_MS);
     return () => clearInterval(timer);
   }, []);
+
+  const retrySync = useCallback(() => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = null;
+    retryAttemptRef.current = 0;
+    setSyncStatus("laden");
+    if (dirtyRef.current) {
+      void flushPending();
+      return;
+    }
+    void fetchRemoteMiddelenState().then((remote) => {
+      if (!mountedRef.current) return;
+      if (remote.status === "unconfigured") {
+        setSyncStatus("lokaal");
+        return;
+      }
+      if (remote.status === "failed") {
+        setSyncStatus("fout");
+        return;
+      }
+      centralConfiguredRef.current = true;
+      revisionRef.current = remote.revision;
+      if (remote.state) {
+        stateRef.current = remote.state;
+        setStored(remote.state);
+        saveMiddelenState(remote.state, { revision: remote.revision, dirty: false });
+      }
+      setSyncStatus("centraal");
+    });
+  }, [flushPending]);
 
   const mutate = useCallback(
     (fn: (draft: MiddelenState) => MiddelenState, audit?: MiddelenChangeAudit) => {
@@ -554,6 +606,7 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
       state,
       // Vóór hydratatie geen misleidende "lokaal"-melding.
       syncStatus: hydrated ? syncStatus : ("laden" as const),
+      retrySync,
       middelenByNaam,
       registratieByNaam,
       getState,
@@ -581,6 +634,7 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
       state,
       hydrated,
       syncStatus,
+      retrySync,
       middelenByNaam,
       registratieByNaam,
       getState,

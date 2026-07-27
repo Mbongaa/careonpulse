@@ -5,7 +5,14 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 import { HR_SEED_STATE } from "@/data/careon/careon-hr";
 import { fetchRemoteHrState, pushRemoteHrState } from "@/lib/careon-hr/remote.client";
 import { loadHrCache, saveHrState } from "@/lib/careon-hr/storage.client";
-import { HR_LIMITS, type HrChangeAudit, type HrKpiId, type HrState } from "@/lib/careon-hr/types";
+import {
+  HR_LIMITS,
+  type HrChangeAudit,
+  type HrKpiId,
+  type HrState,
+  isHrIsoDate,
+  normalizeHrKpiValue,
+} from "@/lib/careon-hr/types";
 
 // Handmatig bijgehouden HR-registratie (handoff 12). Eén administratie los van
 // de databron: opgeslagen staat wint altijd; zonder opgeslagen staat toont de
@@ -16,11 +23,10 @@ import { HR_LIMITS, type HrChangeAudit, type HrKpiId, type HrState } from "@/lib
 
 export type HrSyncStatus = "laden" | "centraal" | "lokaal" | "fout" | "conflict";
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-
 interface CareonHrContextValue {
   state: HrState;
   syncStatus: HrSyncStatus;
+  retrySync: () => void;
   resolveConflict: (keuze: "centraal" | "lokaal") => void;
   hasCentralConflictVersion: boolean;
   setKpi: (id: HrKpiId, veld: "value" | "prev", waarde: number) => void;
@@ -43,6 +49,8 @@ export function useCareonHr(): CareonHrContextValue {
 
 const PUSH_DEBOUNCE_MS = 800;
 const PULL_INTERVAL_MS = 15_000;
+const RETRY_BASE_MS = 5_000;
+const RETRY_MAX_MS = 60_000;
 
 function clamp(value: number, max: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -73,12 +81,15 @@ export function CareonHrProvider({ children }: Readonly<{ children: ReactNode }>
   const conflictRef = useRef<typeof conflictState>(null);
   const centralConfiguredRef = useRef(false);
   const mountedRef = useRef(true);
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryAttemptRef = useRef(0);
 
   const state = useMemo(() => stored ?? HR_SEED_STATE, [stored]);
 
   const stateRef = useRef(state);
   stateRef.current = state;
   const schedulePushRef = useRef<() => void>(() => undefined);
+  const scheduleRetryRef = useRef<() => void>(() => undefined);
 
   const flushPending = useCallback(async () => {
     if (pushingRef.current || conflictRef.current || !dirtyRef.current) return;
@@ -95,6 +106,9 @@ export function CareonHrProvider({ children }: Readonly<{ children: ReactNode }>
     if (!mountedRef.current) return;
 
     if (result.status === "ok") {
+      if (retryTimer.current) clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+      retryAttemptRef.current = 0;
       revisionRef.current = result.revision;
       centralConfiguredRef.current = true;
       if (generation === generationRef.current) {
@@ -123,6 +137,7 @@ export function CareonHrProvider({ children }: Readonly<{ children: ReactNode }>
       pendingOperationRef.current ??= operationId;
       pendingAuditRef.current = mergeAudit(audit, pendingAuditRef.current ?? { source: "manual" });
       setSyncStatus(result.status === "unconfigured" ? "lokaal" : "fout");
+      if (result.status === "failed") scheduleRetryRef.current();
     }
 
     saveHrState(stateRef.current, {
@@ -138,6 +153,17 @@ export function CareonHrProvider({ children }: Readonly<{ children: ReactNode }>
     pushTimer.current = setTimeout(() => void flushPending(), PUSH_DEBOUNCE_MS);
   }, [flushPending]);
   schedulePushRef.current = schedulePush;
+
+  const scheduleRetry = useCallback(() => {
+    if (retryTimer.current || conflictRef.current || !dirtyRef.current) return;
+    const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** retryAttemptRef.current);
+    retryTimer.current = setTimeout(() => {
+      retryTimer.current = null;
+      retryAttemptRef.current += 1;
+      void flushPending();
+    }, delay);
+  }, [flushPending]);
+  scheduleRetryRef.current = scheduleRetry;
 
   const persist = useCallback(
     (next: HrState, audit: HrChangeAudit = { source: "manual" }) => {
@@ -207,6 +233,7 @@ export function CareonHrProvider({ children }: Readonly<{ children: ReactNode }>
       cancelled = true;
       mountedRef.current = false;
       if (pushTimer.current) clearTimeout(pushTimer.current);
+      if (retryTimer.current) clearTimeout(retryTimer.current);
     };
   }, []);
 
@@ -226,6 +253,36 @@ export function CareonHrProvider({ children }: Readonly<{ children: ReactNode }>
     }, PULL_INTERVAL_MS);
     return () => clearInterval(timer);
   }, []);
+
+  const retrySync = useCallback(() => {
+    if (retryTimer.current) clearTimeout(retryTimer.current);
+    retryTimer.current = null;
+    retryAttemptRef.current = 0;
+    setSyncStatus("laden");
+    if (dirtyRef.current) {
+      void flushPending();
+      return;
+    }
+    void fetchRemoteHrState().then((remote) => {
+      if (!mountedRef.current) return;
+      if (remote.status === "unconfigured") {
+        setSyncStatus("lokaal");
+        return;
+      }
+      if (remote.status === "failed") {
+        setSyncStatus("fout");
+        return;
+      }
+      centralConfiguredRef.current = true;
+      revisionRef.current = remote.revision;
+      if (remote.state) {
+        stateRef.current = remote.state;
+        setStored(remote.state);
+        saveHrState(remote.state, { revision: remote.revision, dirty: false });
+      }
+      setSyncStatus("centraal");
+    });
+  }, [flushPending]);
 
   const mutate = useCallback(
     (fn: (draft: HrState) => HrState, audit?: HrChangeAudit) => {
@@ -274,7 +331,7 @@ export function CareonHrProvider({ children }: Readonly<{ children: ReactNode }>
     (id: HrKpiId, veld: "value" | "prev", waarde: number) => {
       mutate((draft) => ({
         ...draft,
-        kpis: { ...draft.kpis, [id]: { ...draft.kpis[id], [veld]: clamp(waarde, HR_LIMITS.waarde) } },
+        kpis: { ...draft.kpis, [id]: { ...draft.kpis[id], [veld]: normalizeHrKpiValue(id, waarde) } },
       }));
     },
     [mutate],
@@ -304,7 +361,21 @@ export function CareonHrProvider({ children }: Readonly<{ children: ReactNode }>
       const schoon = waarde.trim();
       if (veld === "naam" && (schoon === "" || schoon.length > HR_LIMITS.naam)) return;
       if (veld === "functie" && schoon.length > HR_LIMITS.functie) return;
-      if (veld === "verloopt" && !(ISO_DATE.test(schoon) && !Number.isNaN(Date.parse(schoon)))) return;
+      if (veld === "verloopt" && !isHrIsoDate(schoon)) return;
+      const huidig = stateRef.current.bigRegistraties[index];
+      if (!huidig) return;
+      const volgendeNaam = veld === "naam" ? schoon : huidig.naam;
+      const volgendeDatum = veld === "verloopt" ? schoon : huidig.verloopt;
+      if (
+        stateRef.current.bigRegistraties.some(
+          (rij, i) =>
+            i !== index &&
+            rij.naam.localeCompare(volgendeNaam, "nl", { sensitivity: "base" }) === 0 &&
+            rij.verloopt === volgendeDatum,
+        )
+      ) {
+        return;
+      }
       mutate((draft) => ({
         ...draft,
         bigRegistraties: draft.bigRegistraties.map((rij, i) => (i === index ? { ...rij, [veld]: schoon } : rij)),
@@ -320,7 +391,11 @@ export function CareonHrProvider({ children }: Readonly<{ children: ReactNode }>
       if (
         naamSchoon === "" ||
         naamSchoon.length > HR_LIMITS.naam ||
-        !(ISO_DATE.test(verlooptSchoon) && !Number.isNaN(Date.parse(verlooptSchoon))) ||
+        !isHrIsoDate(verlooptSchoon) ||
+        stateRef.current.bigRegistraties.some(
+          (rij) =>
+            rij.naam.localeCompare(naamSchoon, "nl", { sensitivity: "base" }) === 0 && rij.verloopt === verlooptSchoon,
+        ) ||
         stateRef.current.bigRegistraties.length >= HR_LIMITS.big
       ) {
         return false;
@@ -348,6 +423,7 @@ export function CareonHrProvider({ children }: Readonly<{ children: ReactNode }>
     () => ({
       state,
       syncStatus: hydrated ? syncStatus : ("laden" as const),
+      retrySync,
       resolveConflict,
       hasCentralConflictVersion: Boolean(conflictState?.state),
       setKpi,
@@ -361,6 +437,7 @@ export function CareonHrProvider({ children }: Readonly<{ children: ReactNode }>
       state,
       hydrated,
       syncStatus,
+      retrySync,
       resolveConflict,
       conflictState,
       setKpi,

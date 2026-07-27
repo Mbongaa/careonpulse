@@ -1,6 +1,7 @@
 "use client";
 
 import { CareonAlertRow } from "@/app/(main)/dashboard/_components/careon/careon-alert-card";
+import { useCareonHr } from "@/app/(main)/dashboard/_components/careon/careon-hr-provider";
 import { CareonLiveBanner } from "@/app/(main)/dashboard/_components/careon/careon-live-banner";
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
@@ -9,14 +10,21 @@ import { Card, CardContent } from "@/components/ui/card";
 import { CAREON_ALERTS, CAREON_SEVERITY_META } from "@/data/careon/careon-alerts";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 import type { CareonAlert, CareonSeverity } from "@/data/careon/careon-types";
+import { buildHrBigAlert, HR_BIG_ALERT_TITLE } from "@/lib/careon-hr/insights";
 import { widgetSource } from "@/lib/careon-production/provenance";
 
 const SEVERITIES: CareonSeverity[] = ["kritiek", "hoog", "middel"];
 
 export function SignaleringenContent() {
   const { production } = useCareon();
+  const { state: hrState } = useCareonHr();
 
-  const alerts: CareonAlert[] = production ? production.signaleringen : CAREON_ALERTS;
+  const bronAlerts = production ? production.signaleringen : CAREON_ALERTS;
+  const hrAlert = buildHrBigAlert(hrState, new Date());
+  const alerts: CareonAlert[] = [
+    ...bronAlerts.filter((alert) => alert.titel !== HR_BIG_ALERT_TITLE),
+    ...(hrAlert ? [hrAlert] : []),
+  ];
   // Demo-regels die in productie-modus nog geen EPD-bron hebben, afgeleid uit
   // het provenance-register (één bron van waarheid) — mét de aanwezige
   // aanvullende exports meegewogen: na een agenda-import verhuizen de
@@ -24,12 +32,15 @@ export function SignaleringenContent() {
   const caps = {
     agenda: production?.agenda != null,
     agendaToekomst: production?.agenda?.vooruitblik != null,
+    agendaKwaliteit: production?.agenda?.kwaliteit != null,
     verwijzers: production?.verwijzerNetwerk != null,
     toeslagen: production?.toeslagen != null,
     declaraties: production?.declaraties != null,
   };
   const wachtOpData = production
-    ? CAREON_ALERTS.filter((alert) => widgetSource("signaleringen", alert.titel, caps) === "demo")
+    ? CAREON_ALERTS.filter(
+        (alert) => alert.titel !== HR_BIG_ALERT_TITLE && widgetSource("signaleringen", alert.titel, caps) === "demo",
+      )
     : [];
 
   return (
@@ -38,8 +49,8 @@ export function SignaleringenContent() {
         title={CAREON_PAGE_META.signaleringen.title}
         sub={
           production
-            ? "Signaleringen berekend uit de geïmporteerde EPD-export; regels zonder databron staan onderaan als 'wacht op data'."
-            : "Careon Pulse controleert elke nacht dossiers, agenda's en declaraties en zet de aandachtspunten voor u klaar."
+            ? "Signaleringen uit de geïmporteerde EPD-export en de actuele handmatige HR-registratie; regels zonder databron staan onderaan als 'wacht op data'."
+            : "Careon Pulse werkt de aandachtspunten bij wanneer de databron of handmatige HR-registratie verandert."
         }
       />
 
@@ -84,7 +95,7 @@ export function SignaleringenContent() {
             Wacht op data — voorbeeldregels (demo)
           </h2>
           <p className="text-muted-foreground text-sm">
-            Deze signaleringsregels worden actief zodra de agenda-, declaratie-, HR- en ROM-exports gekoppeld zijn. De
+            Deze signaleringsregels worden actief zodra de agenda-, declaratie- en ROM-exports gekoppeld zijn. De
             getoonde aantallen zijn demo-waarden.
           </p>
           <div className="flex flex-col gap-3 opacity-75">
@@ -96,8 +107,8 @@ export function SignaleringenContent() {
       )}
 
       <p className="text-center text-muted-foreground text-xs">
-        Signaleringsregels zijn instelbaar per rol — directie, teamleiders en kwaliteitsmedewerkers zien elk hun eigen
-        set.
+        Signaleringen zijn gegroepeerd op urgentie en gebruiken de actuele brongegevens die voor iedere regel
+        beschikbaar zijn.
       </p>
     </div>
   );

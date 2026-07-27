@@ -17,7 +17,7 @@ export const KWALITEIT_COUNTERS: CareonMetric[] = [
 ];
 
 export const KWALITEIT_NOTE =
-  "Doelen zijn instelbaar per zorgvorm. Kleurgrenzen: binnen 2 pt van het doel = groen, binnen 8 pt = oranje.";
+  "Doelen volgen de huidige KPI-set. Kleurgrenzen: binnen 2 pt van het doel = groen, binnen 8 pt = oranje.";
 
 // Compliance rows are colored by distance to their goal.
 export function complianceTone(value: number, doel: number): "good" | "warn" | "bad" {

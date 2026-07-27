@@ -1,5 +1,12 @@
 # Production readiness audit — 2026-07-24
 
+> Follow-up 2026-07-26: this document remains the evidence snapshot from
+> 2026-07-24. The assistant policy was subsequently and intentionally changed
+> to the full operational toolset with editable, explicitly requested
+> assumption-based proposals; `AI_OPERATIONS.md` is authoritative. The KPI
+> detail soft-404 and the later development-dependency advisory have also been
+> closed.
+
 Scope excludes end-user authentication and GDPR/privacy-program decisions at the owner's explicit request. Data minimisation controls already present were preserved.
 
 ## Verdict

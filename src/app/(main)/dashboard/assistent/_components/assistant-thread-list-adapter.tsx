@@ -11,11 +11,20 @@ import {
 import { createAssistantStream } from "assistant-stream";
 
 import {
+  deleteRemoteThread,
+  fetchRemoteRepository,
+  listRemoteThreads,
+  patchRemoteThread,
+  putRemoteMessage,
+  touchRemoteThread,
+} from "@/lib/careon-assistant/remote-history.client";
+import {
   ASSISTANT_HISTORY_RETENTION_MS,
   ASSISTANT_MESSAGES_PREFIX,
   ASSISTANT_THREADS_KEY,
   careonAssistantStorage,
 } from "@/lib/careon-assistant/storage.client";
+import { isSupabaseAuthMode } from "@/lib/careon-auth";
 
 const FALLBACK_TITLE = "Nieuwe chat";
 const MAX_THREADS = 50;
@@ -80,13 +89,19 @@ function normalizeRepository(repository: unknown): StoredRepository {
   };
 }
 
-// Privacy-default: sessionStorage, optioneel korte localStorage-retentie of
-// volledig uit. Valt terug op geheugen wanneer browseropslag niet beschikbaar
-// is. Inhoud wordt nooit naar de servertelemetrie geschreven.
+// Twee standen (handoff 13):
+//  - Supabase-modus: de centrale opslag per gebruiker is de bron van waarheid
+//    (/api/assistant/threads); browseropslag blijft de snelle cache en het
+//    offline-vangnet. Historie overleeft zo uitloggen en apparaatwissel.
+//  - Demo-modus: het oorspronkelijke gedrag — sessionStorage, optioneel korte
+//    localStorage-retentie of volledig uit; geheugen als laatste vangnet.
+// Inhoud wordt nooit naar de servertelemetrie geschreven.
 export class CareonAssistantThreadListAdapter {
   storage = careonAssistantStorage();
   memoryThreads: StoredThread[] = [];
   memoryMessages = new Map<string, StoredRepository>();
+  /** Centrale opslag actief; valt bij 501 permanent terug op lokaal. */
+  remote = isSupabaseAuthMode();
 
   unstable_Provider = ({ children }: { children?: ReactNode }) => {
     const threadId = useAuiState((s) => s.threadListItem.remoteId ?? s.threadListItem.id);
@@ -177,12 +192,41 @@ export class CareonAssistantThreadListAdapter {
       thread.title = title;
       thread.updatedAt = now;
       this.writeThreads(threads);
-      return;
+    } else {
+      this.writeThreads([{ remoteId, status: "regular", title, createdAt: now, updatedAt: now }, ...threads]);
     }
-    this.writeThreads([{ remoteId, status: "regular", title, createdAt: now, updatedAt: now }, ...threads]);
+    if (this.remote) void patchRemoteThread(remoteId, { title }).then((status) => this.handleRemoteStatus(status));
+  }
+
+  /** 501 van de server = demo-modus: schakel definitief terug naar lokaal. */
+  handleRemoteStatus(status: "ok" | "unconfigured" | "failed"): boolean {
+    if (status === "unconfigured") this.remote = false;
+    return status === "ok";
   }
 
   async list() {
+    if (this.remote) {
+      const result = await listRemoteThreads();
+      if (this.handleRemoteStatus(result.status)) {
+        // Centrale lijst is de waarheid; spiegel hem naar de lokale cache.
+        this.writeThreads(
+          result.threads.map((thread) => ({
+            remoteId: thread.remoteId,
+            status: thread.status,
+            title: thread.title,
+            updatedAt: thread.updatedAt,
+          })),
+        );
+        return {
+          threads: result.threads.map((thread) => ({
+            remoteId: thread.remoteId,
+            externalId: undefined,
+            status: thread.status,
+            title: thread.title,
+          })),
+        };
+      }
+    }
     return {
       threads: this.readThreads().map((thread) => ({
         remoteId: thread.remoteId,
@@ -204,38 +248,51 @@ export class CareonAssistantThreadListAdapter {
     } else {
       this.writeThreads([{ remoteId: threadId, status: "regular", createdAt: now, updatedAt: now }, ...threads]);
     }
+    if (this.remote) void touchRemoteThread(threadId).then((status) => this.handleRemoteStatus(status));
     return { remoteId: threadId, externalId: undefined };
   }
 
   async rename(remoteId: string, newTitle: string) {
+    const title = cleanTitle(newTitle);
     const threads = this.readThreads();
     const thread = threads.find((item) => item.remoteId === remoteId);
-    if (!thread) return;
-    thread.title = cleanTitle(newTitle);
-    thread.updatedAt = Date.now();
-    this.writeThreads(threads);
+    if (thread) {
+      thread.title = title;
+      thread.updatedAt = Date.now();
+      this.writeThreads(threads);
+    }
+    if (this.remote) void patchRemoteThread(remoteId, { title }).then((status) => this.handleRemoteStatus(status));
   }
 
   async archive(remoteId: string) {
     const threads = this.readThreads();
     const thread = threads.find((item) => item.remoteId === remoteId);
-    if (!thread) return;
-    thread.status = "archived";
-    thread.updatedAt = Date.now();
-    this.writeThreads(threads);
+    if (thread) {
+      thread.status = "archived";
+      thread.updatedAt = Date.now();
+      this.writeThreads(threads);
+    }
+    if (this.remote) {
+      void patchRemoteThread(remoteId, { status: "archived" }).then((status) => this.handleRemoteStatus(status));
+    }
   }
 
   async unarchive(remoteId: string) {
     const threads = this.readThreads();
     const thread = threads.find((item) => item.remoteId === remoteId);
-    if (!thread) return;
-    thread.status = "regular";
-    thread.updatedAt = Date.now();
-    this.writeThreads(threads);
+    if (thread) {
+      thread.status = "regular";
+      thread.updatedAt = Date.now();
+      this.writeThreads(threads);
+    }
+    if (this.remote) {
+      void patchRemoteThread(remoteId, { status: "regular" }).then((status) => this.handleRemoteStatus(status));
+    }
   }
 
   async delete(remoteId: string) {
     this.writeThreads(this.readThreads().filter((thread) => thread.remoteId !== remoteId));
+    if (this.remote) void deleteRemoteThread(remoteId).then((status) => this.handleRemoteStatus(status));
     if (this.storage) {
       try {
         this.storage.removeItem(`${ASSISTANT_MESSAGES_PREFIX}${remoteId}`);
@@ -306,6 +363,15 @@ class CareonAssistantHistoryAdapter {
   }
 
   async load(): Promise<ExportedMessageRepository> {
+    if (this.threadId && this.owner.remote) {
+      const result = await fetchRemoteRepository(this.threadId);
+      if (this.owner.handleRemoteStatus(result.status) && result.repository) {
+        const repository = normalizeRepository(result.repository);
+        // Centrale stand ook lokaal cachen (sneller + offline-vangnet).
+        this.writeRepository(repository);
+        return repository as unknown as ExportedMessageRepository;
+      }
+    }
     // Persisted JSON round-trips exactly what `append` received, so the
     // structural cast back to the library repository type is safe.
     return this.readRepository() as unknown as ExportedMessageRepository;
@@ -322,5 +388,8 @@ class CareonAssistantHistoryAdapter {
     this.writeRepository({ ...repository, messages: nextMessages, headId: messageId ?? repository.headId });
     this.owner.touchThread(this.threadId);
     this.owner.ensureThreadTitle(this.threadId, nextMessages.map((entry) => entry.message).filter(Boolean));
+    if (this.owner.remote) {
+      void putRemoteMessage(this.threadId, item, messageId).then((status) => this.owner.handleRemoteStatus(status));
+    }
   }
 }

@@ -17,9 +17,9 @@
     "verify:runtime": "ts-node -r tsconfig-paths/register -P tsconfig.scripts.json src/scripts/verify-runtime-hardening.ts",
     "verify:assistant:live": "ts-node -P tsconfig.scripts.json src/scripts/e2e-assistant-live.ts",
     "verify:data-hygiene": "ts-node -P tsconfig.scripts.json src/scripts/verify-data-hygiene.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "audit:production": "npm audit --audit-level=high",
-    "test:e2e": "playwright test",
+    "test:e2e": "node src/scripts/run-isolated-e2e.mjs",
     "verify:production": "ts-node -P tsconfig.scripts.json src/scripts/verify-production.ts",
     "verify:ci": "npm run check && npm run typecheck && npm run verify:data-hygiene && npm run verify:careon && npm run verify:production && npm run verify:assistant && npm run verify:runtime && npm run audit:production",
     "push:production": "ts-node -P tsconfig.scripts.json src/scripts/push-production.ts"
@@ -32,6 +32,8 @@
     "@assistant-ui/react-markdown": "^0.14.0",
     "@base-ui/react": "^1.6.0",
     "@shadcn/react": "^0.1.0",
+    "@supabase/ssr": "0.12.3",
+    "@supabase/supabase-js": "2.110.8",
     "assistant-stream": "^0.3.14",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -76,6 +78,7 @@
   },
   "overrides": {
     "@hono/node-server": "2.0.11",
+    "brace-expansion": "5.0.8",
     "fast-uri": "3.1.4",
     "postcss": "8.5.23",
     "sharp": "0.35.3"

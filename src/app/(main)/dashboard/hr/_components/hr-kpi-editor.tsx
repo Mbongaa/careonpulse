@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { HR_METRICS } from "@/data/careon/careon-hr";
 import type { CareonKpiFormat } from "@/data/careon/careon-types";
 import { formatCareonValue } from "@/lib/careon-format";
-import type { HrKpiId } from "@/lib/careon-hr/types";
+import { HR_KPI_RULES, type HrKpiId } from "@/lib/careon-hr/types";
 
 // Kerncijfers bijwerken: huidige en vorige-maand-waarde per KPI. De delta op de
 // kaarten hierboven wordt hieruit afgeleid. Meta (label, format, id) komt uit de
@@ -31,6 +31,7 @@ function WaardeInput({
     <Input
       type="number"
       min={0}
+      max={HR_KPI_RULES[id].max}
       step={stap(f)}
       value={waarde}
       aria-label={`${label} — ${veld === "value" ? "huidige waarde" : "vorige maand"}`}

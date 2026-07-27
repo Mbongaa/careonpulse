@@ -160,9 +160,23 @@ filters (vestiging) ─▶ compute-snapshot.ts ──▶ ProductionSnapshot ─�
   vervolgafspraak" op cockpit en Patiënten (incl. drilldown met de echte
   cliëntlijst), de bijbehorende signalering, en het Vooruitblik-paneel op
   Planning (geplande sessies per komende maand).
+- **Kwaliteit-proxies uit de agenda** (`AGENDA_KWALITEIT_PROVENANCE`,
+  2026-07-26): drie Kwaliteit-widgets rekenen op de agenda-sessietypen —
+  **Zorgplannen compleet** (aandeel actieve dossiers >30 dgn met gehouden
+  behandelplan-sessie), **Evaluaties op tijd** (aandeel cliënten >6 mnd in
+  zorg met gehouden "MDO met patient" in de laatste 6 mnd) en
+  **Medicatiecontroles** (aandeel medicatie-cliënten met farmaco-contact in
+  het laatste kwartaal — definitie ter bevestiging aan de instelling). Ze
+  vereisen een agenda-aggregaat mét de MDO-/farmaco-velden: **na deze
+  wijziging éénmalig de agenda-export opnieuw importeren**, anders blijven de
+  widgets demo-gemarkeerd. "Dossierkwaliteit" op Dossiercontrole toont in
+  productie dezelfde registratie-compleetheidsscore als de Kwaliteit-pagina
+  (proxy, zonder "(audit)"-label); de BIG-signalering komt live uit de
+  handmatige HR-registratie (herkomst "handmatig").
 - **Demo** — wacht op resterende exports: **declaratiestatus**
-  (Vecozo/afgekeurd/Infomedics — Financieel-restjes), **HR** (verzuim, BIG,
-  contracturen voor echte bezetting), ROM/MIC (Kwaliteit, tevredenheid).
+  (Vecozo/afgekeurd/Infomedics — Financieel-restjes), **HR** (verzuim,
+  contracturen voor echte bezetting), ROM/MIC (ROM-/PROM-compliance,
+  suïcidaliteitsscreening, incidenten, klachten, tevredenheid).
   Zodra een export beschikbaar is: parser + aggregatie toevoegen en de
   betreffende widgets in het overlay-register omzetten naar `live`.
 - **Locaties**: sinds de juli-2026-export bevat de cliëntendata ook de tweede
@@ -205,9 +219,11 @@ gebruikers dezelfde data.
    `supabase/migrations/0006_assistant_production_hardening.sql`,
    `supabase/migrations/0007_careon_hr.sql` en
    `supabase/migrations/0008_runtime_operations_hardening.sql`.
-3. Zet `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` én
-   `NEXT_PUBLIC_CAREON_SYNC_TOKEN` in `.env.local` en herstart. Zonder
-   sync-token blijft de route uitgeschakeld (501).
+3. Zet `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` én
+   `SUPABASE_SERVICE_ROLE_KEY` in `.env.local` en herstart. Voer ook
+   `supabase/migrations/0009`–`0012` uit (echte accounts, org-scoping,
+   chats, audit — handoff 13). Het oude sync-token is vervallen: toegang
+   loopt via Supabase Auth-sessies.
 
 Naast de browser-import is er een server-side verversing:
 `npm run push:production` parseert de nieuwste export per soort uit
@@ -220,10 +236,12 @@ overschrijven). Browsers met een oudere import in localStorage nemen de
 nieuwe centrale stand automatisch over — de provider vergelijkt `importedAt`
 en de nieuwste wint.
 
-Er is bewust géén `@supabase/supabase-js`-dependency: de server-routes
-(`src/app/api/careon/production/route.ts`) praten via PostgREST-fetch met de
-service-role key. RLS staat aan zonder policies, dus anon-clients kunnen
-niets lezen.
+Sinds handoff 13 praten de server-routes via PostgREST-fetch met het **JWT
+van de ingelogde gebruiker** (anon-key + user-token): RLS dwingt de
+organisatie-scheiding in Postgres af, óók bij een route-bug. De service-role
+key is gereserveerd voor beheer (admin-API), de compenserende delete van een
+mislukte import-run, audit-inserts en onderhoud. `@supabase/supabase-js` +
+`@supabase/ssr` (beide puur JS) verzorgen de cookie-sessies.
 
 Robuustheid van de synchronisatie:
 
@@ -252,25 +270,27 @@ Robuustheid van de synchronisatie:
   breken; de UI meldt dat dan expliciet. De huidige export (± 1.000 rijen)
   zit daar ruim onder.
 
-### Toegangsdrempel ≠ authenticatie
+### Authenticatie (sinds handoff 13)
 
-De route eist het sync-token in de `x-careon-sync`-header. Dat token staat in
-de client-bundle en weert dus alleen scanners en toevallige bezoekers — het is
-**geen** vervanging voor echte auth (zie hieronder). De pseudonieme dataset in
-localStorage en Supabase (behandelaar- en verwijzernamen + diagnosegroep +
-woonplaats + leeftijd per cliënt-ID) is bovendien voor kleine teams realistisch
-herleidbaar: behandel de browseropslag als vertrouwelijk en wis die op
-gedeelde werkplekken ("Herstel demo-data" of uitloggen + opslag wissen).
+In iedere normale deployment gelden **echte accounts**: Supabase Auth met
+cookie-sessies, afgedwongen in `src/proxy.ts` (pagina's) én in elke API-route
+(`requireCareonSession`). Ontbrekende Supabase-configuratie faalt gesloten met
+503. De lokale demo-login (`user1`/`demo1234`) bestaat alleen met de expliciete
+servervlag `CAREON_DEMO_MODE=1` (Playwright/offline demo); daarnaast bestaat
+`user1@careon-demo.nl` als echt Supabase-account in de aparte Demo-organisatie —
+dat account ziet door RLS uitsluitend lege demo-data, nooit ZSG-data. De
+pseudonieme dataset in localStorage (behandelaar- en verwijzernamen +
+diagnosegroep + woonplaats + leeftijd per cliënt-ID) is voor kleine teams
+realistisch herleidbaar: behandel de browseropslag als vertrouwelijk en wis
+die op gedeelde werkplekken.
 
 ## ⚠️ Vereisten vóór publieke hosting van echte data
 
-1. **Echte authenticatie.** De demo-login (`user1`/`demo1234`) is geauditeerd
-   demo-gedrag en géén beveiliging. Het sync-token op
-   `/api/careon/production` is een drempel, geen auth: het staat in de
-   client-bundle. Voordat een deployment met echte EPD-data publiek
-   bereikbaar wordt: Supabase Auth (of SSO) toevoegen en de routes achter een
-   échte sessie-check zetten. Tot die tijd: Supabase-variabelen alleen
-   invullen op niet-publiek bereikbare omgevingen.
+1. **Echte authenticatie — GEREGELD (2026-07-26, handoff 13).** Supabase
+   Auth vervangt de demo-login; alle routes eisen een sessie en datatoegang
+   loopt onder RLS per organisatie. Resterend vóór publieke hosting:
+   wachtwoordbeleid/hygiëne bij accountuitgifte (handmatige provisioning),
+   optioneel TOTP voor de superadmin, en de Supabase-DPA (punt hieronder).
 2. **Echte exports nooit committen.** `.gitignore` bevat
    `cli_ntendata_export*.csv` en `*export*.csv`; bewaar exports buiten de
    repo en verwijder ze na import.

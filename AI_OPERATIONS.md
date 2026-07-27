@@ -5,14 +5,14 @@
 - API: OpenAI Responses API by default; temporary Chat Completions fallback via `OPENAI_API_MODE=chat`.
 - Model: pinned default `gpt-4o-mini-2024-07-18`. Override with `OPENAI_MODEL` only after the live evaluation passes.
 - Storage: provider-side storage is disabled with `store:false`.
-- Tools: strict JSON schemas and a per-question allowlist. Read-only questions receive no mutation tools.
+- Tools: strict JSON schemas. The model receives the complete operational toolset and chooses the tools needed for the explicit request.
 - Execution: tools modify an in-browser concept, never the database directly. Applying the concept is a separate user action; removals and high-impact bulk changes require additional explicit confirmation.
-- Sensitive inference: language, origin, nationality, religion and similar attributes may never be inferred from names, photos or appearance. The route blocks these prompts before model/tool execution.
+- Assumption-based proposals: when the user explicitly requests an estimate (for example a second-language concept based on employee names), the model may prepare it as a clearly labelled, editable assumption. Nothing is stored before the user reviews and applies the concept.
 - Production evidence: facts and canvas values are generated from the same filtered `ProductionSnapshot`. Demo values are not presented as live evidence.
 
 ## Privacy boundary
 
-The provider receives only the facts required for the inferred intent.
+The provider receives the dashboard facts plus the operational registration needed to answer the request or prepare a concept.
 
 - Never sent: client records, dossier URLs, risk-list rows, raw exports.
 - Employee names: only for explicit clinician/coaching questions or a relevant means action.

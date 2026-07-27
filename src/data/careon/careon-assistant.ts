@@ -1,4 +1,6 @@
 import { formatCareonDelta, formatCareonValue } from "@/lib/careon-format";
+import { formatHrDate, hrBigBinnenDagen, hrMetrics } from "@/lib/careon-hr/insights";
+import type { HrState } from "@/lib/careon-hr/types";
 import type { MiddelenState } from "@/lib/careon-middelen/types";
 
 import { CAREON_ALERTS, CRITICAL_ALERT_COUNT } from "./careon-alerts";
@@ -7,7 +9,7 @@ import { EPD_PROVIDERS, SAMPLE_CSV_FILENAME } from "./careon-databron";
 import { DOSSIER_CHECKS, DOSSIER_SUMMARY } from "./careon-dossiercontrole";
 import { CAREON_ORG } from "./careon-filters";
 import { DECLARATIE_OUDERDOM, FINANCIEEL_METRICS, FINANCIEEL_NOTE, OMZET_PER_VERZEKERAAR } from "./careon-financieel";
-import { BIG_REGISTRATIES, HR_BIG_NOTE, HR_METRICS } from "./careon-hr";
+import { HR_BIG_NOTE, HR_SEED_STATE } from "./careon-hr";
 import { complianceTone, KWALITEIT_COMPLIANCE, KWALITEIT_COUNTERS } from "./careon-kwaliteit";
 import { MIDDEL_LABELS } from "./careon-middelen";
 import { CAREON_PAGE_META, CAREON_ROUTES } from "./careon-pages";
@@ -26,7 +28,7 @@ import {
   PLANNING_METRICS,
   URENVERDELING,
 } from "./careon-planning";
-import { CAREON_MONTHLY, GGZ_VERZUIM_BENCHMARK } from "./careon-shared-charts";
+import { CAREON_MONTHLY, CAREON_MONTHS } from "./careon-shared-charts";
 import type { CareonFilters, CareonKpi, CareonMetric, CareonPageId, CareonSource } from "./careon-types";
 
 // ---------------------------------------------------------------------------
@@ -74,6 +76,11 @@ export interface AssistantMonthSeries {
   color: string;
 }
 
+export interface AssistantChartDatum {
+  m: string;
+  [key: string]: string | number;
+}
+
 export interface AssistantVisualization {
   id: string;
   kind: "kpi-grid" | "rank-list" | "bar-chart" | "donut" | "status-card" | "table";
@@ -82,6 +89,7 @@ export interface AssistantVisualization {
   tiles?: AssistantKpiTile[];
   rows?: AssistantSeriesRow[];
   monthSeries?: AssistantMonthSeries[];
+  data?: AssistantChartDatum[];
   donut?: { name: string; value: number; color: string }[];
   table?: { head: string[]; rows: { cells: string[]; tone: AssistantTone }[] };
   statusRows?: { title: string; detail: string; tone: AssistantTone }[];
@@ -120,6 +128,8 @@ export interface AssistantContext {
   kpis: CareonKpi[];
   filters: CareonFilters;
   source: CareonSource;
+  /** Actuele handmatige HR-registratie; seed alleen voor oudere aanroepers/tests. */
+  hr?: HrState;
 }
 
 export const ASSISTANT_INTENT_META: Record<AssistantIntentId, { label: string }> = {
@@ -846,7 +856,7 @@ function buildKwaliteitDossier(query: string, _ctx: AssistantContext): Assistant
         id: "compliance",
         kind: "rank-list",
         title: "Compliance vs. doel",
-        sub: "Zes kwaliteitsindicatoren met instelbaar doel",
+        sub: "Zes kwaliteitsindicatoren met vastgelegd doel",
         rows: rankRows(
           KWALITEIT_COMPLIANCE.map((c) => ({
             label: c.label,
@@ -868,7 +878,7 @@ function buildKwaliteitDossier(query: string, _ctx: AssistantContext): Assistant
         id: "checks",
         kind: "table",
         title: "Grootste open actiepunten (dossiercontrole)",
-        sub: "Twaalf automatische controles draaien elke nacht",
+        sub: "Twaalf controles worden bij iedere databronverversing berekend",
         table: {
           head: ["Controle", "Dossiers", "Urgentie"],
           rows: worstChecks.map((c) => ({
@@ -917,8 +927,21 @@ function buildKwaliteitDossier(query: string, _ctx: AssistantContext): Assistant
   return { artifact, brief, deep };
 }
 
-function buildVerzuimHr(query: string, _ctx: AssistantContext): AssistantResponse {
-  const verzuim = HR_METRICS[0];
+function buildVerzuimHr(query: string, ctx: AssistantContext): AssistantResponse {
+  const hrState = ctx.hr ?? HR_SEED_STATE;
+  const metrics = hrMetrics(hrState);
+  const verzuim = metrics[0];
+  const verloop = metrics[1];
+  const vacatures = metrics[2];
+  const opleidingen = metrics[3];
+  const intervisie = metrics[4];
+  const werkdruk = metrics[5];
+  const binnenkort = hrBigBinnenDagen(hrState, new Date());
+  const eerstvolgende = binnenkort[0];
+  const benchmarkVergelijking =
+    verzuim.value <= hrState.benchmark
+      ? `onder de benchmark van ${nlDec1.format(hrState.benchmark)}%`
+      : `boven de benchmark van ${nlDec1.format(hrState.benchmark)}%`;
 
   const artifact: AssistantArtifact = {
     intent: "verzuim-hr",
@@ -930,14 +953,15 @@ function buildVerzuimHr(query: string, _ctx: AssistantContext): AssistantRespons
         kind: "kpi-grid",
         title: "HR-kerncijfers",
         sub: "Verzuim, verloop en ontwikkeling",
-        tiles: HR_METRICS.slice(0, 4).map(metricTile),
+        tiles: metrics.slice(0, 4).map(metricTile),
       },
       {
         id: "verzuim",
         kind: "bar-chart",
         title: "Ziekteverzuim per maand",
-        sub: `GGZ-benchmark: ${nlDec1.format(GGZ_VERZUIM_BENCHMARK)}%`,
+        sub: `GGZ-benchmark: ${nlDec1.format(hrState.benchmark)}%`,
         monthSeries: [{ key: "verzuim", label: "Verzuim %", color: "var(--chart-1)" }],
+        data: CAREON_MONTHS.map((maand, index) => ({ m: maand, verzuim: hrState.verzuimTrend[index] ?? 0 })),
       },
       {
         id: "big",
@@ -946,8 +970,8 @@ function buildVerzuimHr(query: string, _ctx: AssistantContext): AssistantRespons
         sub: HR_BIG_NOTE,
         table: {
           head: ["Medewerker", "Functie", "Verloopt", "Dagen"],
-          rows: BIG_REGISTRATIES.map((b) => ({
-            cells: [b.naam, b.functie, b.verloopt, String(b.dagen)],
+          rows: binnenkort.map((b) => ({
+            cells: [b.naam, b.functie, formatHrDate(b.verloopt), String(b.dagen)],
             tone: toneBelow(b.dagen, 45, 60),
           })),
         },
@@ -955,31 +979,38 @@ function buildVerzuimHr(query: string, _ctx: AssistantContext): AssistantRespons
     ],
     claims: [
       {
-        title: "Verzuim onder de GGZ-benchmark",
-        body: `Ziekteverzuim daalde naar ${nlDec1.format(verzuim.value)}%, onder de benchmark van ${nlDec1.format(GGZ_VERZUIM_BENCHMARK)}%.`,
+        title: `Verzuim ${verzuim.value <= hrState.benchmark ? "onder" : "boven"} de GGZ-benchmark`,
+        body: `Ziekteverzuim staat op ${nlDec1.format(verzuim.value)}%, ${benchmarkVergelijking}.`,
         values: [
           { label: "Verzuim", value: `${nlDec1.format(verzuim.value)}%` },
-          { label: "Benchmark", value: `${nlDec1.format(GGZ_VERZUIM_BENCHMARK)}%` },
+          { label: "Benchmark", value: `${nlDec1.format(hrState.benchmark)}%` },
         ],
       },
-      {
-        title: "BIG-registratie L. Vermeer verloopt eerst",
-        body: "Verloopt 14 aug 2026 (39 dagen). Careon Pulse mailt automatisch op 90, 60 en 30 dagen vooraf.",
-        values: [
-          { label: "Eerstvolgende", value: "L. Vermeer" },
-          { label: "Dagen", value: "39" },
-        ],
-      },
+      ...(eerstvolgende
+        ? [
+            {
+              title: `BIG-registratie ${eerstvolgende.naam} verloopt eerst`,
+              body: `Verloopt ${formatHrDate(eerstvolgende.verloopt)} (${eerstvolgende.dagen} dagen). De registratie staat in Signaleringen.`,
+              values: [
+                { label: "Eerstvolgende", value: eerstvolgende.naam },
+                { label: "Dagen", value: String(eerstvolgende.dagen) },
+              ],
+            },
+          ]
+        : []),
     ],
     sources: [
-      { model: "careon.hr", label: "HR-tellers", rowCount: HR_METRICS.length },
-      { model: "careon.maandreeks", label: "Maandreeksen aug–jul", rowCount: CAREON_MONTHLY.length },
-      { model: "careon.big", label: "BIG-registraties", rowCount: BIG_REGISTRATIES.length },
+      { model: "careon.hr", label: "Handmatige HR-tellers", rowCount: metrics.length },
+      { model: "careon.hr.trend", label: "Handmatige verzuimreeks", rowCount: hrState.verzuimTrend.length },
+      { model: "careon.big", label: "Handmatige BIG-registraties", rowCount: hrState.bigRegistraties.length },
     ],
   };
 
-  const brief = `Het ziekteverzuim daalde naar ${nlDec1.format(verzuim.value)}% en ligt daarmee onder de GGZ-benchmark van ${nlDec1.format(GGZ_VERZUIM_BENCHMARK)}%. Verloop en vacatures dalen; drie BIG-registraties verlopen binnen 90 dagen.`;
-  const deep = `${brief}\n\n**Trend:** verzuim was vorige maand 6,4% en piekte in januari op 7,1%.\n\n**Ontwikkeling:** 12 lopende opleidingen (was 9), intervisie-deelname 92%, werkdrukscore verbeterde van 7,3 naar 6,9.\n\n**Actie:** BIG-registratie van L. Vermeer (GZ-psycholoog) verloopt over 39 dagen — herregistratie starten.`;
+  const brief = `Het ziekteverzuim staat op ${nlDec1.format(verzuim.value)}% en ligt ${benchmarkVergelijking}. Verloop staat op ${nlDec1.format(verloop.value)}%, er zijn ${nl.format(vacatures.value)} openstaande vacatures en ${binnenkort.length} BIG-registraties verlopen binnen 90 dagen.`;
+  const eerstvolgendeActie = eerstvolgende
+    ? `BIG-registratie van ${eerstvolgende.naam} (${eerstvolgende.functie}) verloopt over ${eerstvolgende.dagen} dagen — herregistratie starten.`
+    : "Er verlopen momenteel geen BIG-registraties binnen 90 dagen.";
+  const deep = `${brief}\n\n**Trend:** verzuim was vorige maand ${nlDec1.format(verzuim.prev)}%; de hoogste waarde in de opgeslagen reeks is ${nlDec1.format(Math.max(...hrState.verzuimTrend))}%.\n\n**Ontwikkeling:** ${nl.format(opleidingen.value)} lopende opleidingen (was ${nl.format(opleidingen.prev)}), intervisie-deelname ${nlDec1.format(intervisie.value)}%, werkdrukscore ${nlDec1.format(werkdruk.prev)} → ${nlDec1.format(werkdruk.value)}.\n\n**Actie:** ${eerstvolgendeActie}`;
 
   return { artifact, brief, deep };
 }
@@ -1058,14 +1089,14 @@ function buildBehandelaarCoaching(query: string, _ctx: AssistantContext): Assist
 const SOURCE_MODE_TONE: Record<CareonSource["mode"], AssistantTone> = {
   demo: "warn",
   csv: "accent",
-  api: "good",
+  api: "accent",
   productie: "good",
 };
 
 const SOURCE_MODE_BODY: Record<CareonSource["mode"], string> = {
   demo: "Alle cijfers komen uit de vaste demo-dataset. Upload een CSV of activeer een EPD-koppeling op de databronpagina.",
   csv: "Cockpit-KPI's zijn overschreven door de laatste CSV-import; herstel demo-data zet ze terug.",
-  api: "De API-koppeling is actief (sandbox). Herstel demo-data verbreekt de verbinding.",
+  api: "De API-koppelingspreview is actief. Er is geen externe EPD-verbinding en er wordt geen sleutel opgeslagen.",
   productie:
     "Productie-modus is actief: de live AI-assistent analyseert de geïmporteerde EPD-export (geaggregeerde cijfers, geen cliëntgegevens). Zonder live AI vallen antwoorden terug op de demo-referentie — dat staat er dan bij.",
 };
@@ -1097,13 +1128,13 @@ function buildDatabronStatus(query: string, ctx: AssistantContext): AssistantRes
         id: "providers",
         kind: "table",
         title: "Beschikbare EPD-koppelingen",
-        sub: "Sandbox-koppelingen voor de API-modus",
+        sub: "Visuele previews van toekomstige connectoren",
         table: {
           head: ["Provider", "Status"],
           rows: EPD_PROVIDERS.map((p: { name: string }) => ({
             cells: [
               p.name,
-              ctx.source.mode === "api" && ctx.source.detail.startsWith(p.name) ? "Verbonden" : "Beschikbaar",
+              ctx.source.mode === "api" && ctx.source.detail.startsWith(p.name) ? "Preview actief" : "Beschikbaar",
             ],
             tone:
               ctx.source.mode === "api" && ctx.source.detail.startsWith(p.name) ? ("good" as const) : ("none" as const),
@@ -1124,8 +1155,8 @@ function buildDatabronStatus(query: string, ctx: AssistantContext): AssistantRes
     sources: [{ model: "careon.databron", label: "Bronconfiguratie", rowCount: EPD_PROVIDERS.length + 1 }],
   };
 
-  const brief = `De actieve databron is "${ctx.source.label}" (${ctx.source.detail}). Via de databronpagina kun je een CSV importeren (formaat kpi;huidig;vorige_maand) of een EPD-sandbox koppelen.`;
-  const deep = `${brief}\n\n**Modi:** demo-data → CSV-import → API live. "Herstel demo-data" zet de cockpit terug naar de vaste demo-waarden.\n\n**EPD-providers:** ${EPD_PROVIDERS.map((p: { name: string }) => p.name).join(", ")}.`;
+  const brief = `De actieve databron is "${ctx.source.label}" (${ctx.source.detail}). Via de databronpagina kun je een CSV importeren (formaat kpi;huidig;vorige_maand) of de interface van een toekomstige EPD-koppeling bekijken.`;
+  const deep = `${brief}\n\n**Modi:** demo-data → CSV-import → API-preview. "Herstel demo-data" zet de cockpit terug naar de vaste demo-waarden.\n\n**EPD-providers in de preview:** ${EPD_PROVIDERS.map((p: { name: string }) => p.name).join(", ")}.`;
 
   return { artifact, brief, deep };
 }

@@ -12,6 +12,8 @@ const RATE_LIMIT_PER_MINUTE = envInt("CAREON_ASSISTANT_RATE_LIMIT_PER_MINUTE", 2
 const RATE_LIMIT_PER_DAY = envInt("CAREON_ASSISTANT_RATE_LIMIT_PER_DAY", 500, 1, 100_000);
 const AUDIT_RATE_LIMIT_PER_MINUTE = envInt("CAREON_ASSISTANT_AUDIT_RATE_LIMIT_PER_MINUTE", 60, 1, 1_000);
 const AUDIT_RATE_LIMIT_PER_DAY = envInt("CAREON_ASSISTANT_AUDIT_RATE_LIMIT_PER_DAY", 2_000, 1, 100_000);
+const LOGIN_RATE_LIMIT_PER_MINUTE = envInt("CAREON_LOGIN_RATE_LIMIT_PER_MINUTE", 10, 1, 100);
+const LOGIN_RATE_LIMIT_PER_DAY = envInt("CAREON_LOGIN_RATE_LIMIT_PER_DAY", 150, 1, 10_000);
 const EVENT_RETENTION_DAYS = envInt("CAREON_ASSISTANT_EVENT_RETENTION_DAYS", 90, 7, 365);
 const MAX_MEMORY_RATE_LIMIT_ACTORS = 10_000;
 
@@ -46,6 +48,9 @@ export interface AssistantEvent {
   usage?: AssistantUsage;
   toolNames?: string[];
   metadata?: Record<string, string | number | boolean | null>;
+  /** Echte identiteit (Supabase-modus); oude rijen kennen alleen actor_hash. */
+  orgId?: string | null;
+  userId?: string | null;
 }
 
 function envInt(name: string, fallback: number, minimum: number, maximum: number): number {
@@ -71,12 +76,7 @@ export function createAssistantRequestId(): string {
   return randomUUID();
 }
 
-export function assistantActorHash(request: Request): string {
-  const session = request.headers.get("x-careon-session")?.trim();
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const stableSession = session && /^[A-Za-z0-9._-]{16,80}$/.test(session) ? session : null;
-  const principal =
-    stableSession || forwarded || request.headers.get("x-real-ip") || request.headers.get("user-agent") || "unknown";
+function actorHash(principal: string): string {
   const salt =
     process.env.CAREON_ASSISTANT_SAFETY_SALT ??
     process.env.SUPABASE_SERVICE_ROLE_KEY ??
@@ -85,7 +85,30 @@ export function assistantActorHash(request: Request): string {
   return createHmac("sha256", salt).update(principal).digest("hex").slice(0, 32);
 }
 
-type RateLimitScope = "assistant" | "audit";
+function visitorPrincipal(request: Request): string {
+  return (
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip")?.trim() ||
+    request.headers.get("user-agent") ||
+    "unknown"
+  );
+}
+
+export function assistantActorHash(request: Request): string {
+  const session = request.headers.get("x-careon-session")?.trim();
+  const stableSession = session && /^[A-Za-z0-9._-]{16,80}$/.test(session) ? session : null;
+  return actorHash(`assistant:${stableSession || visitorPrincipal(request)}`);
+}
+
+export function loginActorHash(request: Request): string {
+  return actorHash(`login:${visitorPrincipal(request)}`);
+}
+
+export function authenticatedActorHash(userId: string): string {
+  return actorHash(`user:${userId}`);
+}
+
+type RateLimitScope = "assistant" | "audit" | "login";
 
 interface RemoteRateLimitRow {
   allowed?: boolean;
@@ -206,6 +229,15 @@ export function enforceAssistantAuditRateLimit(actorHash: string): Promise<RateL
   return enforceRateLimit("audit", actorHash, AUDIT_RATE_LIMIT_PER_MINUTE, AUDIT_RATE_LIMIT_PER_DAY);
 }
 
+/**
+ * Inloglimiet per gehasht bezoekers-IP (handoff 13, migratie 0013): alle
+ * logins bereiken Supabase vanaf het server-IP, dus zonder eigen limiet is er
+ * geen bescherming per aanvaller tegen brute force.
+ */
+export function enforceLoginRateLimit(actorHash: string): Promise<RateLimitResult> {
+  return enforceRateLimit("login", actorHash, LOGIN_RATE_LIMIT_PER_MINUTE, LOGIN_RATE_LIMIT_PER_DAY);
+}
+
 export async function writeAssistantEvent(event: AssistantEvent): Promise<void> {
   if (!SUPABASE_URL || !SERVICE_KEY) return;
   const payload = {
@@ -222,6 +254,8 @@ export async function writeAssistantEvent(event: AssistantEvent): Promise<void> 
     total_tokens: event.usage?.totalTokens ?? null,
     tool_names: event.toolNames ?? [],
     metadata: event.metadata ?? {},
+    org_id: event.orgId ?? null,
+    user_id: event.userId ?? null,
   };
   try {
     await fetch(`${SUPABASE_URL}/rest/v1/careon_assistant_events`, {

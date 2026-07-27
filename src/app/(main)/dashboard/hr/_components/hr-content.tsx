@@ -5,10 +5,9 @@ import { CareonHrSyncLine } from "@/app/(main)/dashboard/_components/careon/care
 import { CareonKpiCard } from "@/app/(main)/dashboard/_components/careon/careon-kpi-card";
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
 import { CareonHandmatigBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
-import { HR_METRICS } from "@/data/careon/careon-hr";
 import { careonDetailHref } from "@/data/careon/careon-kpi-details";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
-import type { HrKpiId } from "@/lib/careon-hr/types";
+import { hrMetrics } from "@/lib/careon-hr/insights";
 
 import { BigRegistratiesPanel } from "./big-registraties";
 import { HrBigEditor } from "./hr-big-editor";
@@ -22,11 +21,7 @@ export function HrContent() {
 
   // Kaartwaarden komen uit de handmatige registratie; label/format/drilldown-id
   // blijven de geauditeerde HR_METRICS-meta.
-  const metrics = HR_METRICS.map((meta) => {
-    const id = meta.detailId as HrKpiId;
-    const kpi = state.kpis[id];
-    return { ...meta, value: kpi.value, prev: kpi.prev };
-  });
+  const metrics = hrMetrics(state);
 
   return (
     <div className="@container/main flex flex-col gap-4 md:gap-6">

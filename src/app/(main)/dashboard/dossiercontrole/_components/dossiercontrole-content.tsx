@@ -52,9 +52,11 @@ export function DossiercontroleContent() {
       detailId: "dossiersnc",
     },
     {
-      label: "Dossierkwaliteit (audit)",
-      value: nlDec1.format(DOSSIER_SUMMARY.auditScore),
-      sub: "van 10",
+      // Productie: zelfde registratie-compleetheidsscore als de Kwaliteit-
+      // pagina (op 10) — geen inhoudelijke audit, dus zonder "(audit)".
+      label: production ? "Dossierkwaliteit" : "Dossierkwaliteit (audit)",
+      value: nlDec1.format(production ? production.kwaliteitDossierscore.value : DOSSIER_SUMMARY.auditScore),
+      sub: production ? "van 10 · registratie-compleetheid" : "van 10",
       widget: "Dossierkwaliteit",
       detailId: "dossierkwaliteit",
     },
@@ -70,7 +72,7 @@ export function DossiercontroleContent() {
         sub={
           production
             ? `${production.dossiercontrole.checks.length} controles zijn berekend uit de cliëntendata-export; aanvullende controles volgen zodra dossieritem-data beschikbaar is.`
-            : "Twaalf automatische controles draaien elke nacht op alle actieve dossiers."
+            : "Twaalf controles worden bij iedere databronverversing op de actieve dossiers berekend."
         }
       />
 

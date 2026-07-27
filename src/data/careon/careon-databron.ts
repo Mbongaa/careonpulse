@@ -20,7 +20,7 @@ export const SAMPLE_CSV_CONTENT = [
 ].join("\n");
 
 export const API_SUCCESS_COPY =
-  "Sandbox-koppeling actief — het dashboard toont nu de live badge. In productie draait dit op de Careon-cloud, ingericht naar de uitgangspunten van ISO 27001 en NEN 7510.";
+  "Koppelingspreview actief — er is geen externe EPD-verbinding gemaakt en er is geen sleutel opgeslagen.";
 
 export interface CsvParseResult {
   matched: number;

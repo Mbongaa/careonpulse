@@ -1,6 +1,6 @@
 # Careon Pulse — Zorgdashboard TGC Groep
 
-A Dutch medical/healthcare KPI dashboard: a functional clone of the audited "Careon Pulse" dashboard, rebuilt inside the [next-shadcn-admin-dashboard](https://github.com/arhamkhnz/next-shadcn-admin-dashboard) template. It supports both the audited demo dataset and privacy-minimized production imports with optional EU Supabase persistence and a server-side AI assistant. The included login is still a demo gate, not real authentication.
+A Dutch medical/healthcare KPI dashboard: a functional clone of the audited "Careon Pulse" dashboard, rebuilt inside the [next-shadcn-admin-dashboard](https://github.com/arhamkhnz/next-shadcn-admin-dashboard) template. It supports both the audited demo dataset and privacy-minimized production imports with EU Supabase persistence, organization-scoped authentication, and a server-side AI assistant.
 
 ## Quickstart
 
@@ -9,7 +9,9 @@ npm install
 npm run dev          # http://localhost:3000
 ```
 
-Demo credentials: **`user1`** / **`demo1234`** (session-storage flag; logout via the user menu in the sidebar).
+Hosted demo credentials: **`user1`** / **`demo1234`**. This is a real Supabase Auth account in the isolated `Demo` organization and can sign in through the public login from any browser or network. Multiple testers can use it concurrently; logout ends only the current browser session. It is not a production-auth bypass.
+
+For isolated local development and automated tests only, `CAREON_DEMO_MODE=1` enables the legacy session-storage fallback. Never set that flag in the hosted environment.
 
 ## Scripts
 
@@ -60,6 +62,6 @@ Cross-cutting behavior:
 
 ## Scope guardrails
 
-- Preserve demo-mode behavior alongside production imports; do not expose production data publicly until real authentication replaces the demo gate.
+- Keep the hosted demo account isolated in its own organization and preserve local demo-mode behavior for tests; never expose another organization's production data to the demo account.
 - Use the template's design system; do not recreate the original dashboard's neon/glass styling.
 - All KPI values, alerts, table rows, and chart series come verbatim from the audit — don't invent data.

@@ -42,7 +42,9 @@ import { CAREON_MONTHLY } from "../data/careon/careon-shared-charts";
 import { sliceTimeframe, timeframeKeys } from "../data/careon/careon-timeframe";
 import type { CareonMetric } from "../data/careon/careon-types";
 import { formatCareonDelta, formatCareonValue } from "../lib/careon-format";
+import { buildHrBigAlert, hrMetrics } from "../lib/careon-hr/insights";
 import { bigDagenTot, HR_KPI_IDS, type HrKpiId, isHrState } from "../lib/careon-hr/types";
+import { CAREON_KPI_DETAIL_IDS } from "../lib/careon-kpi-route";
 import { executeMiddelenTool, isMiddelenTool } from "../lib/careon-middelen/assistant-executor";
 import { DESTRUCTIEVE_TOOLS, MIDDELEN_TOOL_NAMES, MIDDELEN_TOOLS } from "../lib/careon-middelen/assistant-tools";
 import { createConceptMiddelenApi, replayConceptActies } from "../lib/careon-middelen/concept";
@@ -352,6 +354,11 @@ const CARD_SOURCES: [string, CareonMetric[]][] = [
 
 // Registerdekking: unieke ids, elke kaart heeft een entry, cockpit gedekt.
 check("detail ids uniek", KPI_DETAILS.length, new Set(KPI_DETAILS.map((d) => d.id)).size);
+check(
+  "proxy detail-id register gelijk aan detailregister",
+  [...CAREON_KPI_DETAIL_IDS].sort(),
+  KPI_DETAILS.map((detail) => detail.id).sort(),
+);
 for (const kpi of COCKPIT_KPIS) {
   check(`detail entry cockpit ${kpi.id}`, KPI_DETAIL_BY_ID.has(kpi.id), true);
 }
@@ -889,6 +896,46 @@ for (let i = 0; i < BIG_REGISTRATIES.length; i += 1) {
   check(`hr seed big ${i} functie`, seed.functie, audit.functie);
   check(`hr seed big ${i} dagen`, bigDagenTot(seed.verloopt, bigPeildatum), audit.dagen);
 }
+const hrGewijzigd = {
+  ...HR_SEED_STATE,
+  kpis: { ...HR_SEED_STATE.kpis, verzuim: { ...HR_SEED_STATE.kpis.verzuim, value: 4.2 } },
+};
+check("hr metrics volgen handmatige staat", hrMetrics(hrGewijzigd)[0].value, 4.2);
+const hrAlert = buildHrBigAlert(HR_SEED_STATE, new Date("2026-07-26T00:00:00Z"));
+check("hr BIG-alert live aantal", hrAlert?.n, 3);
+check("hr BIG-alert live dagen", hrAlert ? hrAlert.detail.includes("19 dgn") : false, true);
+check(
+  "hr validatie weigert percentage >100",
+  isHrState({ ...HR_SEED_STATE, kpis: { ...HR_SEED_STATE.kpis, verzuim: { value: 101, prev: 6.4 } } }),
+  false,
+);
+check(
+  "hr validatie weigert werkdruk >10",
+  isHrState({ ...HR_SEED_STATE, kpis: { ...HR_SEED_STATE.kpis, werkdruk: { value: 11, prev: 7.3 } } }),
+  false,
+);
+check(
+  "hr validatie weigert fractionele teller",
+  isHrState({ ...HR_SEED_STATE, kpis: { ...HR_SEED_STATE.kpis, vacatures: { value: 4.5, prev: 6 } } }),
+  false,
+);
+check("hr validatie vereist twaalf trendmaanden", isHrState({ ...HR_SEED_STATE, verzuimTrend: [5.8] }), false);
+check(
+  "hr validatie weigert onmogelijke kalenderdatum",
+  isHrState({
+    ...HR_SEED_STATE,
+    bigRegistraties: [{ ...HR_SEED_STATE.bigRegistraties[0], verloopt: "2026-02-31" }],
+  }),
+  false,
+);
+check(
+  "hr validatie weigert dubbele BIG-registratie",
+  isHrState({
+    ...HR_SEED_STATE,
+    bigRegistraties: [HR_SEED_STATE.bigRegistraties[0], { ...HR_SEED_STATE.bigRegistraties[0] }],
+  }),
+  false,
+);
 
 console.log(`\nverify-careon: ${passes} passed, ${failures} failed`);
 if (failures > 0) {

@@ -456,6 +456,31 @@ html[data-theme-mode="careon"] tr {
   line-height: 1;
 }
 
+/* Compact desktop/tablet: the Tailwind lg breakpoint exposes all filter
+   controls at 1024px, while an open sidebar leaves too little header width.
+   Keep every filter reachable through the compact popover and hide two
+   optional status controls until the content area is wide enough again. */
+@media (min-width: 768px) and (max-width: 1100px) {
+  .careon-filter-wide,
+  .careon-source-status,
+  .careon-theme-switcher {
+    display: none !important;
+  }
+
+  .careon-filter-compact {
+    display: inline-flex !important;
+  }
+
+  .careon-topbar-identity {
+    flex: 1 1 auto;
+  }
+
+  .careon-topbar-actions {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+}
+
 @media (max-width: 767px) {
   html[data-theme-mode="careon"] [data-slot="sidebar-inset"] > header {
     height: auto;

@@ -12,12 +12,12 @@ const STATUS_TEKST: Record<MiddelenSyncStatus, string> = {
   laden: "Registratie laden…",
   centraal: "Wijzigingen worden centraal opgeslagen en gedeeld met collega's.",
   lokaal: "Alleen lokaal opgeslagen in deze browser — centrale opslag is niet geconfigureerd.",
-  fout: "Centrale opslag mislukt — wijzigingen staan alleen lokaal in deze browser.",
+  fout: "Centrale opslag mislukt — wijzigingen staan lokaal en worden automatisch opnieuw aangeboden.",
   conflict: "Er is tegelijk elders gewijzigd. Kies welke versie leidend moet zijn.",
 };
 
 export function CareonMiddelenSyncLine({ className }: Readonly<{ className?: string }>) {
-  const { syncStatus, resolveConflict, hasCentralConflictVersion } = useCareonMiddelen();
+  const { syncStatus, retrySync, resolveConflict, hasCentralConflictVersion } = useCareonMiddelen();
   return (
     <div
       className={cn(
@@ -28,7 +28,7 @@ export function CareonMiddelenSyncLine({ className }: Readonly<{ className?: str
       )}
     >
       <span>{STATUS_TEKST[syncStatus]}</span>
-      {syncStatus === "conflict" ? (
+      {syncStatus === "conflict" && (
         <span className="flex items-center gap-1">
           <Button
             type="button"
@@ -50,7 +50,12 @@ export function CareonMiddelenSyncLine({ className }: Readonly<{ className?: str
             Mijn versie
           </Button>
         </span>
-      ) : null}
+      )}
+      {syncStatus === "fout" && (
+        <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={retrySync}>
+          Nu opnieuw proberen
+        </Button>
+      )}
     </div>
   );
 }

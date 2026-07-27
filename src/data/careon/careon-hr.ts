@@ -20,7 +20,7 @@ export const BIG_REGISTRATIES = [
 ];
 
 export const HR_BIG_NOTE =
-  "Careon Pulse mailt medewerker en teamleider automatisch 90, 60 en 30 dagen vóór het verlopen van de registratie.";
+  "Registraties binnen 90 dagen verschijnen automatisch in Signaleringen; e-mailherinneringen zijn niet geconfigureerd.";
 
 // ---- Handmatige HR-registratie (handoff 12) ----
 // HR-cijfers komen niet uit het EPD; de gebruiker houdt ze zelf bij. De seed

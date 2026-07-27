@@ -8,7 +8,7 @@ import { useCareon } from "./careon-provider";
 const SOURCE_BADGE_LABEL: Record<CareonSourceMode, string> = {
   demo: "DEMO",
   csv: "CSV",
-  api: "LIVE",
+  api: "PREVIEW",
   productie: "PROD",
 };
 

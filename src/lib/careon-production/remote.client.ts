@@ -22,10 +22,10 @@ const ENDPOINT = "/api/careon/production";
 // Gedeeld sync-token: de route weigert verzoeken zonder dit token. Het zit in
 // de client-bundle en is dus een drempel tegen scanners/toevallige bezoekers,
 // géén vervanging voor echte authenticatie (zie PRODUCTION_MODE.md).
-const SYNC_TOKEN = process.env.NEXT_PUBLIC_CAREON_SYNC_TOKEN;
-
+// Auth loopt via de sessie-cookie (zelfde origin, gaat automatisch mee);
+// het oude sync-token is vervangen door echte accounts (handoff 13).
 function syncHeaders(extra?: HeadersInit): HeadersInit {
-  return { ...(SYNC_TOKEN ? { "x-careon-sync": SYNC_TOKEN } : {}), ...extra };
+  return { ...extra };
 }
 
 export type PushResult = "ok" | "unconfigured" | "failed";

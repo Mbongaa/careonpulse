@@ -1,8 +1,11 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 import { useRouter } from "next/navigation";
 
-import { EllipsisVertical, LogOut } from "lucide-react";
+import { EllipsisVertical, LogOut, ShieldCheck } from "lucide-react";
+import { toast } from "sonner";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -28,9 +31,29 @@ export function NavUser({
 }) {
   const { isMobile } = useSidebar();
   const router = useRouter();
+  const [isSuperadmin, setIsSuperadmin] = useState(false);
+
+  // Beheer-link alleen voor platformbeheerders (Supabase-modus); de
+  // (admin)-layout dwingt de rol daarnaast server-side af.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/auth/session", { cache: "no-store", signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { isSuperadmin?: boolean } | null) => {
+        if (payload?.isSuperadmin) setIsSuperadmin(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      controller.abort();
+    };
+  }, []);
 
   const handleLogout = async () => {
-    await careonLogout();
+    const loggedOut = await careonLogout();
+    if (!loggedOut) {
+      toast.error("Uitloggen is niet voltooid. Probeer het opnieuw.");
+      return;
+    }
     router.replace(CAREON_LOGIN_ROUTE);
   };
 
@@ -73,6 +96,12 @@ export function NavUser({
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            {isSuperadmin && (
+              <DropdownMenuItem onClick={() => router.push("/admin")}>
+                <ShieldCheck />
+                Beheer
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={handleLogout}>
               <LogOut />
               Uitloggen

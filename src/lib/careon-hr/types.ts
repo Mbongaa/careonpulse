@@ -10,6 +10,21 @@ export const HR_KPI_IDS = ["verzuim", "verloop", "vacatures", "opleidingen", "in
 
 export type HrKpiId = (typeof HR_KPI_IDS)[number];
 
+export interface HrKpiRule {
+  max: number;
+  integer?: boolean;
+}
+
+/** Domeingrenzen voor de handmatig bijgehouden HR-KPI's. */
+export const HR_KPI_RULES: Record<HrKpiId, HrKpiRule> = {
+  verzuim: { max: 100 },
+  verloop: { max: 100 },
+  vacatures: { max: 10_000, integer: true },
+  opleidingen: { max: 10_000, integer: true },
+  intervisie: { max: 100 },
+  werkdruk: { max: 10 },
+};
+
 /** Huidige en vorige-maand-waarde van één KPI; de delta wordt afgeleid. */
 export interface HrKpiWaarde {
   value: number;
@@ -49,31 +64,46 @@ export const HR_LIMITS = {
   big: 200,
   naam: 120,
   functie: 80,
-  trend: 24,
-  /** KPI-waarden zijn niet-negatief (tellers, percentages, scores). */
-  waarde: 1_000_000,
+  trend: 12,
   /** Percentages/benchmark en trendpunten (verzuim in %). */
   percentage: 100,
 } as const;
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-function isWaardeGetal(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= HR_LIMITS.waarde;
+function isBoundedNumber(value: unknown, max: number, integer = false): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0 &&
+    value <= max &&
+    (!integer || Number.isInteger(value))
+  );
 }
 
 function isPercentage(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= HR_LIMITS.percentage;
+  return isBoundedNumber(value, HR_LIMITS.percentage);
 }
 
-function isKpiWaarde(value: unknown): value is HrKpiWaarde {
+function isKpiWaarde(id: HrKpiId, value: unknown): value is HrKpiWaarde {
   if (typeof value !== "object" || value === null) return false;
   const row = value as Record<string, unknown>;
-  return isWaardeGetal(row.value) && isWaardeGetal(row.prev);
+  const rule = HR_KPI_RULES[id];
+  return isBoundedNumber(row.value, rule.max, rule.integer) && isBoundedNumber(row.prev, rule.max, rule.integer);
 }
 
-function isIsoDate(value: unknown): value is string {
-  return typeof value === "string" && ISO_DATE.test(value) && !Number.isNaN(Date.parse(value));
+export function normalizeHrKpiValue(id: HrKpiId, value: number): number {
+  const rule = HR_KPI_RULES[id];
+  if (!Number.isFinite(value)) return 0;
+  const bounded = Math.min(rule.max, Math.max(0, value));
+  return rule.integer ? Math.round(bounded) : bounded;
+}
+
+export function isHrIsoDate(value: unknown): value is string {
+  if (typeof value !== "string" || !ISO_DATE.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
 }
 
 function isBigRegistratie(value: unknown): value is HrBigRegistratie {
@@ -85,8 +115,13 @@ function isBigRegistratie(value: unknown): value is HrBigRegistratie {
     row.naam.length <= HR_LIMITS.naam &&
     typeof row.functie === "string" &&
     row.functie.length <= HR_LIMITS.functie &&
-    isIsoDate(row.verloopt)
+    isHrIsoDate(row.verloopt)
   );
+}
+
+function hasUniqueBigRegistrations(rows: HrBigRegistratie[]): boolean {
+  const keys = rows.map((row) => `${row.naam.trim().toLocaleLowerCase("nl-NL")}:${row.verloopt}`);
+  return new Set(keys).size === keys.length;
 }
 
 export function isHrState(value: unknown): value is HrState {
@@ -95,15 +130,17 @@ export function isHrState(value: unknown): value is HrState {
   if (typeof state.updatedAt !== "string" || Number.isNaN(Date.parse(state.updatedAt))) return false;
   if (typeof state.kpis !== "object" || state.kpis === null) return false;
   const kpis = state.kpis as Record<string, unknown>;
-  if (!HR_KPI_IDS.every((id) => isKpiWaarde(kpis[id]))) return false;
+  if (!HR_KPI_IDS.every((id) => isKpiWaarde(id, kpis[id]))) return false;
+  const bigRegistraties = state.bigRegistraties;
   return (
     isPercentage(state.benchmark) &&
     Array.isArray(state.verzuimTrend) &&
-    state.verzuimTrend.length <= HR_LIMITS.trend &&
+    state.verzuimTrend.length === HR_LIMITS.trend &&
     state.verzuimTrend.every(isPercentage) &&
-    Array.isArray(state.bigRegistraties) &&
-    state.bigRegistraties.length <= HR_LIMITS.big &&
-    state.bigRegistraties.every(isBigRegistratie)
+    Array.isArray(bigRegistraties) &&
+    bigRegistraties.length <= HR_LIMITS.big &&
+    bigRegistraties.every(isBigRegistratie) &&
+    hasUniqueBigRegistrations(bigRegistraties)
   );
 }
 

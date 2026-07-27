@@ -92,7 +92,9 @@ export const CAREON_PROVENANCE: Record<string, PageProvenance> = {
       "Zonder vervolgafspraak": "demo",
       "Dossiers zonder behandelplan": "demo",
       "Declaraties >90 dagen open": "demo",
-      "BIG-registratie verloopt <90 dgn": "demo",
+      // De BIG-signalering wordt live berekend uit de handmatige HR-registratie
+      // (buildHrBigAlert) — geen EPD-bron, maar ook geen demo-constante.
+      "BIG-registratie verloopt <90 dgn": "handmatig",
       "No-show >5% per behandelaar": "demo",
       "Geen ROM-meting": "demo",
       "Geen evaluatie gepland": "demo",
@@ -149,7 +151,8 @@ export const CAREON_PROVENANCE: Record<string, PageProvenance> = {
       "Dossier-compliance": "proxy",
       "Gecontroleerde dossiers": "live",
       "Niet compleet": "proxy",
-      Dossierkwaliteit: "demo",
+      // Zelfde registratie-compleetheidsscore als de Kwaliteit-pagina (op 10).
+      Dossierkwaliteit: "proxy",
       "Open actiepunten": "proxy",
     },
   },
@@ -233,6 +236,11 @@ export interface ProvenanceCaps {
   agenda?: boolean;
   /** Agenda-export mét toekomstvenster (geplande afspraken ná de peildatum). */
   agendaToekomst?: boolean;
+  /**
+   * Agenda-aggregaat mét de kwaliteit-velden (MDO/farmaco per cliënt) —
+   * aggregaten van vóór die velden vereisen een her-import van de agenda.
+   */
+  agendaKwaliteit?: boolean;
   verwijzers?: boolean;
   /** Toeslagen-export (declared surcharges) gekoppeld. */
   toeslagen?: boolean;
@@ -325,6 +333,16 @@ export const AGENDA_TOEKOMST_PROVENANCE: Record<string, Record<string, WidgetSou
   },
 };
 
+// Kwaliteit-proxies uit de agenda: vereisen een aggregaat mét MDO-/farmaco-
+// velden (cap agendaKwaliteit), niet alleen een agenda-import.
+export const AGENDA_KWALITEIT_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
+  kwaliteit: {
+    "Zorgplannen compleet": "proxy",
+    "Evaluaties op tijd": "proxy",
+    Medicatiecontroles: "proxy",
+  },
+};
+
 export const VERWIJZERS_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
   dossiersProductie: {
     Verwijzers: "live",
@@ -371,11 +389,21 @@ export const AGENDA_PROXY_NOTES: Record<string, string> = {
   "Ouderdom openstaande declaraties":
     "Ouderdom van het onderhanden werk (nog niet gefactureerde sessiewaarde) — geen declaratiestatus.",
   Productiviteit: "Directe tijd als aandeel van de totale geregistreerde sessietijd (laatste 12 agenda-maanden).",
+  "Zorgplannen compleet":
+    "Aandeel actieve dossiers (>30 dgn open) met een gehouden behandelplan-sessie in de agenda-export.",
+  "Evaluaties op tijd":
+    "Aandeel actieve cliënten (>6 mnd in zorg) met een gehouden MDO-/evaluatiesessie in de laatste 6 maanden.",
+  Medicatiecontroles:
+    "Aandeel medicatie-cliënten (≥1 farmaco-sessie) met een farmaco-contact in het laatste kwartaal — definitie ter bevestiging aan de instelling.",
   "Omzet Infomedics":
     "Conform opgave van de instelling: alleen VGZ en DSW declareren rechtstreeks via Vecozo; alle overige koepels lopen via het servicebureau (Infomedics). RMO/RMA (Uzovi 3355) is datagedreven afgesplitst; de kanaal-indeling zelf blijft een opgave, geen exportveld. Per behandelmaand, excl. toeslagen.",
 };
 
 export function widgetSource(pageId: string, widgetId: string, caps?: ProvenanceCaps): WidgetSource {
+  if (caps?.agendaKwaliteit) {
+    const override = AGENDA_KWALITEIT_PROVENANCE[pageId]?.[widgetId];
+    if (override) return override;
+  }
   if (caps?.verwijzers) {
     const override = VERWIJZERS_PROVENANCE[pageId]?.[widgetId];
     if (override) return override;

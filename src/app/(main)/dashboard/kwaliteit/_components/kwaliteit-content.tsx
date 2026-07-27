@@ -25,13 +25,26 @@ export function KwaliteitContent() {
   const { production } = useCareon();
 
   // Productie: "Dossierkwaliteit" is de registratie-compleetheid uit de
-  // EPD-export (zelfde score als dossiercontrole, op 10); de overige
-  // kwaliteitsdata wacht op de ROM/MIC-exports en blijft demo-gemarkeerd.
+  // EPD-export (zelfde score als dossiercontrole, op 10); de agenda-import
+  // levert daarnaast drie kwaliteit-proxies (zorgplannen, evaluaties,
+  // medicatiecontroles). ROM/PROM, suïcidaliteitsscreening en de tellers
+  // wachten op de ROM/MIC-exports en blijven demo-gemarkeerd.
   const liveScore = production ? production.kwaliteitDossierscore : null;
   const ringWaarde = liveScore ? liveScore.value : (demoDossierkwaliteit?.value ?? 0);
   const counters = KWALITEIT_COUNTERS.map((counter) =>
     counter.label === "Dossierkwaliteit" && liveScore ? { ...liveScore, detailId: counter.detailId } : counter,
   );
+
+  const agendaKwaliteit = production?.agenda?.kwaliteit ?? null;
+  const liveCompliance: Record<string, { pct: number | null; met: number; totaal: number } | undefined> = {
+    "Zorgplannen compleet": agendaKwaliteit?.zorgplan,
+    "Evaluaties op tijd": agendaKwaliteit?.evaluaties,
+    Medicatiecontroles: agendaKwaliteit?.medicatie,
+  };
+  const compliance = KWALITEIT_COMPLIANCE.map((row) => {
+    const live = liveCompliance[row.label];
+    return live && live.pct !== null ? { ...row, value: live.pct, teller: `${live.met} van ${live.totaal}` } : row;
+  });
 
   return (
     <div className="@container/main flex flex-col gap-4 md:gap-6">
@@ -47,12 +60,16 @@ export function KwaliteitContent() {
           footer={KWALITEIT_NOTE}
         >
           <div className="space-y-4">
-            {KWALITEIT_COMPLIANCE.map((row) => (
+            {compliance.map((row) => (
               <div key={row.label} className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2 text-sm">
-                  <span>{row.label}</span>
+                  <span className="flex items-center gap-1.5">
+                    {row.label}
+                    <CareonSourceBadge page="kwaliteit" widget={row.label} />
+                  </span>
                   <span className="tabular-nums">
                     <b>{row.value}%</b>
+                    {"teller" in row && <span className="text-muted-foreground text-xs"> ({row.teller})</span>}
                     <span className="text-muted-foreground text-xs"> · doel {row.doel}%</span>
                   </span>
                 </div>

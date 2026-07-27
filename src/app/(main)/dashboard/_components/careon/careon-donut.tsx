@@ -2,6 +2,8 @@
 
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
+const INITIAL_DONUT_DIMENSION = { width: 320, height: 180 } as const;
+
 export interface DonutSlice {
   name: string;
   value: number;
@@ -15,7 +17,7 @@ export function CareonDonut({
 }: Readonly<{ data: DonutSlice[]; suffix?: string; height?: number }>) {
   return (
     <div style={{ height }} className="w-full">
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" initialDimension={INITIAL_DONUT_DIMENSION}>
         <PieChart>
           <Tooltip
             cursor={false}

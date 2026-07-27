@@ -15,10 +15,10 @@ import { parseVerwijzersExport } from "@/lib/careon-production/parse-verwijzers"
 import type { ImportWarning } from "@/lib/careon-production/types";
 import { cn } from "@/lib/utils";
 
-// Aanvullende EPD-exports naast de cliëntendata: de agenda-/afsprakenexport
-// (planning, no-show, uren, omzet) en de huisarts/verwijzer-export
-// (verwijsnetwerk). Beide worden bij het parsen direct geaggregeerd —
-// cliëntnamen, memo's en BSN verlaten de browser nooit.
+// Aanvullende EPD-exports naast de cliëntendata: agenda/afspraken (planning,
+// no-show, uren, omzet), huisartsen/verwijzers (verwijsnetwerk), toeslagen en
+// het declaratie-totaaloverzicht. Alles wordt bij het parsen direct
+// geaggregeerd — cliëntnamen, memo's en BSN verlaten de browser nooit.
 
 const nl = new Intl.NumberFormat("nl-NL");
 
@@ -206,11 +206,12 @@ export function AanvullendeExportsCard() {
             Productie · aanvullende exports
           </Badge>
         </CardDescription>
-        <CardTitle>Agenda- en verwijzersexport koppelen</CardTitle>
+        <CardTitle>Aanvullende EPD-exports koppelen</CardTitle>
         <CardDescription>
-          Verrijk de productie-modus met de agenda-/afsprakenexport (planning, no-show, uren en omzet), de
-          huisarts/verwijzer-export (verwijsnetwerk) en de toeslagen-export (reistijd-, tolk- en diagnostiektoeslagen).
-          De bestanden worden bij het inlezen direct geaggregeerd.
+          Verrijk de productie-modus met vier aanvullende exports: de agenda-/afsprakenexport (planning, no-show, uren
+          en omzet), de huisarts/verwijzer-export (verwijsnetwerk), de toeslagen-export (reistijd-, tolk- en
+          diagnostiektoeslagen) en het declaratie-totaaloverzicht (openstaand en toegekend per factuur). De bestanden
+          worden bij het inlezen direct geaggregeerd.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">

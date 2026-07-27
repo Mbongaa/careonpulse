@@ -1169,6 +1169,124 @@ check(
   [],
 );
 
+// ==== Kwaliteit-proxies uit de agenda (zorgplannen, evaluaties, medicatie) ====
+// Hoofdfixture (referentie 14-07): zorgplan-basis is 6 dossiers zonder gevoerd
+// behandelplan; niemand is >6 mnd in zorg en er zijn geen farmaco-sessies —
+// lege bases leveren pct null (widget blijft demo, geen 0% of 100%).
+const agendaSnapKwaliteit = agendaSnap.kwaliteit;
+if (!agendaSnapKwaliteit) {
+  throw new Error("agenda-snap kwaliteit ontbreekt");
+}
+check(
+  "agenda-snap: kwaliteit-proxies (zorgplan 0 van 6, lege bases → pct null)",
+  [
+    agendaSnapKwaliteit.zorgplan.pct,
+    agendaSnapKwaliteit.zorgplan.totaal,
+    agendaSnapKwaliteit.evaluaties.pct,
+    agendaSnapKwaliteit.medicatie.pct,
+  ],
+  [0, 6, null, null],
+);
+
+// Eigen fixture met MDO-/farmaco-/behandelplan-sessies; latere referentiedatum
+// (25-07) zodat cliënt 1 (episodestart 15-01) in de evaluatiebasis valt.
+const REFERENCE_KWALITEIT = new Date(Date.UTC(2026, 6, 25));
+const kwaliteitCsv = [
+  AGENDA_HEADER,
+  // Cliënt 1: gevoerd behandelplan + MDO op tijd + recente farmaco-controle.
+  "Sessie;Bea Smit;Behandelplan - ONLINE;TGC Tilburg;10-02-2026;30,0;0,0;0,0;30,0;;1;KWNAAM;n;n;;VGZ;7095;;;Nee;Ja;;",
+  "Sessie;Rita Boss;MDO met patient;TGC Tilburg;05-03-2026;60,0;0,0;0,0;60,0;;1;KWNAAM;n;n;;VGZ;7095;;;Nee;Ja;;",
+  "Sessie;Rita Boss;Farmaco - ONLINE;TGC Tilburg;20-06-2026;15,0;0,0;0,0;15,0;;1;KWNAAM;n;n;;VGZ;7095;;;Nee;Ja;;",
+  // Cliënt 8: farmaco >92 dagen geleden (niet recent) en een afgezegde MDO.
+  "Sessie;Rita Boss;Farmaco - OP LOCATIE;TGC Tilburg;15-01-2026;15,0;0,0;0,0;15,0;;8;KWNAAM8;n;n;;VGZ;7095;;;Nee;Ja;;",
+  "Sessie;Rita Boss;MDO met patient;TGC Tilburg;01-07-2026;60,0;0,0;0,0;60,0;;8;KWNAAM8;n;y;Ziek;VGZ;7095;;;Nee;Nee;;",
+  // Cliënt 2: no-show-farmaco — telt niet als medicatiecontrole.
+  "Sessie;Rita Boss;Farmaco - ONLINE;TGC Tilburg;01-07-2026;15,0;0,0;0,0;15,0;;2;KWNAAM2;y;n;;VGZ;7095;;;Nee;Nee;;",
+  // Late gehouden sessie: bronbereik t/m 24-07 (agenda-referentie = 24-07).
+  "Sessie;Anna Jansen;Behandeling - ONLINE;TGC Tilburg;24-07-2026;60,0;0,0;0,0;60,0;;1;KWNAAM;n;n;;VGZ;7095;;;Nee;Ja;;",
+].join("\n");
+const kwaliteitParse = parseAgendaExport("kwaliteit-fixture.csv", kwaliteitCsv, "2026-07-25T09:00:00.000Z");
+check("kwaliteit: ok", kwaliteitParse.ok, true);
+const kwFacts = kwaliteitParse.facts;
+if (!kwFacts) {
+  throw new Error("kwaliteit-fixture parse faalde");
+}
+const kwClient1 = kwFacts.clienten.find((fact) => fact.id === "1");
+const kwClient2 = kwFacts.clienten.find((fact) => fact.id === "2");
+const kwClient8 = kwFacts.clienten.find((fact) => fact.id === "8");
+check(
+  "kwaliteit: cliënt 1 (behandelplan, laatste MDO, farmaco-teller en -datum)",
+  [kwClient1?.behandelplan, kwClient1?.laatsteMdo, kwClient1?.farmaco, kwClient1?.laatsteFarmaco],
+  [true, "2026-03-05", 1, "2026-06-20"],
+);
+check("kwaliteit: no-show-farmaco telt niet (cliënt 2)", [kwClient2?.farmaco, kwClient2?.laatsteFarmaco], [0, null]);
+check(
+  "kwaliteit: afgezegde MDO telt niet, oude farmaco wel geteld (cliënt 8)",
+  [kwClient8?.laatsteMdo, kwClient8?.farmaco, kwClient8?.laatsteFarmaco],
+  [null, 1, "2026-01-15"],
+);
+check("kwaliteit: guard accepteert aggregaat mét kwaliteit-velden", isAgendaFacts(kwFacts), true);
+
+const snapKwaliteit = computeProductionSnapshot(state, { locatie: "Alle locaties" }, REFERENCE_KWALITEIT, {
+  agenda: kwFacts,
+});
+const kwProxies = snapKwaliteit.agenda?.kwaliteit;
+if (!kwProxies) {
+  throw new Error("kwaliteit-snap kwaliteit ontbreekt");
+}
+check(
+  "kwaliteit-snap: zorgplannen compleet (1 van 6 → 17%)",
+  [kwProxies.zorgplan.pct, kwProxies.zorgplan.met, kwProxies.zorgplan.totaal],
+  [17, 1, 6],
+);
+check(
+  "kwaliteit-snap: evaluaties op tijd (cliënt 1, MDO binnen 6 mnd → 100%)",
+  [kwProxies.evaluaties.pct, kwProxies.evaluaties.met, kwProxies.evaluaties.totaal],
+  [100, 1, 1],
+);
+check(
+  "kwaliteit-snap: medicatiecontroles (1 van 2 medicatie-cliënten recent → 50%)",
+  [kwProxies.medicatie.pct, kwProxies.medicatie.met, kwProxies.medicatie.totaal],
+  [50, 1, 2],
+);
+
+// Ouder opgeslagen aggregaat (zonder MDO-/farmaco-velden): guard blijft het
+// accepteren, maar de kwaliteit-proxies blijven null tot een her-import.
+const kwaliteitOud = {
+  ...kwFacts,
+  clienten: kwFacts.clienten.map(({ laatsteMdo: _mdo, farmaco: _farmaco, laatsteFarmaco: _lf, ...rest }) => rest),
+};
+check("kwaliteit: guard accepteert oud aggregaat zonder kwaliteit-velden", isAgendaFacts(kwaliteitOud), true);
+const snapKwaliteitOud = computeProductionSnapshot(state, { locatie: "Alle locaties" }, REFERENCE_KWALITEIT, {
+  agenda: kwaliteitOud,
+});
+check("kwaliteit: oud aggregaat → proxies null (her-import agenda nodig)", snapKwaliteitOud.agenda?.kwaliteit, null);
+
+// Provenance: de kwaliteit-widgets flippen op de agendaKwaliteit-cap (niet op
+// de kale agenda-cap — een oud aggregaat mag geen "Afgeleid"-badge dragen).
+check(
+  "provenance kwaliteit-proxies alleen via agendaKwaliteit-cap",
+  [
+    widgetSource("kwaliteit", "Zorgplannen compleet"),
+    widgetSource("kwaliteit", "Zorgplannen compleet", { agenda: true }),
+    widgetSource("kwaliteit", "Zorgplannen compleet", { agendaKwaliteit: true }),
+    widgetSource("kwaliteit", "Evaluaties op tijd", { agendaKwaliteit: true }),
+    widgetSource("kwaliteit", "Medicatiecontroles", { agendaKwaliteit: true }),
+  ],
+  ["demo", "demo", "proxy", "proxy", "proxy"],
+);
+check(
+  "provenance kwaliteit telling zonder/met kwaliteit-cap",
+  [pageLiveCounts("kwaliteit").live, pageLiveCounts("kwaliteit", { agendaKwaliteit: true }).live],
+  [1, 4],
+);
+check("provenance dossiers Dossierkwaliteit proxy", widgetSource("dossiers", "Dossierkwaliteit"), "proxy");
+check(
+  "provenance signaleringen BIG handmatig (live uit HR-registratie)",
+  widgetSource("signaleringen", "BIG-registratie verloopt <90 dgn"),
+  "handmatig",
+);
+
 // ==== Verwijzers-export: parser en netwerk ====
 const verwijzersCsv = [
   "Cliënt ID;Cliënt Code;Naam;Rol;Code;AGB Code;Zorgmail;e-mail;Postcode;Plaats",

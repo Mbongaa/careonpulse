@@ -23,6 +23,7 @@ export function CareonLiveBanner({ page }: Readonly<{ page: string }>) {
   const counts = pageLiveCounts(page, {
     agenda: production.agenda != null,
     agendaToekomst: production.agenda?.vooruitblik != null,
+    agendaKwaliteit: production.agenda?.kwaliteit != null,
     verwijzers: production.verwijzerNetwerk != null,
     toeslagen: production.toeslagen != null,
     declaraties: production.declaraties != null,

@@ -32,6 +32,7 @@ export function HrVerzuimEditor() {
                 id="hr-benchmark"
                 type="number"
                 min={0}
+                max={100}
                 step="0.1"
                 value={state.benchmark}
                 className="h-8 w-28 text-right text-xs tabular-nums"
@@ -49,6 +50,7 @@ export function HrVerzuimEditor() {
                   id={`hr-verzuim-${maand}`}
                   type="number"
                   min={0}
+                  max={100}
                   step="0.1"
                   value={state.verzuimTrend[index] ?? 0}
                   aria-label={`Ziekteverzuim ${maand} (%)`}

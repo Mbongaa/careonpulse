@@ -3,10 +3,10 @@
 import { type HrChangeAudit, type HrState, isHrState } from "./types";
 
 const ENDPOINT = "/api/careon/hr";
-const SYNC_TOKEN = process.env.NEXT_PUBLIC_CAREON_SYNC_TOKEN;
-
+// Auth loopt via de sessie-cookie (zelfde origin, gaat automatisch mee);
+// het oude sync-token is vervangen door echte accounts (handoff 13).
 function syncHeaders(extra?: HeadersInit): HeadersInit {
-  return { ...(SYNC_TOKEN ? { "x-careon-sync": SYNC_TOKEN } : {}), ...extra };
+  return { ...extra };
 }
 
 export interface RemoteHrResult {

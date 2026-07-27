@@ -1,0 +1,11 @@
+{
+  // Voor `npm run typecheck`: identiek aan tsconfig.json, maar zónder de
+  // gegenereerde Next-types. Windows-dev (.next) en WSL-dev (.next-wsl)
+  // genereren elk hun eigen route-types; zodra één van beide een verouderde
+  // routeset heeft (nieuwe route toegevoegd terwijl de andere server niet
+  // draaide), botsen de twee declaratiesets en faalt tsc op andermans cache.
+  // Route-typevalidatie gebeurt sowieso nog in `next build`.
+  "extends": "./tsconfig.json",
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", ".next", ".next-wsl"]
+}

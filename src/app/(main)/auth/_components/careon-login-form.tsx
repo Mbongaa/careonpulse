@@ -9,44 +9,46 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CAREON_DEMO_CREDENTIALS, careonLogin } from "@/lib/careon-auth";
+import { careonSignIn } from "@/lib/careon-auth";
 import { cn } from "@/lib/utils";
 
 const INVALID_MESSAGE = "Onjuiste combinatie — probeer het opnieuw.";
+const UNAVAILABLE_MESSAGE = "Inloggen is tijdelijk niet beschikbaar — probeer het later opnieuw.";
 
-export function CareonLoginForm() {
+export function CareonLoginForm({ initiallyUnavailable = false }: Readonly<{ initiallyUnavailable?: boolean }>) {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [invalid, setInvalid] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(initiallyUnavailable ? UNAVAILABLE_MESSAGE : "");
   const [shake, setShake] = useState(false);
 
   const canSubmit = username.trim() !== "" && password !== "" && !submitting;
 
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSubmit) return;
 
     setSubmitting(true);
     setInvalid(false);
+    setErrorMessage("");
 
-    window.setTimeout(() => {
-      // Username is case-insensitive; the password stays case-sensitive.
-      const ok =
-        username.trim().toLowerCase() === CAREON_DEMO_CREDENTIALS.username.toLowerCase() &&
-        password === CAREON_DEMO_CREDENTIALS.password;
-      if (ok) {
-        careonLogin();
-        router.replace("/dashboard/directiecockpit");
-        return;
-      }
-      setSubmitting(false);
-      setInvalid(true);
+    // Supabase-modus: echte login via de server. Demo-modus: de
+    // oorspronkelijke lokale controle (met de geauditeerde laadtoestand).
+    const result = await careonSignIn(username, password);
+    if (result === "ok") {
+      router.replace("/dashboard/directiecockpit");
+      return;
+    }
+    setSubmitting(false);
+    setInvalid(result === "invalid");
+    setErrorMessage(result === "invalid" ? INVALID_MESSAGE : UNAVAILABLE_MESSAGE);
+    if (result === "invalid") {
       setShake(true);
       window.setTimeout(() => setShake(false), 550);
-    }, 800);
+    }
   }
 
   return (
@@ -62,6 +64,7 @@ export function CareonLoginForm() {
             onChange={(event) => {
               setUsername(event.target.value);
               setInvalid(false);
+              setErrorMessage("");
             }}
             aria-invalid={invalid}
             className={cn(invalid && "border-destructive focus-visible:ring-destructive")}
@@ -79,6 +82,7 @@ export function CareonLoginForm() {
               onChange={(event) => {
                 setPassword(event.target.value);
                 setInvalid(false);
+                setErrorMessage("");
               }}
               aria-invalid={invalid}
               className={cn("pr-10", invalid && "border-destructive focus-visible:ring-destructive")}
@@ -93,9 +97,9 @@ export function CareonLoginForm() {
             </button>
           </div>
         </div>
-        {invalid && (
+        {errorMessage && (
           <p role="alert" className="text-destructive text-sm">
-            {INVALID_MESSAGE}
+            {errorMessage}
           </p>
         )}
       </div>

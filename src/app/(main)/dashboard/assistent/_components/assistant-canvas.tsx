@@ -118,9 +118,10 @@ export function AssistantVisualizationBlock({ visual }: Readonly<{ visual: Assis
       const config = Object.fromEntries(
         (visual.monthSeries ?? []).map((s) => [s.key, { label: s.label, color: s.color }]),
       ) satisfies ChartConfig;
+      const chartData: Record<string, string | number>[] = visual.data ?? CAREON_MONTHLY.map((point) => ({ ...point }));
       return (
         <ChartContainer config={config} className="aspect-auto h-48 w-full">
-          <BarChart data={CAREON_MONTHLY} margin={{ top: 0, left: 0 }}>
+          <BarChart data={chartData} margin={{ top: 0, left: 0 }}>
             <CartesianGrid vertical={false} strokeOpacity={0.5} />
             <XAxis dataKey="m" tickLine={false} axisLine={false} tickMargin={8} />
             <YAxis tickLine={false} axisLine={false} width="auto" />
@@ -227,8 +228,8 @@ export function AssistantSources({ sources }: Readonly<{ sources: AssistantSourc
         </div>
       ))}
       <p className="text-muted-foreground text-xs leading-relaxed">
-        Alle waarden komen verbatim uit de geauditeerde demo-dataset van Careon Pulse; er is geen live AI-model of
-        externe bron aangesloten.
+        De bronlabels hierboven geven per antwoord aan of waarden uit demo-, productie- of handmatig bijgehouden
+        gegevens komen.
       </p>
     </div>
   );

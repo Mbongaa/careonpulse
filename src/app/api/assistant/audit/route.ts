@@ -1,12 +1,14 @@
 import {
   ASSISTANT_MODEL,
   assistantActorHash,
+  authenticatedActorHash,
   createAssistantRequestId,
   enforceAssistantAuditRateLimit,
   writeAssistantEvent,
 } from "@/lib/careon-assistant/runtime.server";
 import { MIDDELEN_TOOL_NAMES } from "@/lib/careon-middelen/assistant-tools";
 import { InvalidJsonBodyError, RequestPayloadTooLargeError, readJsonBodyLimited } from "@/lib/http/read-json.server";
+import { getCareonSession } from "@/lib/supabase/session.server";
 
 export const runtime = "nodejs";
 
@@ -23,7 +25,19 @@ export async function POST(request: Request) {
   if (request.headers.get("x-careon-assistant") !== "1") {
     return new Response("Ongeldige aanvraag.", { status: 401 });
   }
-  const actorHash = assistantActorHash(request);
+  // In Supabase-modus is inloggen verplicht (zelfde regel als /api/assistant).
+  const sessionResult = await getCareonSession();
+  if (sessionResult.status === "misconfigured") {
+    return new Response("Authenticatie is niet geconfigureerd.", { status: 503 });
+  }
+  if (sessionResult.status === "unauthenticated") {
+    return new Response("Niet ingelogd.", { status: 401 });
+  }
+  if (sessionResult.status === "no-org") {
+    return new Response("Geen organisatie gekoppeld aan dit account.", { status: 403 });
+  }
+  const identity = sessionResult.status === "ok" ? sessionResult.session : null;
+  const actorHash = identity ? authenticatedActorHash(identity.userId) : assistantActorHash(request);
   const limit = await enforceAssistantAuditRateLimit(actorHash);
   if (!limit.allowed) {
     return new Response(
@@ -80,6 +94,8 @@ export async function POST(request: Request) {
       failed: count(body.failed),
       destructive: count(body.destructive),
     },
+    orgId: identity?.orgId ?? null,
+    userId: identity?.userId ?? null,
   });
   return Response.json({ recorded: true, auditId }, { headers: { "Cache-Control": "no-store" } });
 }

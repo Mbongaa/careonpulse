@@ -9,6 +9,14 @@ async function loginViaSession(page: Page) {
 }
 
 test.describe("auth", () => {
+  test("browser suite runs only through explicit demo contract", async ({ request }) => {
+    const response = await request.post("/api/auth/login", {
+      data: { username: "nobody", password: "not-a-real-password" },
+    });
+    expect(response.status()).toBe(501);
+    await expect(response.json()).resolves.toMatchObject({ configured: false, demo: true });
+  });
+
   test("unauthenticated dashboard visit redirects to login", async ({ page }) => {
     const response = await page.goto("/dashboard/directiecockpit");
     const csp = response?.headers()["content-security-policy"] ?? "";
@@ -101,6 +109,29 @@ test.describe("cockpit + filters", () => {
     await expect(page.getByText("Wachtlijst intake Roermond (15,2 wkn)", { exact: false })).toBeVisible();
   });
 
+  test("compact desktop header stays inside the viewport", async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await expect(page.getByText(/TGC Groep · Alle locaties/)).toBeVisible();
+    await expect(page.getByLabel("Alle filters")).toBeVisible();
+    await expect(page.getByLabel("Periode")).toBeHidden();
+    const bounds = await page.evaluate(() => {
+      const identity = document.querySelector(".careon-topbar-identity")?.getBoundingClientRect();
+      const actions = document.querySelector(".careon-topbar-actions")?.getBoundingClientRect();
+      return identity && actions
+        ? {
+            identityWidth: identity.width,
+            identityRight: identity.right,
+            actionsLeft: actions.left,
+            actionsRight: actions.right,
+          }
+        : null;
+    });
+    expect(bounds).not.toBeNull();
+    expect(bounds?.identityWidth).toBeGreaterThan(100);
+    expect(bounds?.identityRight ?? 0).toBeLessThanOrEqual((bounds?.actionsLeft ?? 0) + 1);
+    expect(bounds?.actionsRight ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(1024);
+  });
+
   test("charts expose an Alles (full history) timeframe option", async ({ page }) => {
     // Klantverzoek 2026-07-25: naast 12m/6m/3m/1m een "Alles"-venster.
     const alles = page.getByLabel("Alle maanden").first();
@@ -175,12 +206,10 @@ test.describe("kpi drill-down", () => {
 
   test("unknown detail id shows the 404 page", async ({ page }) => {
     await loginViaSession(page);
-    // Statuscode is hier 200: de dashboard-layout leest cookies() en streamt,
-    // dus de headers zijn al verstuurd vóór notFound() de boundary rendert
-    // (zelfde beperking als destijds bij de template-catch-all). Ongematchte
-    // routes buiten een segment geven wél een echte 404 — zie de bestaande
-    // "unknown dashboard route returns 404 page"-test.
-    await page.goto("/dashboard/details/bestaat-niet");
+    // De request-proxy valideert dynamische KPI-id's vóór de gestreamde
+    // dashboard-layout, zodat ook deze in-segment fout een echte 404 blijft.
+    const response = await page.goto("/dashboard/details/bestaat-niet");
+    expect(response?.status()).toBe(404);
     await expect(page.getByText("Pagina niet gevonden")).toBeVisible();
   });
 });
@@ -414,6 +443,34 @@ test.describe("hr (handmatige registratie)", () => {
     await expect(page.getByLabel("Ziekteverzuim — huidige waarde")).toHaveValue("4.2");
   });
 
+  test("edited KPI value feeds its drill-down", async ({ page }) => {
+    await loginViaSession(page);
+    await page.goto("/dashboard/hr");
+    await page.getByLabel("Ziekteverzuim — huidige waarde").fill("4.2");
+    await page
+      .getByRole("link", { name: /Ziekteverzuim/ })
+      .first()
+      .click();
+    await page.waitForURL("**/dashboard/details/verzuim");
+    await expect(page.getByRole("heading", { name: "Ziekteverzuim" })).toBeVisible();
+    await expect(page.getByText("4,2%", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("dezelfde waarde als op de HR-pagina", { exact: false })).toBeVisible();
+    await expect(page.getByText("gewogen naar FTE", { exact: false })).toHaveCount(0);
+  });
+
+  test("edited KPI value feeds the deterministic assistant", async ({ page }) => {
+    await loginViaSession(page);
+    await page.goto("/dashboard/hr");
+    await page.getByLabel("Ziekteverzuim — huidige waarde").fill("4.2");
+    await page.goto("/dashboard/assistent");
+    await page.getByPlaceholder("Stel een vraag over de organisatie...").fill("Hoe staat het ziekteverzuim ervoor?");
+    await page.getByRole("button", { name: "Bericht versturen" }).click();
+    await expect(page.locator('[data-slot="aui_assistant-message-content"]').getByText(/4,2%/)).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.getByText(/Bron: actuele handmatige HR-registratie/)).toBeVisible();
+  });
+
   test("adding and removing a BIG registration", async ({ page }) => {
     await loginViaSession(page);
     await page.goto("/dashboard/hr");
@@ -431,6 +488,22 @@ test.describe("hr (handmatige registratie)", () => {
     await page.getByRole("button", { name: "Verwijder registratie K. Test" }).click();
     await expect(rows).toHaveCount(3);
   });
+
+  test("BIG changes feed Signaleringen with live remaining days", async ({ page }) => {
+    await loginViaSession(page);
+    await page.goto("/dashboard/hr");
+    const overDertigDagen = await page.evaluate(() => {
+      const nu = new Date();
+      return new Date(Date.UTC(nu.getUTCFullYear(), nu.getUTCMonth(), nu.getUTCDate() + 30)).toISOString().slice(0, 10);
+    });
+    await page.getByLabel("Verloopdatum — L. Vermeer").fill(overDertigDagen);
+    await page.goto("/dashboard/signaleringen");
+    const alert = page.getByRole("link", {
+      name: /BIG-registratie verloopt <90 dgn/,
+    });
+    await expect(alert).toBeVisible();
+    await expect(alert.getByText(/L\. Vermeer \(30 dgn\)/)).toBeVisible();
+  });
 });
 
 test.describe("databron", () => {
@@ -440,17 +513,15 @@ test.describe("databron", () => {
     await expect(page.getByRole("heading", { name: "Databron" })).toBeVisible();
   });
 
-  test("API mock flow: activate, live badge, restore demo", async ({ page }) => {
-    const activate = page.getByRole("button", { name: "Test & activeer" });
-    await expect(activate).toBeDisabled();
-    await page.getByLabel("API-sleutel of client-secret").fill("dummy-secret");
+  test("API preview flow is explicit and restores demo", async ({ page }) => {
+    const activate = page.getByRole("button", { name: "Koppeling previewen" });
     await expect(activate).toBeEnabled();
     await activate.click();
-    await expect(page.getByRole("button", { name: "Verbinden..." })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Verbonden" })).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText("API live", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText("Sandbox-koppeling actief", { exact: false })).toBeVisible();
-    await expect(page.locator('[data-sidebar="menu-badge"]', { hasText: "LIVE" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Preview laden..." })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Preview actief" })).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("API-preview", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText("geen externe EPD-verbinding", { exact: false }).first()).toBeVisible();
+    await expect(page.locator('[data-sidebar="menu-badge"]', { hasText: "PREVIEW" })).toBeVisible();
 
     await page.getByRole("button", { name: "Herstel demo-data" }).click();
     await expect(page.getByText("Demo-data", { exact: true }).first()).toBeVisible();

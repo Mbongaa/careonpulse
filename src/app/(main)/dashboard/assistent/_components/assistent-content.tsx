@@ -15,6 +15,7 @@ import {
 } from "@assistant-ui/react";
 import { Activity, BarChart3, Brain, ChevronUp, Loader2, PanelLeft, Printer, X, Zap } from "lucide-react";
 
+import { useCareonHr } from "@/app/(main)/dashboard/_components/careon/careon-hr-provider";
 import { useCareonMiddelen } from "@/app/(main)/dashboard/_components/careon/careon-middelen-provider";
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
 import { Thread } from "@/components/assistant-ui/thread";
@@ -42,6 +43,8 @@ import { COCKPIT_KPIS } from "@/data/careon/careon-kpis";
 import { CAREON_MONTHLY } from "@/data/careon/careon-shared-charts";
 import type { CareonFilters, CareonKpi, CareonSource } from "@/data/careon/careon-types";
 import { getCareonAssistantSessionId } from "@/lib/careon-assistant/session.client";
+import { isSupabaseAuthMode } from "@/lib/careon-auth";
+import type { HrState } from "@/lib/careon-hr/types";
 import {
   executeMiddelenTool,
   isDestructieveTool,
@@ -76,9 +79,16 @@ const STREAM_CHUNK = 6;
 const STREAM_FRAME_MS = 16;
 const CITE = "Bron: geauditeerde Careon Pulse demo-dataset · deterministisch antwoord zonder live AI-model";
 const LIVE_CITE = "Live AI-antwoord · cijfers uitsluitend uit de geauditeerde Careon Pulse demo-dataset";
+const HR_CITE = "Bron: actuele handmatige HR-registratie · deterministisch antwoord zonder live AI-model";
+const LIVE_HR_CITE = "Live AI-antwoord · cijfers uit de actuele handmatige HR-registratie";
 const CONCEPT_CITE = "Concept-wijzigingen · nog niets opgeslagen — beoordeel het concept in het canvas";
 const liveProductionCite = (fileName: string) =>
   `Live AI-antwoord · cijfers uit de EPD-export ${fileName} (geaggregeerd, geen cliëntgegevens)`;
+function liveAnswerCite(intent: AssistantIntentId, production: ProductionSnapshot | null): string {
+  if (intent === "verzuim-hr") return LIVE_HR_CITE;
+  if (production) return liveProductionCite(production.meta.fileName);
+  return LIVE_CITE;
+}
 
 const THREAD_LIST_LABELS: ThreadListLabels = {
   archive: "Archiveren",
@@ -261,9 +271,22 @@ function runResult(text: string, custom: Record<string, unknown>, complete?: boo
 // the demo grounding (deterministic artifact + demo KPIs) is used otherwise.
 function buildGrounding(
   response: AssistantResponse,
-  ctx: { kpis: CareonKpi[]; filters: CareonFilters; source: CareonSource; production: ProductionSnapshot | null },
+  ctx: {
+    kpis: CareonKpi[];
+    filters: CareonFilters;
+    source: CareonSource;
+    production: ProductionSnapshot | null;
+    hr: HrState;
+  },
   query: string,
 ): string {
+  if (response.artifact.intent === "verzuim-hr") {
+    return JSON.stringify({
+      toelichting: "Actuele handmatig bijgehouden HR-registratie; dit is de bron van waarheid voor HR-antwoorden.",
+      filters: ctx.filters,
+      hr: ctx.hr,
+    });
+  }
   if (ctx.production) {
     return buildProductionAssistantFacts(ctx.production, ctx.filters, {
       intent: response.artifact.intent,
@@ -299,6 +322,7 @@ function historyFromMessages(messages: ChatModelRunOptions["messages"]) {
 
 export function AssistentContent() {
   const { kpis, filters, source, production } = useCareon();
+  const { state: hr } = useCareonHr();
 
   const [reasoningStyle, setReasoningStyle] = useState<ReasoningStyle>("standaard");
   const reasoningRef = useRef<ReasoningStyle>("standaard");
@@ -563,8 +587,8 @@ export function AssistentContent() {
 
   // Everything the turn generator needs, via a ref so the adapter identity
   // stays stable while filters/source/kpis change between turns.
-  const turnContextRef = useRef({ kpis, filters, source, production });
-  turnContextRef.current = { kpis, filters, source, production };
+  const turnContextRef = useRef({ kpis, filters, source, production, hr });
+  turnContextRef.current = { kpis, filters, source, production, hr };
 
   // Middelen-registratie + databron-kandidaten voor assistent-acties
   // (handoff 11): zelfde bron-afleiding als de pagina Medewerkers & middelen.
@@ -604,7 +628,7 @@ export function AssistentContent() {
 
       const resolvedResponse = resolveAssistantResponse(text, turnContextRef.current, intentHint);
       const response =
-        aiLiveRef.current && turnContextRef.current.production
+        aiLiveRef.current && turnContextRef.current.production && resolvedResponse.artifact.intent !== "verzuim-hr"
           ? {
               ...resolvedResponse,
               artifact: buildProductionAssistantArtifact(
@@ -900,9 +924,7 @@ export function AssistentContent() {
                 custom: {
                   artifact: response.artifact,
                   artifactKey: messageKey,
-                  cite: turnContextRef.current.production
-                    ? liveProductionCite(turnContextRef.current.production.meta.fileName)
-                    : LIVE_CITE,
+                  cite: liveAnswerCite(response.artifact.intent, turnContextRef.current.production),
                 },
               },
             };
@@ -938,7 +960,15 @@ export function AssistentContent() {
       }
 
       commitCanvas();
-      yield runResult(target, { artifact: response.artifact, artifactKey: messageKey, cite: CITE }, true);
+      yield runResult(
+        target,
+        {
+          artifact: response.artifact,
+          artifactKey: messageKey,
+          cite: response.artifact.intent === "verzuim-hr" ? HR_CITE : CITE,
+        },
+        true,
+      );
     } catch (error) {
       setCanvas((prev) =>
         prev.stage === "ready" ? prev : { ...prev, pending: false, stage: prev.artifact ? "ready" : "idle" },
@@ -1131,6 +1161,14 @@ function AssistantSourceFootnote({ aiLive, className }: Readonly<{ aiLive: boole
         />
         {aiLive ? "Live AI actief · via beveiligde server" : "Lokale preview · geen live AI"}
       </div>
+      {isSupabaseAuthMode() && (
+        // AVG-transparantie (handoff 13): verplicht zolang de superadmin
+        // gesprekken kan inzien; retentietermijn = CAREON_ASSISTANT_CHAT_RETENTION_DAYS.
+        <p>
+          Gesprekken worden centraal per account bewaard (maximaal 30 dagen) en kunnen door de platformbeheerder worden
+          ingezien.
+        </p>
+      )}
       {source.mode === "productie" &&
         (aiLive ? (
           <p>

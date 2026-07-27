@@ -225,6 +225,9 @@ export function parseAgendaExport(
             behandelplan: false,
             volgende: null,
             mdoGepland: false,
+            laatsteMdo: null,
+            farmaco: 0,
+            laatsteFarmaco: null,
           } satisfies AgendaClientFact);
         if (fact.volgende === null || fact.volgende === undefined || datum < fact.volgende) {
           fact.volgende = datum;
@@ -361,6 +364,9 @@ export function parseAgendaExport(
           behandelplan: false,
           volgende: null,
           mdoGepland: false,
+          laatsteMdo: null,
+          farmaco: 0,
+          laatsteFarmaco: null,
         } satisfies AgendaClientFact);
       fact.sessies += 1;
       if (noShow) fact.noShows += 1;
@@ -369,9 +375,21 @@ export function parseAgendaExport(
       if (!noShow && !tijdigAfgezegd) {
         if (fact.eerste === null || datum < fact.eerste) fact.eerste = datum;
         if (fact.laatste === null || datum > fact.laatste) fact.laatste = datum;
+        const naamLower = (sessieNaam ?? "").toLowerCase();
         // Alleen een gehouden behandelplan-sessie telt als "behandelplan gevoerd".
-        if ((sessieNaam ?? "").toLowerCase().startsWith("behandelplan")) {
+        if (naamLower.startsWith("behandelplan")) {
           fact.behandelplan = true;
+        }
+        // Evaluatieritme: laatst gehouden MDO-/evaluatiesessie ("MDO met patient").
+        if (naamLower.startsWith("mdo") && (fact.laatsteMdo == null || datum > fact.laatsteMdo)) {
+          fact.laatsteMdo = datum;
+        }
+        // Medicatiecontroles: gehouden farmaco-sessies ("Farmaco - OP LOCATIE/ONLINE").
+        if (naamLower.startsWith("farmaco")) {
+          fact.farmaco = (fact.farmaco ?? 0) + 1;
+          if (fact.laatsteFarmaco == null || datum > fact.laatsteFarmaco) {
+            fact.laatsteFarmaco = datum;
+          }
         }
       }
       clientMap.set(clientId, fact);

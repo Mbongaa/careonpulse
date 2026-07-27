@@ -225,6 +225,17 @@ export interface ProductionAgendaSnapshot {
     zonderVervolgEnContact: number;
   } | null;
   dossierchecks: { verslagOntbreekt: number; nietOndertekend: number };
+  /**
+   * Kwaliteit-proxies uit de agenda (Kwaliteit-pagina): zorgplannen,
+   * evaluatieritme en medicatiecontroles. Null bij een aggregaat van vóór de
+   * MDO-/farmaco-velden — dan is een her-import van de agenda-export nodig.
+   * `pct` is null wanneer de meetbasis leeg is (dan blijft de widget demo).
+   */
+  kwaliteit: {
+    zorgplan: { pct: number | null; met: number; totaal: number };
+    evaluaties: { pct: number | null; met: number; totaal: number };
+    medicatie: { pct: number | null; met: number; totaal: number };
+  } | null;
 }
 
 /** Toeslagen-gedeelte van de snapshot (alleen na toeslagen-import). */
@@ -498,6 +509,16 @@ export interface AgendaClientFact {
   volgende?: string | null;
   /** Er staat een MDO-/evaluatiesessie gepland ná de peildatum. */
   mdoGepland?: boolean;
+  /**
+   * Kwaliteit-velden (optioneel — aggregaten van vóór deze velden missen ze;
+   * de kwaliteit-proxies blijven dan uit tot een her-import van de agenda).
+   * `laatsteMdo` = laatst GEHOUDEN MDO-/evaluatiesessie (evaluatieritme).
+   */
+  laatsteMdo?: string | null;
+  /** Aantal gehouden farmaco-sessies (medicatiecontroles). */
+  farmaco?: number;
+  /** ISO-datum van de laatst gehouden farmaco-sessie. */
+  laatsteFarmaco?: string | null;
 }
 
 /** Geplande (toekomstige) sessies per maand × vestiging — vooruitblik. */
@@ -820,7 +841,15 @@ export function isAgendaFacts(value: unknown): value is AgendaFacts {
           (fact as Record<string, unknown>).volgende === null ||
           isIsoDay((fact as Record<string, unknown>).volgende)) &&
         ((fact as Record<string, unknown>).mdoGepland === undefined ||
-          typeof (fact as Record<string, unknown>).mdoGepland === "boolean"),
+          typeof (fact as Record<string, unknown>).mdoGepland === "boolean") &&
+        ((fact as Record<string, unknown>).laatsteMdo === undefined ||
+          (fact as Record<string, unknown>).laatsteMdo === null ||
+          isIsoDay((fact as Record<string, unknown>).laatsteMdo)) &&
+        ((fact as Record<string, unknown>).farmaco === undefined ||
+          isFiniteNumber((fact as Record<string, unknown>).farmaco)) &&
+        ((fact as Record<string, unknown>).laatsteFarmaco === undefined ||
+          (fact as Record<string, unknown>).laatsteFarmaco === null ||
+          isIsoDay((fact as Record<string, unknown>).laatsteFarmaco)),
     ) &&
     Array.isArray(facts.afzegRedenen) &&
     Array.isArray(facts.sessieTypen) &&

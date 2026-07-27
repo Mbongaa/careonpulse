@@ -1763,6 +1763,59 @@ export function computeProductionSnapshot(
         page: "dossiers",
       });
     }
+
+    // ---- Kwaliteit-proxies (Kwaliteit-pagina) ----
+    // Alleen berekenbaar op aggregaten mét de MDO-/farmaco-velden; een ouder
+    // opgeslagen aggregaat levert null en de widgets blijven demo tot een
+    // her-import van de agenda-export.
+    const heeftKwaliteitVelden = agendaFacts.clienten.some((fact) => fact.farmaco !== undefined);
+    let agendaKwaliteit: ProductionAgendaSnapshot["kwaliteit"] = null;
+    if (heeftKwaliteitVelden) {
+      const pctVan = (met: number, totaal: number) => (totaal > 0 ? Math.round((met / totaal) * 100) : null);
+      // Zorgplannen compleet: complement van "Dossiers zonder behandelplan"
+      // (zelfde basis: actieve, niet-wachtende dossiers >30 dgn open).
+      const zorgplanBasis = actieveClienten.filter(
+        (record) =>
+          !isWachtend(record) &&
+          record.episodeStart !== null &&
+          record.episodeStart <= agendaRefIso &&
+          daysBetween(record.episodeStart, agendaRefIso) > 30,
+      );
+      const zorgplanMet = zorgplanBasis.filter((record) => factPerClient.get(record.id)?.behandelplan === true).length;
+      // Evaluaties op tijd: cliënten die lang genoeg in zorg zijn dat een
+      // evaluatie verwacht mag worden (>6 mnd), met een gehouden MDO-sessie in
+      // de laatste 6 maanden.
+      const evaluatieBasis = actieveClienten.filter(
+        (record) =>
+          !isWachtend(record) && record.episodeStart !== null && daysBetween(record.episodeStart, agendaRefIso) > 182,
+      );
+      const evaluatieMet = evaluatieBasis.filter((record) => {
+        const laatsteMdo = factPerClient.get(record.id)?.laatsteMdo ?? null;
+        return laatsteMdo !== null && daysBetween(laatsteMdo, agendaRefIso) <= 182;
+      }).length;
+      // Medicatiecontroles: medicatie-cliënten (≥1 gehouden farmaco-sessie) met
+      // een farmaco-contact in het laatste kwartaal (kwartaalcontrole-ritme).
+      const medicatieBasis = actieveClienten.filter(
+        (record) => !isWachtend(record) && (factPerClient.get(record.id)?.farmaco ?? 0) > 0,
+      );
+      const medicatieMet = medicatieBasis.filter((record) => {
+        const laatsteFarmaco = factPerClient.get(record.id)?.laatsteFarmaco ?? null;
+        return laatsteFarmaco !== null && daysBetween(laatsteFarmaco, agendaRefIso) <= 92;
+      }).length;
+      agendaKwaliteit = {
+        zorgplan: { pct: pctVan(zorgplanMet, zorgplanBasis.length), met: zorgplanMet, totaal: zorgplanBasis.length },
+        evaluaties: {
+          pct: pctVan(evaluatieMet, evaluatieBasis.length),
+          met: evaluatieMet,
+          totaal: evaluatieBasis.length,
+        },
+        medicatie: {
+          pct: pctVan(medicatieMet, medicatieBasis.length),
+          met: medicatieMet,
+          totaal: medicatieBasis.length,
+        },
+      };
+    }
     if (ouder90Sessies > 0) {
       signaleringen.push({
         sev: "middel",
@@ -1876,6 +1929,7 @@ export function computeProductionSnapshot(
         verslagOntbreekt: totaalRollup.sessies - totaalRollup.verslagen,
         nietOndertekend: totaalRollup.sessies - totaalRollup.ondertekend,
       },
+      kwaliteit: agendaKwaliteit,
     };
   }
 

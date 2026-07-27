@@ -70,7 +70,7 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
                     </div>
                     <div className="careon-topbar-actions flex items-center gap-2">
                       <CareonFilterBar />
-                      <CareonSourceStatus className="hidden sm:inline-flex" />
+                      <CareonSourceStatus className="careon-source-status hidden sm:inline-flex" />
                       <LayoutControls />
                       <ThemeSwitcher />
                       <CareonAlertBell />

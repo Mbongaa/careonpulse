@@ -32,7 +32,7 @@ export function CareonFilterBar() {
     <div className="flex items-center gap-2">
       {showPeriodeFilter && (
         <Select value={filters.periode} onValueChange={(value) => setFilter("periode", value as CareonPeriodId)}>
-          <SelectTrigger size="sm" className="hidden w-40 lg:flex" aria-label="Periode">
+          <SelectTrigger size="sm" className="careon-filter-wide hidden w-40 lg:flex" aria-label="Periode">
             <SelectValue placeholder="Periode" />
           </SelectTrigger>
           <SelectContent>
@@ -60,7 +60,7 @@ export function CareonFilterBar() {
 
       {showTeamFilter && (
         <Select value={filters.team} onValueChange={(value) => setFilter("team", value)}>
-          <SelectTrigger size="sm" className="hidden w-32 lg:flex" aria-label="Team">
+          <SelectTrigger size="sm" className="careon-filter-wide hidden w-32 lg:flex" aria-label="Team">
             <SelectValue placeholder="Team" />
           </SelectTrigger>
           <SelectContent>
@@ -75,7 +75,12 @@ export function CareonFilterBar() {
 
       <Popover>
         <PopoverTrigger asChild>
-          <Button variant="outline" size="sm" className="relative size-8 px-0 lg:hidden" aria-label="Alle filters">
+          <Button
+            variant="outline"
+            size="sm"
+            className="careon-filter-compact relative size-8 px-0 lg:hidden"
+            aria-label="Alle filters"
+          >
             <SlidersHorizontal className="size-4" />
             {hiddenFiltersActive && (
               <span aria-hidden="true" className="absolute top-1 right-1 size-1.5 rounded-full bg-primary" />
