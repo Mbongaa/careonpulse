@@ -9,7 +9,7 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { careonSignIn } from "@/lib/careon-auth";
+import { careonPostLoginRoute, careonSignIn } from "@/lib/careon-auth";
 import { cn } from "@/lib/utils";
 
 const INVALID_MESSAGE = "Onjuiste combinatie — probeer het opnieuw.";
@@ -39,7 +39,7 @@ export function CareonLoginForm({ initiallyUnavailable = false }: Readonly<{ ini
     // oorspronkelijke lokale controle (met de geauditeerde laadtoestand).
     const result = await careonSignIn(username, password);
     if (result === "ok") {
-      router.replace("/modules");
+      router.replace(await careonPostLoginRoute());
       return;
     }
     setSubmitting(false);

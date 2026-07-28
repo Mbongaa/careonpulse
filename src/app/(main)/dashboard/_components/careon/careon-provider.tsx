@@ -7,6 +7,7 @@ import { CAREON_LOCATION_SCALE, CAREON_LOCATIONS } from "@/data/careon/careon-fi
 import { COCKPIT_KPIS } from "@/data/careon/careon-kpis";
 import type { CareonFilters, CareonKpi, CareonKpiOverrides, CareonSource } from "@/data/careon/careon-types";
 import { computeProductionSnapshot, KNOWN_LOCATIES } from "@/lib/careon-production/compute-snapshot";
+import { redigeerAgendaFactsFinancieel } from "@/lib/careon-production/redactie";
 import {
   fetchRemoteAgendaFacts,
   fetchRemoteDeclaratiesFacts,
@@ -22,14 +23,17 @@ import {
 } from "@/lib/careon-production/remote.client";
 import {
   clearAuxFacts,
+  clearFinancieleAuxFacts,
   clearProductionState,
   hasProductionOptOut,
+  isAgendaOpslagGeredigeerd,
   loadAgendaFacts,
   loadDeclaratiesFacts,
   loadProductionState,
   loadToeslagenFacts,
   loadVerwijzersFacts,
   saveAgendaFacts,
+  saveAgendaFactsGeredigeerd,
   saveDeclaratiesFacts,
   saveProductionState,
   saveToeslagenFacts,
@@ -44,6 +48,8 @@ import type {
   ToeslagenFacts,
   VerwijzersFacts,
 } from "@/lib/careon-production/types";
+
+import { useCareonSessionInfo } from "./careon-session-provider";
 
 export interface ActivationResult {
   /** false: localStorage-opslag mislukt (quota) — modus overleeft geen herlaad. */
@@ -97,6 +103,11 @@ function productionSource(state: ProductionState): CareonSource {
 }
 
 export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) {
+  // Financiële rolregel (klantbesluit 28-07-2026): leden krijgen server-side
+  // al geredigeerde aggregaten, maar dezelfde redactie draait hier nogmaals
+  // over álles wat de provider binnenkomt — ook een oudere localStorage-kopie
+  // van een gedeelde werkplek toont een lid dan nooit financiële cijfers.
+  const { financieelZichtbaar } = useCareonSessionInfo();
   const [filters, setFilters] = useState<CareonFilters>({
     periode: "12m",
     locatie: "Alle locaties",
@@ -123,10 +134,23 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
   // ("Herstel demo-data") blokkeert de auto-activatie tot een nieuwe import.
   useEffect(() => {
     const stored = loadProductionState();
-    const storedAgenda = loadAgendaFacts();
+    // Een gemarkeerd-geredigeerde (leden)kopie is voor een beheerder
+    // onbruikbaar — negeren, zodat de volledige centrale versie zo dadelijk
+    // wél wordt geadopteerd (redactie behoudt importedAt, dus de gewone
+    // "nieuwer"-vergelijking zou de genulde kopie laten staan).
+    const agendaRuw = financieelZichtbaar && isAgendaOpslagGeredigeerd() ? null : loadAgendaFacts();
+    const storedAgenda = agendaRuw && !financieelZichtbaar ? redigeerAgendaFactsFinancieel(agendaRuw) : agendaRuw;
     const storedVerwijzers = loadVerwijzersFacts();
-    const storedToeslagen = loadToeslagenFacts();
-    const storedDeclaraties = loadDeclaratiesFacts();
+    const storedToeslagen = financieelZichtbaar ? loadToeslagenFacts() : null;
+    const storedDeclaraties = financieelZichtbaar ? loadDeclaratiesFacts() : null;
+    if (!financieelZichtbaar) {
+      // Achtergebleven financiële kopieën van een eerdere (admin-)sessie op
+      // dezelfde werkplek opruimen; de geredigeerde agenda overschrijft de
+      // volledige lokale kopie — mét markering, zodat een latere
+      // beheerderssessie hem herkent en de centrale versie terughaalt.
+      clearFinancieleAuxFacts();
+      if (storedAgenda) saveAgendaFactsGeredigeerd(storedAgenda);
+    }
     if (stored) {
       setProductionState(stored);
       setSourceState(productionSource(stored));
@@ -149,8 +173,14 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
     });
     void fetchRemoteAgendaFacts().then((remote) => {
       if (remote && !cancelled && !userChoseSourceRef.current && isNieuwer(remote, storedAgenda)) {
-        setAgendaFacts(remote);
-        saveAgendaFacts(remote);
+        if (financieelZichtbaar) {
+          setAgendaFacts(remote);
+          saveAgendaFacts(remote);
+        } else {
+          const facts = redigeerAgendaFactsFinancieel(remote);
+          setAgendaFacts(facts);
+          saveAgendaFactsGeredigeerd(facts);
+        }
       }
     });
     void fetchRemoteVerwijzersFacts().then((remote) => {
@@ -159,22 +189,25 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
         saveVerwijzersFacts(remote);
       }
     });
-    void fetchRemoteToeslagenFacts().then((remote) => {
-      if (remote && !cancelled && !userChoseSourceRef.current && isNieuwer(remote, storedToeslagen)) {
-        setToeslagenFacts(remote);
-        saveToeslagenFacts(remote);
-      }
-    });
-    void fetchRemoteDeclaratiesFacts().then((remote) => {
-      if (remote && !cancelled && !userChoseSourceRef.current && isNieuwer(remote, storedDeclaraties)) {
-        setDeclaratiesFacts(remote);
-        saveDeclaratiesFacts(remote);
-      }
-    });
+    if (financieelZichtbaar) {
+      void fetchRemoteToeslagenFacts().then((remote) => {
+        if (remote && !cancelled && !userChoseSourceRef.current && isNieuwer(remote, storedToeslagen)) {
+          setToeslagenFacts(remote);
+          saveToeslagenFacts(remote);
+        }
+      });
+      void fetchRemoteDeclaratiesFacts().then((remote) => {
+        if (remote && !cancelled && !userChoseSourceRef.current && isNieuwer(remote, storedDeclaraties)) {
+          setDeclaratiesFacts(remote);
+          saveDeclaratiesFacts(remote);
+        }
+      });
+    }
     return () => {
       cancelled = true;
     };
-  }, []);
+    // financieelZichtbaar is server-gezaaid en verandert nooit binnen een sessie.
+  }, [financieelZichtbaar]);
 
   const setFilter = useCallback((key: keyof CareonFilters, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -237,12 +270,20 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
     return { persisted, sync };
   }, []);
 
-  const activateAgenda = useCallback(async (facts: AgendaFacts): Promise<ActivationResult> => {
-    setAgendaFacts(facts);
-    const persisted = saveAgendaFacts(facts);
-    const sync = await pushRemoteAgendaFacts(facts);
-    return { persisted, sync };
-  }, []);
+  // Een lid mag de (gemengde) agenda-export wél koppelen — het bestand komt
+  // van zijn eigen werkplek — maar houdt lokaal alleen de geredigeerde
+  // variant over; centraal gaat het volledige aggregaat heen (admins zien
+  // omzet dus gewoon).
+  const activateAgenda = useCallback(
+    async (facts: AgendaFacts): Promise<ActivationResult> => {
+      const zichtbaar = financieelZichtbaar ? facts : redigeerAgendaFactsFinancieel(facts);
+      setAgendaFacts(zichtbaar);
+      const persisted = financieelZichtbaar ? saveAgendaFacts(facts) : saveAgendaFactsGeredigeerd(zichtbaar);
+      const sync = await pushRemoteAgendaFacts(facts);
+      return { persisted, sync };
+    },
+    [financieelZichtbaar],
+  );
 
   const activateVerwijzers = useCallback(async (facts: VerwijzersFacts): Promise<ActivationResult> => {
     setVerwijzersFacts(facts);
@@ -251,19 +292,34 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
     return { persisted, sync };
   }, []);
 
-  const activateToeslagen = useCallback(async (facts: ToeslagenFacts): Promise<ActivationResult> => {
-    setToeslagenFacts(facts);
-    const persisted = saveToeslagenFacts(facts);
-    const sync = await pushRemoteToeslagenFacts(facts);
-    return { persisted, sync };
-  }, []);
+  // Volledig financiële aggregaten: de uploadkaarten zijn voor leden
+  // verborgen en de route weigert hun push (403) — mocht dit pad toch ooit
+  // lopen, dan raakt het de zichtbare staat niet.
+  const activateToeslagen = useCallback(
+    async (facts: ToeslagenFacts): Promise<ActivationResult> => {
+      if (!financieelZichtbaar) {
+        return { persisted: false, sync: await pushRemoteToeslagenFacts(facts) };
+      }
+      setToeslagenFacts(facts);
+      const persisted = saveToeslagenFacts(facts);
+      const sync = await pushRemoteToeslagenFacts(facts);
+      return { persisted, sync };
+    },
+    [financieelZichtbaar],
+  );
 
-  const activateDeclaraties = useCallback(async (facts: DeclaratiesFacts): Promise<ActivationResult> => {
-    setDeclaratiesFacts(facts);
-    const persisted = saveDeclaratiesFacts(facts);
-    const sync = await pushRemoteDeclaratiesFacts(facts);
-    return { persisted, sync };
-  }, []);
+  const activateDeclaraties = useCallback(
+    async (facts: DeclaratiesFacts): Promise<ActivationResult> => {
+      if (!financieelZichtbaar) {
+        return { persisted: false, sync: await pushRemoteDeclaratiesFacts(facts) };
+      }
+      setDeclaratiesFacts(facts);
+      const persisted = saveDeclaratiesFacts(facts);
+      const sync = await pushRemoteDeclaratiesFacts(facts);
+      return { persisted, sync };
+    },
+    [financieelZichtbaar],
+  );
 
   const isProduction = source.mode === "productie" && productionState !== null;
 

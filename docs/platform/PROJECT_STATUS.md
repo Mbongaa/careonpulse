@@ -43,7 +43,7 @@ Legend: ✅ done · 🔵 current focus · ⬜ not started
 
 ### ✅ Done
 
-- **Pulse dashboard built, hardened, and live** — full KPI screens, AI-assistent, org-scoped auth, production audit passed (24 Jul 2026), auth hardening landed (26 Jul 2026)
+- **Pulse dashboard built, hardened, and live** — full KPI screens, AI-assistent, org-scoped auth, production audit passed (24 Jul 2026), auth hardening landed (26 Jul 2026); role-based financial confidentiality added 28 Jul 2026 (members see no financial data anywhere — pages, widgets, data APIs, AI-assistent; org_admins unchanged; see RELEASE_GATES.md)
 - **Platform design finalized** — v1.0 blueprint (26 Jul: HumHub + JaaS + Gemini single-app design, hosting and vendor research, JaaS pricing verified) → multi-module pivot → **v2.0 blueprint (27 Jul)**: shell + Supabase identity hub + module registry; decision log locked D1–D18
 - **Umbrella docs added to this repo** — blueprint v2.0, AGENTS platform section, this status file
 

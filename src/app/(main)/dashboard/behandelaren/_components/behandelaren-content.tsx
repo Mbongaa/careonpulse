@@ -9,24 +9,31 @@ import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/car
 import { BEHANDELAREN, CASELOAD_NORM } from "@/data/careon/careon-behandelaren";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 
+import { useCareonSessionInfo } from "../../_components/careon/careon-session-provider";
 import { BehandelarenLiveTable } from "./behandelaren-live-table";
 import { BehandelarenTable } from "./behandelaren-table";
 import { FunctiemixPanel, TalenPanel, TeamBezettingPanel } from "./team-profiel-panels";
 
-function voetnoot(isProduction: boolean, metAgenda: boolean): string {
+function voetnoot(isProduction: boolean, metAgenda: boolean, metOmzet: boolean): string {
   if (!isProduction) {
     return `NC = niet-complete dossiers. Rood wanneer caseload >${CASELOAD_NORM} of no-show >5%; deze gevallen verschijnen automatisch in Signaleringen.`;
   }
   if (metAgenda) {
-    return `Caseload = actieve cliënten per behandelaar uit de EPD-export; rood boven de norm van ${CASELOAD_NORM}. Consulten, no-show, uren en omzet komen uit de agenda-export (laatste 12 maanden). ROM en tevredenheid volgen zodra de ROM-export gekoppeld is.`;
+    return metOmzet
+      ? `Caseload = actieve cliënten per behandelaar uit de EPD-export; rood boven de norm van ${CASELOAD_NORM}. Consulten, no-show, uren en omzet komen uit de agenda-export (laatste 12 maanden). ROM en tevredenheid volgen zodra de ROM-export gekoppeld is.`
+      : `Caseload = actieve cliënten per behandelaar uit de EPD-export; rood boven de norm van ${CASELOAD_NORM}. Consulten, no-show en uren komen uit de agenda-export (laatste 12 maanden). ROM en tevredenheid volgen zodra de ROM-export gekoppeld is.`;
   }
-  return `Caseload = actieve cliënten per behandelaar uit de EPD-export; rood boven de norm van ${CASELOAD_NORM}. Consulten, no-show, productiviteit, omzet, ROM en tevredenheid volgen zodra de agenda-, declaratie- en ROM-exports gekoppeld zijn.`;
+  return metOmzet
+    ? `Caseload = actieve cliënten per behandelaar uit de EPD-export; rood boven de norm van ${CASELOAD_NORM}. Consulten, no-show, productiviteit, omzet, ROM en tevredenheid volgen zodra de agenda-, declaratie- en ROM-exports gekoppeld zijn.`
+    : `Caseload = actieve cliënten per behandelaar uit de EPD-export; rood boven de norm van ${CASELOAD_NORM}. Consulten, no-show, productiviteit, ROM en tevredenheid volgen zodra de agenda- en ROM-exports gekoppeld zijn.`;
 }
 
 const nlFmt = new Intl.NumberFormat("nl-NL");
 
 export function BehandelarenContent() {
   const { filters, production } = useCareon();
+  // Financiële rolregel: de omzetkolom bestaat voor leden niet.
+  const { financieelZichtbaar } = useCareonSessionInfo();
 
   const demoRows = BEHANDELAREN.filter(
     (row) =>
@@ -47,11 +54,17 @@ export function BehandelarenContent() {
         {production ? "" : ` · ${filters.team}`}
       </p>
       {production ? (
-        <BehandelarenLiveTable rows={production.behandelaren} agendaStats={production.agenda?.behandelaarStats} />
+        <BehandelarenLiveTable
+          rows={production.behandelaren}
+          agendaStats={production.agenda?.behandelaarStats}
+          toonOmzet={financieelZichtbaar}
+        />
       ) : (
-        <BehandelarenTable rows={demoRows} />
+        <BehandelarenTable rows={demoRows} toonOmzet={financieelZichtbaar} />
       )}
-      <p className="text-muted-foreground text-xs">{voetnoot(production !== null, production?.agenda != null)}</p>
+      <p className="text-muted-foreground text-xs">
+        {voetnoot(production !== null, production?.agenda != null, financieelZichtbaar)}
+      </p>
 
       {/* Teamprofiel uit de handmatige registratie (Medewerkers & middelen). */}
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">

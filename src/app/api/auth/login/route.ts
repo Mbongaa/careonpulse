@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { enforceLoginRateLimit, loginActorHash } from "@/lib/careon-assistant/runtime.server";
 import { scheduleAuditEvent } from "@/lib/careon-audit/audit.server";
 import { CAREON_HOSTED_DEMO_EMAIL_DOMAIN } from "@/lib/careon-demo-account";
+import { normalizeCareonPassword } from "@/lib/careon-password";
 import { InvalidJsonBodyError, readJsonBodyLimited } from "@/lib/http/read-json.server";
 import { isCareonDemoMode, isSupabaseAuthConfigured } from "@/lib/supabase/config";
 import { supabaseServer } from "@/lib/supabase/server";
@@ -76,10 +77,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Authenticatie is niet geconfigureerd." }, { status: 503 });
   }
   const email = toEmail(body.username);
-  const { data, error } = await supabase.auth.signInWithPassword({
+  let { data, error } = await supabase.auth.signInWithPassword({
     email,
     password: body.password,
   });
+  // Vergevingsgezind voor rand-spaties (kopieerfout, mobiel toetsenbord):
+  // eerst exact proberen (bestaande wachtwoorden mét rand-spatie blijven
+  // werken), daarna dezelfde poging getrimd. Eén gebruikersactie, één
+  // rate-limit-consumptie; spaties bínnen het wachtwoord blijven exact.
+  if (error) {
+    const trimmed = normalizeCareonPassword(body.password);
+    if (trimmed !== body.password && trimmed !== "") {
+      ({ data, error } = await supabase.auth.signInWithPassword({ email, password: trimmed }));
+    }
+  }
   if (error) {
     // Supabase Auth kent eigen brute-force-limieten; de foutmelding blijft
     // bewust generiek (geen onderscheid bestaat-niet/verkeerd-wachtwoord).

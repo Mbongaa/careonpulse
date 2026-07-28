@@ -1,7 +1,7 @@
 import type { AssistantIntentId } from "@/data/careon/careon-assistant";
 import type { CareonFilters } from "@/data/careon/careon-types";
 
-import type { ProductionSnapshot } from "./types";
+import type { ProductionAgendaSnapshot, ProductionSnapshot } from "./types";
 
 // Feitenblad voor de externe AI-dienst. Het payload is per intent begrensd:
 // geen cliëntniveau-rijen, geen risicolijst/dossierlinks en geen medewerkers-
@@ -12,6 +12,11 @@ const TOP_BEHANDELAREN = 10;
 export interface ProductionAssistantFactsOptions {
   intent: AssistantIntentId;
   includeNames?: boolean;
+  /** Financiële rolregel (klantbesluit 28-07-2026): false = ledenweergave —
+      geen omzet-KPI's, geen financiële signaleringen, geen financieel-domein.
+      De server scrubt daarnaast zelf; dit houdt de context van leden schoon
+      zodat die scrub nooit legitieme grounding hoeft weg te gooien. */
+  financieelZichtbaar?: boolean;
 }
 
 export function buildProductionAssistantFacts(
@@ -25,6 +30,19 @@ export function buildProductionAssistantFacts(
       waarde: metric.value,
       vorige: metric.prev,
     }));
+
+  // Voor leden mag géén enkele intent financiële sleutels of vaktermen
+  // meesturen: de server-scrub (verwijderFinancieleContext) zou het hele
+  // feitenblok weggooien en elke beurt als request_blocked auditeren.
+  const financieelZichtbaar = options.financieelZichtbaar !== false;
+  const statsLijst = (stats: ProductionAgendaSnapshot["behandelaarStats"]) =>
+    Object.entries(stats)
+      .slice(0, TOP_BEHANDELAREN)
+      .map(([naam, statistiek]) => {
+        if (financieelZichtbaar) return { naam, ...statistiek };
+        const { omzet: _weggelaten, ...rest } = statistiek;
+        return { naam, ...rest };
+      });
 
   const basis = {
     databron: {
@@ -53,12 +71,7 @@ export function buildProductionAssistantFacts(
         planningMetrics: agenda ? metricLijst(agenda.planningMetrics) : [],
         noshowPerWeekdag: agenda ? agenda.noshowWeekdagen : [],
         maandreeks: snapshot.monthly.map(({ key, m, noshowPct }) => ({ key, maand: m, noshowPct })),
-        behandelaarStats:
-          options.includeNames && agenda
-            ? Object.entries(agenda.behandelaarStats)
-                .slice(0, TOP_BEHANDELAREN)
-                .map(([naam, statistiek]) => ({ naam, ...statistiek }))
-            : undefined,
+        behandelaarStats: options.includeNames && agenda ? statsLijst(agenda.behandelaarStats) : undefined,
       };
       break;
     }
@@ -93,6 +106,13 @@ export function buildProductionAssistantFacts(
       };
       break;
     case "financieel-omzet":
+      if (options.financieelZichtbaar === false) {
+        domein = {
+          beschikbaar: false,
+          toelichting: "Financiële gegevens zijn niet beschikbaar voor de rol van deze gebruiker.",
+        };
+        break;
+      }
       domein = {
         financieel: snapshot.agenda
           ? {
@@ -134,12 +154,7 @@ export function buildProductionAssistantFacts(
       domein = {
         behandelaren: options.includeNames ? snapshot.behandelaren.slice(0, TOP_BEHANDELAREN) : [],
         regiebehandelaren: options.includeNames ? snapshot.regiebehandelaren.slice(0, TOP_BEHANDELAREN) : [],
-        agendaStats:
-          options.includeNames && snapshot.agenda
-            ? Object.entries(snapshot.agenda.behandelaarStats)
-                .slice(0, TOP_BEHANDELAREN)
-                .map(([naam, statistiek]) => ({ naam, ...statistiek }))
-            : [],
+        agendaStats: options.includeNames && snapshot.agenda ? statsLijst(snapshot.agenda.behandelaarStats) : [],
       };
       break;
     case "databron-status": {
@@ -157,8 +172,14 @@ export function buildProductionAssistantFacts(
               contacten: snapshot.verwijzerNetwerk.contacten.length,
             }
           : null,
-        toeslagen: toeslagen ? toeslagen.meta : null,
-        declaraties: declaraties ? declaraties.meta : null,
+        // Leden: de financiële sleutels bestaan hier niet eens (een kale
+        // "toeslagen": null zou de server-scrub al laten afgaan).
+        ...(financieelZichtbaar
+          ? {
+              toeslagen: toeslagen ? toeslagen.meta : null,
+              declaraties: declaraties ? declaraties.meta : null,
+            }
+          : {}),
       };
       break;
     }
@@ -170,18 +191,22 @@ export function buildProductionAssistantFacts(
       break;
     case "directie-overzicht":
       domein = {
-        kernKpis: Object.entries(snapshot.cockpitKpis).map(([id, kpi]) => ({
-          id,
-          waarde: kpi.value,
-          vorige: kpi.prev,
-          venster: kpi.windowLabel ?? null,
-        })),
+        kernKpis: Object.entries(snapshot.cockpitKpis)
+          .filter(([id]) => options.financieelZichtbaar !== false || !id.startsWith("omzet"))
+          .map(([id, kpi]) => ({
+            id,
+            waarde: kpi.value,
+            vorige: kpi.prev,
+            venster: kpi.windowLabel ?? null,
+          })),
         cockpitSamenvatting: snapshot.cockpitSummary,
-        signaleringen: snapshot.signaleringen.map((alert) => ({
-          titel: alert.titel,
-          aantal: alert.n,
-          ernst: alert.sev,
-        })),
+        signaleringen: snapshot.signaleringen
+          .filter((alert) => options.financieelZichtbaar !== false || alert.page !== "financieel")
+          .map((alert) => ({
+            titel: alert.titel,
+            aantal: alert.n,
+            ernst: alert.sev,
+          })),
         inzichten: snapshot.cockpitInsights,
       };
       break;

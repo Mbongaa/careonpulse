@@ -49,7 +49,7 @@ function MobileMetric({ label, value, className }: Readonly<{ label: string; val
   );
 }
 
-export function BehandelarenTable({ rows }: Readonly<{ rows: Behandelaar[] }>) {
+export function BehandelarenTable({ rows, toonOmzet = true }: Readonly<{ rows: Behandelaar[]; toonOmzet?: boolean }>) {
   return (
     <Card className="py-0">
       <CardContent className="px-0">
@@ -68,7 +68,7 @@ export function BehandelarenTable({ rows }: Readonly<{ rows: Behandelaar[] }>) {
                 />
                 <MobileMetric label="Product." value={`${row.productiviteit}%`} />
                 <MobileMetric label="Decl. uren" value={`${row.declU} / ${row.indirU} ind.`} />
-                <MobileMetric label="Omzet" value={`€ ${nl.format(row.omzet)}`} />
+                {toonOmzet && <MobileMetric label="Omzet" value={`€ ${nl.format(row.omzet)}`} />}
                 <MobileMetric label="ROM" value={nlDec1.format(row.rom)} />
                 <MobileMetric label="Dossiers NC" value={row.nc} className={TONE_TEXT[ncTone(row.nc)]} />
                 <MobileMetric label="Tevr." value={nlDec1.format(row.tevr)} />
@@ -89,7 +89,7 @@ export function BehandelarenTable({ rows }: Readonly<{ rows: Behandelaar[] }>) {
                 <TableHead className="text-right">No-show</TableHead>
                 <TableHead className="text-right">Productiviteit</TableHead>
                 <TableHead className="text-right">Decl. uren</TableHead>
-                <TableHead className="text-right">Omzet</TableHead>
+                {toonOmzet && <TableHead className="text-right">Omzet</TableHead>}
                 <TableHead className="text-right">ROM</TableHead>
                 <TableHead className="text-right">Dossiers NC</TableHead>
                 <TableHead className="text-right">Tevredenheid</TableHead>
@@ -114,7 +114,7 @@ export function BehandelarenTable({ rows }: Readonly<{ rows: Behandelaar[] }>) {
                   <TableCell className="text-right tabular-nums">
                     {row.declU} / {row.indirU} ind.
                   </TableCell>
-                  <TableCell className="text-right tabular-nums">€ {nl.format(row.omzet)}</TableCell>
+                  {toonOmzet && <TableCell className="text-right tabular-nums">€ {nl.format(row.omzet)}</TableCell>}
                   <TableCell className="text-right tabular-nums">{nlDec1.format(row.rom)}</TableCell>
                   <TableCell className={cn("text-right tabular-nums", TONE_TEXT[ncTone(row.nc)])}>{row.nc}</TableCell>
                   <TableCell className="text-right tabular-nums">{nlDec1.format(row.tevr)}</TableCell>

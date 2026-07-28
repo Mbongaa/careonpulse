@@ -50,3 +50,21 @@ export const CAREON_KPI_DETAIL_IDS = [
 ] as const;
 
 export const CAREON_KPI_DETAIL_ID_SET: ReadonlySet<string> = new Set(CAREON_KPI_DETAIL_IDS);
+
+/** Financiële detail-id's (alle registry-entries met page "financieel"):
+    voor leden geblokkeerd in de proxy — de detailpagina's zijn statisch
+    geprerenderd, dus een paginapoort zou alle 46 drill-downs dynamisch maken. */
+export const CAREON_FINANCIELE_KPI_DETAIL_IDS = [
+  "omzettotaal",
+  "omzetverz",
+  "omzetinfo",
+  "omzetrmo",
+  "ohw",
+  "openstaand",
+  "afgekeurd",
+  "omzet-client",
+  "omzet-traject",
+  "declaraties90",
+] as const;
+
+export const CAREON_FINANCIELE_KPI_DETAIL_ID_SET: ReadonlySet<string> = new Set(CAREON_FINANCIELE_KPI_DETAIL_IDS);

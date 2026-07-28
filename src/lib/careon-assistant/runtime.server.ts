@@ -1,6 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 
-export const ASSISTANT_PROMPT_VERSION = "careon-assistant-2026-07-25.3";
+export const ASSISTANT_PROMPT_VERSION = "careon-assistant-2026-07-28.1";
 export const ASSISTANT_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini-2024-07-18";
 export const ASSISTANT_API_MODE = process.env.OPENAI_API_MODE === "chat" ? "chat" : "responses";
 export const OPENAI_API_BASE_URL = (process.env.OPENAI_API_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");

@@ -6,11 +6,14 @@ import { pageLiveCounts } from "@/lib/careon-production/provenance";
 import { agendaHistorischEinde } from "@/lib/careon-production/types";
 
 import { useCareon } from "./careon-provider";
+import { useCareonSessionInfo } from "./careon-session-provider";
 
 // Paginabanner in productie-modus: maakt per pagina expliciet hoeveel widgets
 // echte EPD-data tonen en van welke import die komt. Demo-modus: rendert null.
 export function CareonLiveBanner({ page }: Readonly<{ page: string }>) {
   const { isProduction, production, filters } = useCareon();
+  // Voor leden tellen de verborgen financiële widgets niet mee in "x van y".
+  const { financieelZichtbaar } = useCareonSessionInfo();
   if (!isProduction || !production) {
     return null;
   }
@@ -21,15 +24,19 @@ export function CareonLiveBanner({ page }: Readonly<{ page: string }>) {
   const buitenFilter =
     filters.locatie !== "Alle locaties" && production.meta.zonderVestiging > 0 ? production.meta.zonderVestiging : null;
 
-  const counts = pageLiveCounts(page, {
-    agenda: production.agenda != null,
-    agendaToekomst: production.agenda?.vooruitblik != null,
-    agendaKwaliteit: production.agenda?.kwaliteit != null,
-    agendaCrisis: production.agenda?.crisisPerClient != null,
-    verwijzers: production.verwijzerNetwerk != null,
-    toeslagen: production.toeslagen != null,
-    declaraties: production.declaraties != null,
-  });
+  const counts = pageLiveCounts(
+    page,
+    {
+      agenda: production.agenda != null,
+      agendaToekomst: production.agenda?.vooruitblik != null,
+      agendaKwaliteit: production.agenda?.kwaliteit != null,
+      agendaCrisis: production.agenda?.crisisPerClient != null,
+      verwijzers: production.verwijzerNetwerk != null,
+      toeslagen: production.toeslagen != null,
+      declaraties: production.declaraties != null,
+    },
+    !financieelZichtbaar,
+  );
   // UTC, net als de referentiedatum van de snapshot: anders kan de banner
   // "1 aug" tonen naast KPI's die (correct) op het juni-venster staan.
   const importDate = new Date(production.meta.importedAt).toLocaleDateString("nl-NL", {

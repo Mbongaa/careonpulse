@@ -10,16 +10,23 @@ import { Card, CardContent } from "@/components/ui/card";
 import { CAREON_ALERTS, CAREON_SEVERITY_META } from "@/data/careon/careon-alerts";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 import type { CareonAlert, CareonSeverity } from "@/data/careon/careon-types";
+import { filterFinancieleAlerts } from "@/lib/careon-financieel-rol";
 import { buildHrBigAlert, HR_BIG_ALERT_TITLE } from "@/lib/careon-hr/insights";
 import { widgetSource } from "@/lib/careon-production/provenance";
+
+import { useCareonSessionInfo } from "../../_components/careon/careon-session-provider";
 
 const SEVERITIES: CareonSeverity[] = ["kritiek", "hoog", "middel"];
 
 export function SignaleringenContent() {
   const { production } = useCareon();
   const { state: hrState } = useCareonHr();
+  // Financiële rolregel: signaleringen richting de financieel-pagina bestaan
+  // voor leden niet (de kritiek-telling verandert niet — die regels zijn
+  // "middel"/"hoog").
+  const { financieelZichtbaar } = useCareonSessionInfo();
 
-  const bronAlerts = production ? production.signaleringen : CAREON_ALERTS;
+  const bronAlerts = filterFinancieleAlerts(production ? production.signaleringen : CAREON_ALERTS, financieelZichtbaar);
   const hrAlert = buildHrBigAlert(hrState, new Date());
   const alerts: CareonAlert[] = [
     ...bronAlerts.filter((alert) => alert.titel !== HR_BIG_ALERT_TITLE),
@@ -39,8 +46,11 @@ export function SignaleringenContent() {
     declaraties: production?.declaraties != null,
   };
   const wachtOpData = production
-    ? CAREON_ALERTS.filter(
-        (alert) => alert.titel !== HR_BIG_ALERT_TITLE && widgetSource("signaleringen", alert.titel, caps) === "demo",
+    ? filterFinancieleAlerts(
+        CAREON_ALERTS.filter(
+          (alert) => alert.titel !== HR_BIG_ALERT_TITLE && widgetSource("signaleringen", alert.titel, caps) === "demo",
+        ),
+        financieelZichtbaar,
       )
     : [];
 
@@ -96,8 +106,9 @@ export function SignaleringenContent() {
             Wacht op data — voorbeeldregels (demo)
           </h2>
           <p className="text-muted-foreground text-sm">
-            Deze signaleringsregels worden actief zodra de agenda-, declaratie- en ROM-exports gekoppeld zijn. De
-            getoonde aantallen zijn demo-waarden.
+            {financieelZichtbaar
+              ? "Deze signaleringsregels worden actief zodra de agenda-, declaratie- en ROM-exports gekoppeld zijn. De getoonde aantallen zijn demo-waarden."
+              : "Deze signaleringsregels worden actief zodra de agenda- en ROM-exports gekoppeld zijn. De getoonde aantallen zijn demo-waarden."}
           </p>
           <div className="flex flex-col gap-3 opacity-75">
             {wachtOpData.map((alert) => (

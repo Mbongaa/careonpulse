@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 
+import { redigeerFinancieelThreadPayload } from "@/lib/careon-assistant/financieel-gate";
+import { magFinancieelZien } from "@/lib/careon-financieel-rol";
 import { InvalidJsonBodyError, RequestPayloadTooLargeError, readJsonBodyLimited } from "@/lib/http/read-json.server";
 import { POSTGREST_URL, userRestHeaders } from "@/lib/supabase/postgrest.server";
 import { requireCareonSession } from "@/lib/supabase/session.server";
 
 // Berichten van één gesprek (handoff 13, fase 3). Elke rij is één
 // repository-item van @assistant-ui (payload verbatim, incl. tool-calls);
-// GET reconstrueert de repository ({messages, headId}) exact.
+// GET reconstrueert de repository ({messages, headId}) exact — behalve voor
+// leden: beurten van vóór de financiële rolregel (of van een teruggezette
+// beheerder) worden bij het teruglezen geredigeerd (klantbesluit 28-07-2026).
 
 export const runtime = "nodejs";
 
@@ -57,10 +61,11 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   }
   const rows = (await messagesResponse.json()) as MessageRow[];
   const [thread] = (await threadResponse.json()) as { head_id: string | null }[];
+  const financieelZichtbaar = magFinancieelZien(session);
   return NextResponse.json({
     configured: true,
     repository: {
-      messages: rows.map((row) => row.payload),
+      messages: rows.map((row) => (financieelZichtbaar ? row.payload : redigeerFinancieelThreadPayload(row.payload))),
       ...(thread?.head_id ? { headId: thread.head_id } : {}),
     },
   });

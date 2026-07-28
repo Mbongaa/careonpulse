@@ -3,12 +3,14 @@ import { type NextRequest, NextResponse } from "next/server";
 import type { CookieOptions } from "@supabase/ssr";
 import { createServerClient } from "@supabase/ssr";
 
-import { CAREON_KPI_DETAIL_ID_SET } from "@/lib/careon-kpi-route";
+import { magFinancieelZien } from "@/lib/careon-financieel-rol";
+import { CAREON_FINANCIELE_KPI_DETAIL_ID_SET, CAREON_KPI_DETAIL_ID_SET } from "@/lib/careon-kpi-route";
 import { isCareonDemoMode, isSupabaseAuthConfigured, SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 
 // Bewust hier gedefinieerd: careon-auth.ts trekt client-only modules mee.
 const LOGIN_ROUTE = "/auth/v1/login";
 const HOME_ROUTE = "/modules";
+const ADMIN_ROUTE = "/admin";
 
 export async function proxy(request: NextRequest) {
   // ── Authenticatie (alleen in Supabase-modus; Playwright draait zonder) ────
@@ -65,12 +67,34 @@ export async function proxy(request: NextRequest) {
       return redirect;
     };
     if (!user && needsAuth) return redirectTo(LOGIN_ROUTE);
+    // Financiële KPI-detailpagina's zijn statisch geprerenderd (een paginapoort
+    // zou alle drill-downs dynamisch maken), dus de rolregel wordt hier
+    // afgedwongen. De rol-leesquery draait uitsluitend op deze paden; zonder
+    // bewezen recht (bijv. een DB-hapering) geldt gesloten-falen — financiële
+    // vertrouwelijkheid weegt zwaarder dan een zeldzame omweg voor een admin.
+    const financieelDetail = path.match(/^\/dashboard\/details\/([^/]+)\/?$/);
+    if (user && financieelDetail && CAREON_FINANCIELE_KPI_DETAIL_ID_SET.has(financieelDetail[1])) {
+      const [membership, platformAdmin] = await Promise.all([
+        supabase.from("organization_members").select("role").order("created_at").limit(1),
+        supabase.from("platform_admins").select("user_id").maybeSingle(),
+      ]);
+      const rol = (membership.data?.[0] as { role?: "org_admin" | "member" } | undefined)?.role ?? null;
+      const toegestaan = magFinancieelZien({
+        orgRole: rol,
+        isSuperadmin: Boolean(platformAdmin.data),
+        email: user.email,
+      });
+      if (!toegestaan) return redirectTo("/dashboard/directiecockpit");
+    }
     if (user && path.startsWith("/auth/")) {
       const [membership, platformAdmin] = await Promise.all([
         supabase.from("organization_members").select("org_id").limit(1),
         supabase.from("platform_admins").select("user_id").maybeSingle(),
       ]);
-      if ((membership.data?.length ?? 0) > 0 || platformAdmin.data) return redirectTo(HOME_ROUTE);
+      // Platformbeheerders horen op het superadmin-dashboard, niet op de
+      // module-launcher van een organisatie.
+      if (platformAdmin.data) return redirectTo(ADMIN_ROUTE);
+      if ((membership.data?.length ?? 0) > 0) return redirectTo(HOME_ROUTE);
     }
   }
 

@@ -456,12 +456,25 @@ export function widgetSource(pageId: string, widgetId: string, caps?: Provenance
   return CAREON_PROVENANCE[pageId]?.widgets[widgetId] ?? "demo";
 }
 
+/** Volledig financiële widgets per pagina: voor leden onzichtbaar en dus ook
+    buiten de dekkingstelling van de paginabanner (klantbesluit 28-07-2026).
+    De financieel-pagina zelf staat er niet in — die is voor leden als geheel
+    ontoegankelijk via de paginapoort. */
+export const FINANCIELE_WIDGETS: Record<string, readonly string[]> = {
+  cockpit: ["Totale omzet", "Omzet verzekeraars", "Omzet Infomedics", "Omzet RMO/RMA", "Omzetontwikkeling"],
+  signaleringen: ["Declaraties >90 dagen open"],
+};
+
 export function pageLiveCounts(
   pageId: string,
   caps?: ProvenanceCaps,
+  verbergFinancieel = false,
 ): { live: number; handmatig: number; total: number } {
   const widgets = CAREON_PROVENANCE[pageId]?.widgets ?? {};
-  const sources = Object.keys(widgets).map((widgetId) => widgetSource(pageId, widgetId, caps));
+  const verborgen = verbergFinancieel ? (FINANCIELE_WIDGETS[pageId] ?? []) : [];
+  const sources = Object.keys(widgets)
+    .filter((widgetId) => !verborgen.includes(widgetId))
+    .map((widgetId) => widgetSource(pageId, widgetId, caps));
   return {
     // "live" telt echte EPD-herkomst (live/proxy); demo én handmatig tellen niet.
     live: sources.filter((source) => source !== "demo" && source !== "handmatig").length,

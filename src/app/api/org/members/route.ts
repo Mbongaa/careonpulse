@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { scheduleAuditEvent } from "@/lib/careon-audit/audit.server";
 import { isCareonHostedDemoEmail } from "@/lib/careon-demo-account";
-import { CAREON_PASSWORD_HINT, isStrongCareonPassword } from "@/lib/careon-password";
+import { CAREON_PASSWORD_HINT, isStrongCareonPassword, normalizeCareonPassword } from "@/lib/careon-password";
 import { InvalidJsonBodyError, readJsonBodyLimited } from "@/lib/http/read-json.server";
 import { requireOrgAdmin } from "@/lib/supabase/session.server";
 
@@ -304,7 +304,7 @@ export async function PATCH(request: Request) {
 
   let payload: Record<string, unknown>;
   if (action === "reset_password") {
-    const password = typeof body?.password === "string" ? body.password : "";
+    const password = normalizeCareonPassword(typeof body?.password === "string" ? body.password : "");
     if (!isStrongCareonPassword(password)) {
       return NextResponse.json({ error: CAREON_PASSWORD_HINT }, { status: 400 });
     }

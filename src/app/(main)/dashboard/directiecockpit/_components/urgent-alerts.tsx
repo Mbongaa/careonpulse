@@ -8,15 +8,23 @@ import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-prov
 import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import { Button } from "@/components/ui/button";
 import { CAREON_ALERTS } from "@/data/careon/careon-alerts";
+import { filterFinancieleAlerts } from "@/lib/careon-financieel-rol";
+
+import { useCareonSessionInfo } from "../../_components/careon/careon-session-provider";
 
 // The cockpit surfaces the most urgent signals: all critical ones plus the
 // first high one; each card routes to its own domain page. In productie-modus
 // komen de signaleringen uit de EPD-berekening.
-const URGENT_ALERTS = CAREON_ALERTS.slice(0, 4);
 
 export function UrgentAlertsPanel({ className }: Readonly<{ className?: string }>) {
   const { production } = useCareon();
-  const alerts = production ? production.signaleringen.slice(0, 4) : URGENT_ALERTS;
+  // Eerst de financiële regels wegfilteren (rolregel), dan pas de top-4
+  // afsnijden — anders kost een verborgen regel een zichtbare plek.
+  const { financieelZichtbaar } = useCareonSessionInfo();
+  const alerts = filterFinancieleAlerts(
+    production ? production.signaleringen : CAREON_ALERTS,
+    financieelZichtbaar,
+  ).slice(0, 4);
   return (
     <CareonChartCard
       title="Signaleringen"

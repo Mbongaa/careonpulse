@@ -15,6 +15,8 @@ import { parseVerwijzersExport } from "@/lib/careon-production/parse-verwijzers"
 import { agendaHistorischEinde, type ImportWarning } from "@/lib/careon-production/types";
 import { cn } from "@/lib/utils";
 
+import { useCareonSessionInfo } from "../../_components/careon/careon-session-provider";
+
 // Aanvullende EPD-exports naast de cliëntendata: agenda/afspraken (planning,
 // no-show, uren, omzet), huisartsen/verwijzers (verwijsnetwerk), toeslagen en
 // het declaratie-totaaloverzicht. Alles wordt bij het parsen direct
@@ -184,6 +186,9 @@ function ImportSlot({
 export function AanvullendeExportsCard() {
   const { isProduction, production, activateAgenda, activateVerwijzers, activateToeslagen, activateDeclaraties } =
     useCareon();
+  // Financiële rolregel: de toeslagen- en declaratieslots (volledig financieel)
+  // bestaan voor leden niet — de route weigert hun push sowieso met 403.
+  const { financieelZichtbaar } = useCareonSessionInfo();
 
   const agendaMeta = production?.agenda?.meta;
   const netwerk = production?.verwijzerNetwerk;
@@ -208,10 +213,9 @@ export function AanvullendeExportsCard() {
         </CardDescription>
         <CardTitle>Aanvullende EPD-exports koppelen</CardTitle>
         <CardDescription>
-          Verrijk de productie-modus met vier aanvullende exports: de agenda-/afsprakenexport (planning, no-show, uren
-          en omzet), de huisarts/verwijzer-export (verwijsnetwerk), de toeslagen-export (reistijd-, tolk- en
-          diagnostiektoeslagen) en het declaratie-totaaloverzicht (openstaand en toegekend per factuur). De bestanden
-          worden bij het inlezen direct geaggregeerd.
+          {financieelZichtbaar
+            ? "Verrijk de productie-modus met vier aanvullende exports: de agenda-/afsprakenexport (planning, no-show, uren en omzet), de huisarts/verwijzer-export (verwijsnetwerk), de toeslagen-export (reistijd-, tolk- en diagnostiektoeslagen) en het declaratie-totaaloverzicht (openstaand en toegekend per factuur). De bestanden worden bij het inlezen direct geaggregeerd."
+            : "Verrijk de productie-modus met aanvullende exports: de agenda-/afsprakenexport (planning, no-show en uren) en de huisarts/verwijzer-export (verwijsnetwerk). De bestanden worden bij het inlezen direct geaggregeerd."}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
@@ -291,83 +295,89 @@ export function AanvullendeExportsCard() {
               };
             }}
           />
-          <ImportSlot
-            titel="Toeslagen (declared surcharges)"
-            hint="ZSG-formaat: Cliënt;Instelling;…;Code;Omschrijving;Prijs;Factuurnummer;Factuurdatum"
-            icoon={<Euro className="size-4 text-violet-600 dark:text-violet-400" />}
-            actief={
-              toeslagen
-                ? `Gekoppeld: ${toeslagen.meta.fileName} — ${nl.format(toeslagen.aantal)} toeslagregels, € ${nl.format(toeslagen.totaal)}.`
-                : null
-            }
-            disabled={!isProduction}
-            parseFile={(file, text) => {
-              const parsed = parseToeslagenExport(file.name, text);
-              if (!parsed.ok || !parsed.facts) {
-                return { error: parsed.error ?? "Bestand kon niet worden gelezen.", preview: null };
+          {financieelZichtbaar && (
+            <ImportSlot
+              titel="Toeslagen (declared surcharges)"
+              hint="ZSG-formaat: Cliënt;Instelling;…;Code;Omschrijving;Prijs;Factuurnummer;Factuurdatum"
+              icoon={<Euro className="size-4 text-violet-600 dark:text-violet-400" />}
+              actief={
+                toeslagen
+                  ? `Gekoppeld: ${toeslagen.meta.fileName} — ${nl.format(toeslagen.aantal)} toeslagregels, € ${nl.format(toeslagen.totaal)}.`
+                  : null
               }
-              const facts = parsed.facts;
-              return {
-                error: null,
-                preview: {
-                  fileName: file.name,
-                  samenvatting: [
-                    { label: "toeslagregels", waarde: nl.format(facts.totalRows - facts.skippedRows) },
-                    {
-                      label: "totaal",
-                      waarde: `€ ${nl.format(Math.round(facts.cellen.reduce((sum, cel) => sum + cel.omzet, 0)))}`,
-                    },
-                    { label: "cliënten", waarde: nl.format(facts.clienten) },
-                  ],
-                  warnings: parsed.warnings,
-                  activeer: () => activateToeslagen(facts),
-                },
-              };
-            }}
-          />
-          <ImportSlot
-            titel="Declaratie-totaaloverzicht"
-            hint="ZSG-formaat: Regelnummer;…;Factuurnummer;…;Totaal bedrag;Toegekend totaalbedrag;…"
-            icoon={<FileCheck2 className="size-4 text-violet-600 dark:text-violet-400" />}
-            actief={
-              declaraties
-                ? `Gekoppeld: ${declaraties.meta.fileName} — ${nl.format(declaraties.facturen)} facturen, ${declaraties.toekenningsPct}% toegekend, € ${nl.format(declaraties.openstaand)} openstaand.`
-                : null
-            }
-            disabled={!isProduction}
-            parseFile={(file, text) => {
-              const parsed = parseDeclaratiesExport(file.name, text);
-              if (!parsed.ok || !parsed.facts) {
-                return { error: parsed.error ?? "Bestand kon niet worden gelezen.", preview: null };
+              disabled={!isProduction}
+              parseFile={(file, text) => {
+                const parsed = parseToeslagenExport(file.name, text);
+                if (!parsed.ok || !parsed.facts) {
+                  return { error: parsed.error ?? "Bestand kon niet worden gelezen.", preview: null };
+                }
+                const facts = parsed.facts;
+                return {
+                  error: null,
+                  preview: {
+                    fileName: file.name,
+                    samenvatting: [
+                      { label: "toeslagregels", waarde: nl.format(facts.totalRows - facts.skippedRows) },
+                      {
+                        label: "totaal",
+                        waarde: `€ ${nl.format(Math.round(facts.cellen.reduce((sum, cel) => sum + cel.omzet, 0)))}`,
+                      },
+                      { label: "cliënten", waarde: nl.format(facts.clienten) },
+                    ],
+                    warnings: parsed.warnings,
+                    activeer: () => activateToeslagen(facts),
+                  },
+                };
+              }}
+            />
+          )}
+          {financieelZichtbaar && (
+            <ImportSlot
+              titel="Declaratie-totaaloverzicht"
+              hint="ZSG-formaat: Regelnummer;…;Factuurnummer;…;Totaal bedrag;Toegekend totaalbedrag;…"
+              icoon={<FileCheck2 className="size-4 text-violet-600 dark:text-violet-400" />}
+              actief={
+                declaraties
+                  ? `Gekoppeld: ${declaraties.meta.fileName} — ${nl.format(declaraties.facturen)} facturen, ${declaraties.toekenningsPct}% toegekend, € ${nl.format(declaraties.openstaand)} openstaand.`
+                  : null
               }
-              const facts = parsed.facts;
-              const gefactureerd = facts.facturen.reduce((sum, factuur) => sum + factuur.bedrag, 0);
-              const toegekend = facts.facturen.reduce((sum, factuur) => sum + factuur.toegekend, 0);
-              return {
-                error: null,
-                preview: {
-                  fileName: file.name,
-                  samenvatting: [
-                    { label: "facturen", waarde: nl.format(facts.facturen.length) },
-                    { label: "gedeclareerd", waarde: `€ ${nl.format(Math.round(gefactureerd))}` },
-                    {
-                      label: "toegekend",
-                      waarde: `${gefactureerd === 0 ? 0 : Math.round((toegekend / gefactureerd) * 100)}%`,
-                    },
-                  ],
-                  warnings: parsed.warnings,
-                  activeer: () => activateDeclaraties(facts),
-                },
-              };
-            }}
-          />
+              disabled={!isProduction}
+              parseFile={(file, text) => {
+                const parsed = parseDeclaratiesExport(file.name, text);
+                if (!parsed.ok || !parsed.facts) {
+                  return { error: parsed.error ?? "Bestand kon niet worden gelezen.", preview: null };
+                }
+                const facts = parsed.facts;
+                const gefactureerd = facts.facturen.reduce((sum, factuur) => sum + factuur.bedrag, 0);
+                const toegekend = facts.facturen.reduce((sum, factuur) => sum + factuur.toegekend, 0);
+                return {
+                  error: null,
+                  preview: {
+                    fileName: file.name,
+                    samenvatting: [
+                      { label: "facturen", waarde: nl.format(facts.facturen.length) },
+                      { label: "gedeclareerd", waarde: `€ ${nl.format(Math.round(gefactureerd))}` },
+                      {
+                        label: "toegekend",
+                        waarde: `${gefactureerd === 0 ? 0 : Math.round((toegekend / gefactureerd) * 100)}%`,
+                      },
+                    ],
+                    warnings: parsed.warnings,
+                    activeer: () => activateDeclaraties(facts),
+                  },
+                };
+              }}
+            />
+          )}
         </div>
 
         <p className="flex items-start gap-2 text-muted-foreground text-xs">
           <ShieldCheck className="mt-0.5 size-3.5 shrink-0" />
           Privacy: cliëntnamen, memo&apos;s/sessieverslagen, BSN en e-mailadressen worden bij het inlezen genegeerd en
-          nooit opgeslagen — alleen geaggregeerde cijfers en cliënt-ID&apos;s blijven bewaard. De toeslagen-export bevat
-          namen in plaats van ID&apos;s: die worden uitsluitend geteld.
+          nooit opgeslagen — alleen geaggregeerde cijfers en cliënt-ID&apos;s blijven bewaard.
+          {financieelZichtbaar && (
+            <> De toeslagen-export bevat namen in plaats van ID&apos;s: die worden uitsluitend geteld.</>
+          )}
         </p>
       </CardContent>
     </Card>

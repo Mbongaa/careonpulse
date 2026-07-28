@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import Link from "next/link";
 
@@ -22,6 +22,7 @@ import { sidebarItems } from "@/navigation/sidebar/sidebar-items";
 import { usePreferencesStore } from "@/stores/preferences/preferences-provider";
 
 import { CareonLogo } from "../careon/careon-logo";
+import { useCareonSessionInfo } from "../careon/careon-session-provider";
 import { NavMain } from "./nav-main";
 import { NavUser } from "./nav-user";
 
@@ -74,23 +75,23 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const variant = isSynced ? sidebarVariant : props.variant;
   const collapsible = isSynced ? sidebarCollapsible : props.collapsible;
 
-  // Gebruikersbeheer (handoff 13, fase 6) alleen tonen aan organisatie-
-  // beheerders; in demo-modus (501) of voor gewone leden blijft de sidebar
-  // exact het geauditeerde origineel. Zelfde sessie-probe als nav-user.
-  const [beheerZichtbaar, setBeheerZichtbaar] = useState(false);
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/auth/session", { cache: "no-store", signal: controller.signal })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((payload: { orgRole?: string; isSuperadmin?: boolean } | null) => {
-        if (payload?.orgRole === "org_admin" || payload?.isSuperadmin) setBeheerZichtbaar(true);
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, []);
+  // Rolafhankelijke navigatie via de server-gezaaide sessiecontext (geen
+  // eigen probe meer): Gebruikersbeheer (handoff 13, fase 6) alleen voor
+  // organisatiebeheerders, en Financieel verdwijnt voor gewone leden
+  // (klantbesluit 28-07-2026). In demo-modus blijft de sidebar het
+  // geauditeerde origineel.
+  const { orgRole, isSuperadmin, financieelZichtbaar } = useCareonSessionInfo();
+  const beheerZichtbaar = orgRole === "org_admin" || isSuperadmin;
   const navItems = useMemo(() => {
-    if (!beheerZichtbaar) return sidebarItems;
-    return sidebarItems.map((group) =>
+    let groups = sidebarItems;
+    if (!financieelZichtbaar) {
+      groups = groups.map((group) => ({
+        ...group,
+        items: group.items.filter((item) => item.id !== "financieel"),
+      }));
+    }
+    if (!beheerZichtbaar) return groups;
+    return groups.map((group) =>
       group.label === "Systeem"
         ? {
             ...group,
@@ -101,7 +102,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           }
         : group,
     );
-  }, [beheerZichtbaar]);
+  }, [beheerZichtbaar, financieelZichtbaar]);
 
   return (
     <Sidebar {...props} variant={variant} collapsible={collapsible}>

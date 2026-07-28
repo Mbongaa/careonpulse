@@ -8,6 +8,7 @@ import { CareonLiveBanner } from "@/app/(main)/dashboard/_components/careon/care
 import { CareonOmzetChart } from "@/app/(main)/dashboard/_components/careon/careon-omzet-chart";
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
+import { useCareonSessionInfo } from "@/app/(main)/dashboard/_components/careon/careon-session-provider";
 import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import { careonDetailHref } from "@/data/careon/careon-kpi-details";
 import { COCKPIT_INSIGHTS } from "@/data/careon/careon-kpis";
@@ -18,6 +19,9 @@ import { UrgentAlertsPanel } from "./urgent-alerts";
 
 export function DirectiecockpitContent() {
   const { filters, kpis, production } = useCareon();
+  // Financiële rolregel: voor leden verdwijnen de omzetkaarten, de
+  // omzetgrafiek en het omzet-insight volledig (klantbesluit 28-07-2026).
+  const { financieelZichtbaar } = useCareonSessionInfo();
 
   const scope = filters.locatie === "Alle locaties" ? "binnen TGC Groep" : `binnen locatie ${filters.locatie}`;
 
@@ -25,7 +29,8 @@ export function DirectiecockpitContent() {
   // live/afgeleide KPI's; demo-KPI's behouden hun waarde en krijgen een badge.
   // De bron-badge blijft gesleuteld op het demo-label, ook als de live metric
   // de kaart een productielabel geeft (bijv. "Omzet Vecozo (VGZ + DSW)").
-  const displayKpis = kpis.map((kpi) => {
+  const zichtbareKpis = financieelZichtbaar ? kpis : kpis.filter((kpi) => kpi.page !== "financieel");
+  const displayKpis = zichtbareKpis.map((kpi) => {
     const live = production?.cockpitKpis[kpi.id];
     if (!live) {
       return { kpi, badgeWidget: kpi.label };
@@ -46,7 +51,7 @@ export function DirectiecockpitContent() {
 
   // Productie-exclusief (driedeling van het facturatie-overzicht van de
   // klant): RMO/RMA-omzet als eigen kaart, direct na de servicebureau-kaart.
-  const rmoLive = production ? production.cockpitKpis.omzetrmo : undefined;
+  const rmoLive = production && financieelZichtbaar ? production.cockpitKpis.omzetrmo : undefined;
   if (rmoLive) {
     displayKpis.splice(displayKpis.findIndex((item) => item.kpi.id === "omzetinfo") + 1, 0, {
       kpi: {
@@ -70,7 +75,9 @@ export function DirectiecockpitContent() {
       <CareonPageHeader title="Directiecockpit" sub={`Welkom terug — dit speelt er vandaag ${scope}.`} />
       <CareonLiveBanner page="cockpit" />
       <CareonInsights
-        messages={production ? production.cockpitInsights : COCKPIT_INSIGHTS}
+        messages={(production ? production.cockpitInsights : COCKPIT_INSIGHTS).filter(
+          (bericht) => financieelZichtbaar || !/omzet|declarat|factur|infomedics|€/i.test(bericht),
+        )}
         badge={<CareonSourceBadge page="cockpit" widget="Careon Insights" />}
       />
       <div className="careon-kpi-grid grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
@@ -89,9 +96,9 @@ export function DirectiecockpitContent() {
         <InstroomUitstroomChart className="lg:col-span-8" />
         <UrgentAlertsPanel className="lg:col-span-4" />
         <DossiersProductieSummary className="lg:col-span-12" />
-        <CareonOmzetChart className="lg:col-span-6" provenancePage="cockpit" />
-        <NoShowChart className="lg:col-span-3" />
-        <CaseloadChart className="lg:col-span-3" />
+        {financieelZichtbaar && <CareonOmzetChart className="lg:col-span-6" provenancePage="cockpit" />}
+        <NoShowChart className={financieelZichtbaar ? "lg:col-span-3" : "lg:col-span-6"} />
+        <CaseloadChart className={financieelZichtbaar ? "lg:col-span-3" : "lg:col-span-6"} />
       </div>
     </div>
   );

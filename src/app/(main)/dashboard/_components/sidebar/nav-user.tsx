@@ -1,7 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
-
 import { useRouter } from "next/navigation";
 
 import { EllipsisVertical, LayoutGrid, LogOut, ShieldCheck } from "lucide-react";
@@ -20,6 +18,8 @@ import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/c
 import { CAREON_LOGIN_ROUTE, careonLogout } from "@/lib/careon-auth";
 import { getInitials } from "@/lib/utils";
 
+import { useCareonSessionInfo } from "../careon/careon-session-provider";
+
 export function NavUser({
   user,
 }: {
@@ -31,31 +31,21 @@ export function NavUser({
 }) {
   const { isMobile } = useSidebar();
   const router = useRouter();
-  const [isSuperadmin, setIsSuperadmin] = useState(false);
-  const [sessionUser, setSessionUser] = useState<{ name: string; email: string } | null>(null);
 
   // Beheer-link alleen voor platformbeheerders (Supabase-modus); de
-  // (admin)-layout dwingt de rol daarnaast server-side af. Dezelfde probe
-  // levert de echte accountidentiteit — in demo-modus (501) blijft de
+  // (admin)-layout dwingt de rol daarnaast server-side af. De identiteit komt
+  // uit de server-gezaaide sessiecontext — in demo-modus blijft de
   // geauditeerde demo-persona staan.
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/auth/session", { cache: "no-store", signal: controller.signal })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((payload: { isSuperadmin?: boolean; authed?: boolean; email?: string; fullName?: string } | null) => {
-        if (payload?.isSuperadmin) setIsSuperadmin(true);
-        if (payload?.authed && payload.email) {
-          const name = payload.fullName?.trim() ? payload.fullName.trim() : payload.email.split("@")[0];
-          setSessionUser({ name, email: payload.email });
+  const sessie = useCareonSessionInfo();
+  const isSuperadmin = sessie.isSuperadmin;
+  const shownUser =
+    sessie.authed && sessie.email
+      ? {
+          name: sessie.fullName.trim() ? sessie.fullName.trim() : sessie.email.split("@")[0],
+          email: sessie.email,
+          avatar: "",
         }
-      })
-      .catch(() => undefined);
-    return () => {
-      controller.abort();
-    };
-  }, []);
-
-  const shownUser = sessionUser ? { name: sessionUser.name, email: sessionUser.email, avatar: "" } : user;
+      : user;
 
   const handleLogout = async () => {
     const loggedOut = await careonLogout();

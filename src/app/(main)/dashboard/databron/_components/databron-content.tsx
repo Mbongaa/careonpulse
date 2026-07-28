@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 import { cn } from "@/lib/utils";
 
+import { useCareonSessionInfo } from "../../_components/careon/careon-session-provider";
 import { AanvullendeExportsCard } from "./aanvullende-exports-card";
 import { ApiKoppelingCard } from "./api-koppeling-card";
 import { CsvImportCard } from "./csv-import-card";
@@ -26,6 +27,9 @@ const SOURCE_BADGE = {
 
 export function DatabronContent() {
   const { source, restoreDemo, production, isProduction } = useCareon();
+  // Financiële rolregel: de toeslagen- en declaratie-imports (volledig
+  // financieel) bestaan voor leden ook in het statusoverzicht niet.
+  const { financieelZichtbaar } = useCareonSessionInfo();
   const badge = SOURCE_BADGE[source.mode];
 
   // De vijf EPD-exports die de productie-modus voeden: cliëntendata als basis,
@@ -44,11 +48,15 @@ export function DatabronContent() {
             label: "Huisartsen / verwijzers",
             actief: production.verwijzerNetwerk ? production.verwijzerNetwerk.fileName : null,
           },
-          { label: "Toeslagen", actief: production.toeslagen ? production.toeslagen.meta.fileName : null },
-          {
-            label: "Declaratie-totaaloverzicht",
-            actief: production.declaraties ? production.declaraties.meta.fileName : null,
-          },
+          ...(financieelZichtbaar
+            ? [
+                { label: "Toeslagen", actief: production.toeslagen ? production.toeslagen.meta.fileName : null },
+                {
+                  label: "Declaratie-totaaloverzicht",
+                  actief: production.declaraties ? production.declaraties.meta.fileName : null,
+                },
+              ]
+            : []),
         ]
       : null;
 
@@ -56,11 +64,13 @@ export function DatabronContent() {
     <div className="@container/main flex flex-col gap-4 md:gap-6">
       <CareonPageHeader
         title={CAREON_PAGE_META.databron.title}
-        sub={
-          isProduction
+        sub={(() => {
+          if (!isProduction)
+            return "Careon Pulse groeit met u mee: start vandaag met een EPD-export en koppel later live.";
+          return financieelZichtbaar
             ? "Productie-modus: vijf EPD-exports voeden het dashboard — cliëntendata als basis, plus agenda, verwijzers, toeslagen en declaraties."
-            : "Careon Pulse groeit met u mee: start vandaag met een EPD-export en koppel later live."
-        }
+            : "Productie-modus: EPD-exports voeden het dashboard — cliëntendata als basis, plus agenda en verwijzers.";
+        })()}
         action={
           source.mode !== "demo" && (
             <Button variant="outline" size="sm" onClick={restoreDemo}>

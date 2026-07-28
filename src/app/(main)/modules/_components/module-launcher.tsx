@@ -50,9 +50,18 @@ function ModuleTile({ mod }: Readonly<{ mod: CareonModule }>) {
   );
 }
 
-export function ModuleLauncher() {
+export function ModuleLauncher({ financieelZichtbaar = true }: Readonly<{ financieelZichtbaar?: boolean }>) {
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
+
+  // Financiële rolregel: de modulekaart adverteert leden geen "financieel".
+  const modules = financieelZichtbaar
+    ? CAREON_MODULES
+    : CAREON_MODULES.map((mod) =>
+        mod.id === "careon-pulse-directie"
+          ? { ...mod, description: "Zorgdashboard met KPI's, signaleringen en de AI-assistent." }
+          : mod,
+      );
 
   const handleLogout = async () => {
     setLoggingOut(true);
@@ -84,7 +93,7 @@ export function ModuleLauncher() {
             </p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            {CAREON_MODULES.map((mod) => (
+            {modules.map((mod) => (
               <ModuleTile key={mod.id} mod={mod} />
             ))}
           </div>

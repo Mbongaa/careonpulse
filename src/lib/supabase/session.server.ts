@@ -1,3 +1,5 @@
+import { cache } from "react";
+
 import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
 
@@ -31,7 +33,9 @@ export type CareonSessionResult =
   /** Wel ingelogd, maar geen organisatie en geen platformrol. */
   | { status: "no-org" };
 
-export async function getCareonSession(): Promise<CareonSessionResult> {
+// React cache(): binnen één request delen layout, pagina en sessieroute
+// dezelfde resolutie — de rolregel liet dit anders 2-4× per navigatie draaien.
+export const getCareonSession = cache(async (): Promise<CareonSessionResult> => {
   if (isCareonDemoMode()) return { status: "demo" };
   if (!isSupabaseAuthConfigured()) return { status: "misconfigured" };
   const supabase = await supabaseServer();
@@ -69,7 +73,7 @@ export async function getCareonSession(): Promise<CareonSessionResult> {
       accessToken: session.access_token,
     },
   };
-}
+});
 
 /** Beheer-routes: alleen platformbeheerders (403 voor iedereen anders). */
 export async function requireSuperadmin(): Promise<{ session: CareonSession } | { denied: NextResponse }> {

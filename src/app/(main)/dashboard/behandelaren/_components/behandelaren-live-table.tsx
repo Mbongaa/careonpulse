@@ -45,7 +45,8 @@ function noshowCel(pct: number | null | undefined): { tekst: string; klasse: str
 export function BehandelarenLiveTable({
   rows,
   agendaStats = null,
-}: Readonly<{ rows: BehandelaarLiveRij[]; agendaStats?: AgendaStats | null }>) {
+  toonOmzet = true,
+}: Readonly<{ rows: BehandelaarLiveRij[]; agendaStats?: AgendaStats | null; toonOmzet?: boolean }>) {
   const metAgenda = agendaStats !== null;
 
   return (
@@ -132,7 +133,7 @@ export function BehandelarenLiveTable({
                     <TableHead className="text-right">Consulten (12m)</TableHead>
                     <TableHead className="text-right">No-show</TableHead>
                     <TableHead className="text-right">Uren 12m (direct)</TableHead>
-                    <TableHead className="text-right">Omzet 12m</TableHead>
+                    {toonOmzet && <TableHead className="text-right">Omzet 12m</TableHead>}
                   </>
                 ) : (
                   <>
@@ -169,9 +170,11 @@ export function BehandelarenLiveTable({
                         <TableCell className="text-right tabular-nums">
                           {stats ? `${nl.format(stats.directeUren)} u` : "—"}
                         </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {stats ? `€ ${nl.format(stats.omzet)}` : "—"}
-                        </TableCell>
+                        {toonOmzet && (
+                          <TableCell className="text-right tabular-nums">
+                            {stats ? `€ ${nl.format(stats.omzet)}` : "—"}
+                          </TableCell>
+                        )}
                       </>
                     ) : (
                       <>

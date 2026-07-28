@@ -10,6 +10,7 @@ import {
 } from "@assistant-ui/react";
 import { createAssistantStream } from "assistant-stream";
 
+import { redigeerFinancieelThreadPayload } from "@/lib/careon-assistant/financieel-gate";
 import {
   deleteRemoteThread,
   fetchRemoteRepository,
@@ -102,6 +103,11 @@ export class CareonAssistantThreadListAdapter {
   memoryMessages = new Map<string, StoredRepository>();
   /** Centrale opslag actief; valt bij 501 permanent terug op lokaal. */
   remote = isSupabaseAuthMode();
+
+  /** financieelZichtbaar (rolregel): false = leden — teruggelezen beurten
+      worden geredigeerd, ook de lokale cache van een eerdere admin-sessie op
+      deze werkplek. */
+  constructor(public financieelZichtbaar = true) {}
 
   unstable_Provider = ({ children }: { children?: ReactNode }) => {
     const threadId = useAuiState((s) => s.threadListItem.remoteId ?? s.threadListItem.id);
@@ -362,11 +368,22 @@ class CareonAssistantHistoryAdapter {
     this.owner.memoryMessages.set(this.threadId, normalized);
   }
 
+  /** Financiële rolregel: leden lezen elke beurt door de redactie — de
+      server redigeert zelf al, maar de lokale cache kan van een eerdere
+      admin-sessie op dezelfde werkplek stammen. */
+  private redigeer(repository: StoredRepository): StoredRepository {
+    if (this.owner.financieelZichtbaar) return repository;
+    return {
+      ...repository,
+      messages: repository.messages.map((entry) => redigeerFinancieelThreadPayload(entry) as StoredMessageEntry),
+    };
+  }
+
   async load(): Promise<ExportedMessageRepository> {
     if (this.threadId && this.owner.remote) {
       const result = await fetchRemoteRepository(this.threadId);
       if (this.owner.handleRemoteStatus(result.status) && result.repository) {
-        const repository = normalizeRepository(result.repository);
+        const repository = this.redigeer(normalizeRepository(result.repository));
         // Centrale stand ook lokaal cachen (sneller + offline-vangnet).
         this.writeRepository(repository);
         return repository as unknown as ExportedMessageRepository;
@@ -374,7 +391,7 @@ class CareonAssistantHistoryAdapter {
     }
     // Persisted JSON round-trips exactly what `append` received, so the
     // structural cast back to the library repository type is safe.
-    return this.readRepository() as unknown as ExportedMessageRepository;
+    return this.redigeer(this.readRepository()) as unknown as ExportedMessageRepository;
   }
 
   async append(item: ExportedMessageRepositoryItem) {

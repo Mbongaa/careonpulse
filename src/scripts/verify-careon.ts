@@ -10,6 +10,7 @@
  */
 
 import { CAREON_ALERTS, CRITICAL_ALERT_COUNT } from "../data/careon/careon-alerts";
+import { ASSISTANT_QUICK_PROMPTS, resolveAssistantResponse } from "../data/careon/careon-assistant";
 import { BEHANDELAREN, caseloadTone, ncTone, noshowTone } from "../data/careon/careon-behandelaren";
 import { parseKpiCsv, SAMPLE_CSV_CONTENT } from "../data/careon/careon-databron";
 import { buildDetailRowsFresh, DETAIL_LOCS, demoDetailRows } from "../data/careon/careon-detail-records";
@@ -41,15 +42,25 @@ import { PLANNING_METRICS } from "../data/careon/careon-planning";
 import { CAREON_MONTHLY } from "../data/careon/careon-shared-charts";
 import { sliceTimeframe, timeframeKeys } from "../data/careon/careon-timeframe";
 import type { CareonMetric } from "../data/careon/careon-types";
+import {
+  bevatFinancieleFeiten,
+  FINANCIEEL_VERVANGTEKST,
+  filterFinancieleHistory,
+  isFinancieleAssistentVraag,
+  redigeerFinancieelThreadPayload,
+  verwijderFinancieleContext,
+} from "../lib/careon-assistant/financieel-gate";
+import { redigeerFinancieleAssistentResponse } from "../lib/careon-assistant/financieel-redactie";
+import { filterFinancieleAlerts, magFinancieelZien } from "../lib/careon-financieel-rol";
 import { formatCareonDelta, formatCareonValue } from "../lib/careon-format";
 import { buildHrBigAlert, hrMetrics } from "../lib/careon-hr/insights";
 import { bigDagenTot, HR_KPI_IDS, type HrKpiId, isHrState } from "../lib/careon-hr/types";
-import { CAREON_KPI_DETAIL_IDS } from "../lib/careon-kpi-route";
+import { CAREON_FINANCIELE_KPI_DETAIL_IDS, CAREON_KPI_DETAIL_IDS } from "../lib/careon-kpi-route";
 import { executeMiddelenTool, isMiddelenTool } from "../lib/careon-middelen/assistant-executor";
 import { DESTRUCTIEVE_TOOLS, MIDDELEN_TOOL_NAMES, MIDDELEN_TOOLS } from "../lib/careon-middelen/assistant-tools";
 import { createConceptMiddelenApi, replayConceptActies } from "../lib/careon-middelen/concept";
 import { isMiddelenState } from "../lib/careon-middelen/types";
-import { CAREON_PROVENANCE } from "../lib/careon-production/provenance";
+import { CAREON_PROVENANCE, FINANCIELE_WIDGETS, pageLiveCounts } from "../lib/careon-production/provenance";
 
 let failures = 0;
 let passes = 0;
@@ -935,6 +946,186 @@ check(
     bigRegistraties: [HR_SEED_STATE.bigRegistraties[0], { ...HR_SEED_STATE.bigRegistraties[0] }],
   }),
   false,
+);
+
+// ---- Financiële rolregel (klantbesluit 28-07-2026) ----
+// Leden (orgRole "member") zien niets financieels; org_admins, superadmins en
+// het vaste demoaccount (etalage, demo-org) zien alles.
+check("rolregel org_admin ziet financieel", magFinancieelZien({ orgRole: "org_admin", isSuperadmin: false }), true);
+check("rolregel superadmin ziet financieel", magFinancieelZien({ orgRole: null, isSuperadmin: true }), true);
+check("rolregel lid ziet financieel niet", magFinancieelZien({ orgRole: "member", isSuperadmin: false }), false);
+check(
+  "rolregel demoaccount ziet financieel",
+  magFinancieelZien({ orgRole: "member", isSuperadmin: false, email: "user1@careon-demo.nl" }),
+  true,
+);
+
+// Proxy-poortlijst dekt exact de registry-entries met page "financieel".
+check(
+  "financiele detail-ids = registry page financieel",
+  [...CAREON_FINANCIELE_KPI_DETAIL_IDS].sort(),
+  KPI_DETAILS.filter((entry) => entry.page === "financieel")
+    .map((entry) => entry.id)
+    .sort(),
+);
+check(
+  "financiele detail-ids zijn geldige detailroutes",
+  CAREON_FINANCIELE_KPI_DETAIL_IDS.every((id) => (CAREON_KPI_DETAIL_IDS as readonly string[]).includes(id)),
+  true,
+);
+
+// Alertfilter: precies de financieel-gerichte regels verdwijnen; de
+// kritiek-telling (sidebarbadge) verandert niet.
+const alertsVoorLid = filterFinancieleAlerts(CAREON_ALERTS, false);
+check("alertfilter verwijdert 1 financiele regel", CAREON_ALERTS.length - alertsVoorLid.length, 1);
+check(
+  "alertfilter verwijdert precies declaratieregel",
+  CAREON_ALERTS.filter((alert) => !alertsVoorLid.includes(alert)).map((alert) => alert.titel),
+  ["Declaraties >90 dagen open"],
+);
+check(
+  "alertfilter raakt kritiek-telling niet",
+  alertsVoorLid.filter((alert) => alert.sev === "kritiek").length,
+  CRITICAL_ALERT_COUNT,
+);
+check("alertfilter is no-op voor admins", filterFinancieleAlerts(CAREON_ALERTS, true), CAREON_ALERTS);
+
+// Bannertelling: financiële widgets tellen voor leden niet mee.
+check(
+  "financiele widgets bestaan in het provenance-register",
+  Object.entries(FINANCIELE_WIDGETS).every(([pagina, widgets]) =>
+    widgets.every((widget) => widget in (CAREON_PROVENANCE[pagina]?.widgets ?? {})),
+  ),
+  true,
+);
+check(
+  "banner telt cockpit zonder financiele widgets",
+  pageLiveCounts("cockpit", undefined, true).total,
+  pageLiveCounts("cockpit").total - FINANCIELE_WIDGETS.cockpit.length,
+);
+
+// Assistent-vraagclassificatie: financiële vragen herkend, operationele niet.
+for (const vraag of [
+  "Hoe ontwikkelt de omzet zich?",
+  "Wat zijn de openstaande declaraties?",
+  "Hoeveel kosten maken we per maand?",
+  "Wat is er nog niet gefactureerd?",
+  "Hoeveel onderhanden werk staat er?",
+]) {
+  check(`assistent weigert financiele vraag: ${vraag}`, isFinancieleAssistentVraag(vraag), true);
+}
+for (const vraag of [
+  "Hoeveel actieve cliënten per verzekeraar?",
+  "Hoe hoog is de no-show deze maand?",
+  "Wat is de gemiddelde wachttijd?",
+  "Welke behandelaar heeft de hoogste caseload?",
+  "Wordt deze cliënt door een neuroloog gezien?",
+  "Is de wachtwoord-link nog geldig?",
+]) {
+  check(`assistent laat operationele vraag door: ${vraag}`, isFinancieleAssistentVraag(vraag), false);
+}
+check("assistent weigert bedrag-vraag", isFinancieleAssistentVraag("Welk bedrag staat nog open bij DSW?"), true);
+check(
+  "assistent-chip financieel bestaat (en wordt voor leden verborgen)",
+  ASSISTANT_QUICK_PROMPTS.some((prompt) => prompt.id === "financieel-omzet"),
+  true,
+);
+
+// Contextscrub: een feitenblok mét financiële sleutels wordt verwijderd, een
+// schoon blok blijft onaangetast (ledengrounding overleeft de scrub).
+const scrubVuil = verwijderFinancieleContext(
+  'MEDEWERKERS & MIDDELEN (handmatige registratie, JSON)\n{"medewerkers":[]}\n\nOVERIGE CONTEXT (KPI\'s/feitenblad, JSON)\n{"domein":{"omzetPerVerzekeraar":[{"label":"VGZ"}],"onderhandenTotaal":182000}}',
+);
+check("contextscrub verwijdert financieel feitenblok", scrubVuil.verwijderd, true);
+check("contextscrub laat middelenblok staan", scrubVuil.context.includes("MEDEWERKERS & MIDDELEN"), true);
+check("contextscrub laat geen financiele sleutels achter", bevatFinancieleFeiten(scrubVuil.context), false);
+const scrubSchoon = verwijderFinancieleContext(
+  'OVERIGE CONTEXT (KPI\'s/feitenblad, JSON)\n{"domein":{"kernKpis":[{"id":"actief","waarde":1248}]}}',
+);
+check("contextscrub laat schone grounding intact", scrubSchoon.verwijderd, false);
+check(
+  "historyfilter verwijdert beurten met eurobedragen",
+  filterFinancieleHistory([
+    { content: "De omzet bedroeg € 493.000 in juni." },
+    { content: "De no-show daalde naar 5,8%." },
+  ]).map((turn) => turn.content),
+  ["De no-show daalde naar 5,8%."],
+);
+// Modelantwoorden schrijven bedragen in lopende tekst — ook zonder €-teken.
+check(
+  "feitendetectie herkent lopende financiële tekst",
+  [
+    bevatFinancieleFeiten("De totale omzet in juni bedroeg 493.212 euro."),
+    bevatFinancieleFeiten("Er wacht nog 212.400 euro aan facturatie."),
+    bevatFinancieleFeiten("Er staat 96 duizend euro open aan declaraties."),
+    bevatFinancieleFeiten("De cliënt is verwezen naar een neuroloog."),
+    bevatFinancieleFeiten("De caseload steeg naar 32 cliënten."),
+  ],
+  [true, true, true, false, false],
+);
+
+// Opgeslagen gespreksbeurten (thread-replay): financiële tekst wordt
+// vervangen, het canvas-artefact verdwijnt, schone beurten blijven onaangeroerd.
+const financieleBeurt = {
+  message: {
+    id: "msg-1",
+    role: "assistant",
+    content: [{ type: "text", text: "De omzet bedroeg € 493.000; Infomedics € 68.000." }],
+    metadata: { custom: { artifact: { intent: "financieel-omzet" }, cite: "demo" } },
+  },
+  parentId: null,
+};
+const geredigeerdeBeurt = redigeerFinancieelThreadPayload(financieleBeurt) as typeof financieleBeurt;
+check(
+  "threadredactie vervangt financiële tekst en artefact",
+  [
+    geredigeerdeBeurt.message.content[0].text,
+    "artifact" in (geredigeerdeBeurt.message.metadata.custom as object),
+    JSON.stringify(financieleBeurt.message.content[0].text).includes("493.000"),
+  ],
+  [FINANCIEEL_VERVANGTEKST, false, true],
+);
+const schoneBeurt = {
+  message: { id: "msg-2", role: "assistant", content: [{ type: "text", text: "De no-show daalde naar 5,8%." }] },
+  parentId: null,
+};
+check(
+  "threadredactie laat schone beurt onaangeroerd",
+  redigeerFinancieelThreadPayload(schoneBeurt) === schoneBeurt,
+  true,
+);
+
+// Deterministisch antwoord (demo-/terugvalpad): na redactie bevat het
+// directie-overzicht geen omzettegels, -claims of -zinnen meer.
+const rolregelCtx = {
+  kpis: COCKPIT_KPIS,
+  filters: { periode: "12m" as const, locatie: "Alle locaties", team: "Alle teams" },
+  source: { mode: "demo" as const, label: "Demo-data", detail: "Voorbeeldset Careon" },
+  hr: HR_SEED_STATE,
+};
+const overzichtVoorLid = redigeerFinancieleAssistentResponse(
+  resolveAssistantResponse("Geef mij het overzicht van vandaag", rolregelCtx, "directie-overzicht"),
+);
+check(
+  "assistentredactie: geen financiele tegels in canvas",
+  overzichtVoorLid.artifact.visualizations.every((visual) =>
+    (visual.tiles ?? []).every((tile) => !/omzet|€/i.test(tile.label)),
+  ),
+  true,
+);
+check(
+  "assistentredactie: geen financiele claims",
+  overzichtVoorLid.artifact.claims.every((claim) => !/omzet|declarat|€/i.test(`${claim.title} ${claim.body}`)),
+  true,
+);
+check("assistentredactie: geen omzet in kernantwoord", /omzet|€/i.test(overzichtVoorLid.deep), false);
+check("assistentredactie: kernantwoord blijft bruikbaar", overzichtVoorLid.deep.length > 40, true);
+check(
+  "assistentredactie: geen financiële restinhoud in visualisaties",
+  overzichtVoorLid.artifact.visualizations.every(
+    (visual) => !/omzet|declarat|toeslag|infomedics|€/i.test(JSON.stringify(visual)),
+  ),
+  true,
 );
 
 console.log(`\nverify-careon: ${passes} passed, ${failures} failed`);

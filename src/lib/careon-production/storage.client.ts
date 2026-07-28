@@ -82,14 +82,35 @@ export function loadProductionState(): ProductionState | null {
 
 const AGENDA_KEY = "careon-agenda-v1";
 const VERWIJZERS_KEY = "careon-verwijzers-v1";
+// Markering naast de agenda-kopie: "1" = dit is de financieel-genulde
+// ledenvariant. Redactie behoudt importedAt, dus zonder deze markering zou
+// een latere admin-sessie op dezelfde werkplek de genulde kopie aanzien voor
+// de volledige (remote "niet nieuwer") en € 0 omzet tonen.
+const AGENDA_GEREDIGEERD_KEY = "careon-agenda-geredigeerd";
 
 export function saveAgendaFacts(facts: AgendaFacts): boolean {
   try {
     window.localStorage.setItem(AGENDA_KEY, JSON.stringify(facts));
+    window.localStorage.removeItem(AGENDA_GEREDIGEERD_KEY);
     return true;
   } catch {
     return false;
   }
+}
+
+/** Ledenvariant: bewaart de geredigeerde kopie mét markering. */
+export function saveAgendaFactsGeredigeerd(facts: AgendaFacts): boolean {
+  try {
+    window.localStorage.setItem(AGENDA_KEY, JSON.stringify(facts));
+    window.localStorage.setItem(AGENDA_GEREDIGEERD_KEY, "1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function isAgendaOpslagGeredigeerd(): boolean {
+  return getLocalStorageValue(AGENDA_GEREDIGEERD_KEY) === "1";
 }
 
 export function loadAgendaFacts(): AgendaFacts | null {
@@ -170,7 +191,22 @@ export function loadDeclaratiesFacts(): DeclaratiesFacts | null {
 export function clearAuxFacts(): void {
   try {
     window.localStorage.removeItem(AGENDA_KEY);
+    window.localStorage.removeItem(AGENDA_GEREDIGEERD_KEY);
     window.localStorage.removeItem(VERWIJZERS_KEY);
+    window.localStorage.removeItem(TOESLAGEN_KEY);
+    window.localStorage.removeItem(DECLARATIES_KEY);
+  } catch {
+    // localStorage niet beschikbaar — niets te wissen.
+  }
+}
+
+/**
+ * Wist uitsluitend de volledig-financiële aggregaten. Voor leden op een
+ * gedeelde werkplek: een eerdere admin-sessie kan hier nog toeslagen- en
+ * declaratiecijfers hebben achtergelaten die de server hun nooit meer levert.
+ */
+export function clearFinancieleAuxFacts(): void {
+  try {
     window.localStorage.removeItem(TOESLAGEN_KEY);
     window.localStorage.removeItem(DECLARATIES_KEY);
   } catch {

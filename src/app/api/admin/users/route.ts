@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { scheduleAuditEvent } from "@/lib/careon-audit/audit.server";
 import { isCareonHostedDemoEmail } from "@/lib/careon-demo-account";
-import { CAREON_PASSWORD_HINT, isStrongCareonPassword } from "@/lib/careon-password";
+import { CAREON_PASSWORD_HINT, isStrongCareonPassword, normalizeCareonPassword } from "@/lib/careon-password";
 import { InvalidJsonBodyError, readJsonBodyLimited } from "@/lib/http/read-json.server";
 import { requireSuperadmin } from "@/lib/supabase/session.server";
 
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
   const body = await readBody(request);
   const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
   const fullName = typeof body?.fullName === "string" ? body.fullName.trim().slice(0, 120) : "";
-  const password = typeof body?.password === "string" ? body.password : "";
+  const password = normalizeCareonPassword(typeof body?.password === "string" ? body.password : "");
   const orgId = typeof body?.orgId === "string" ? body.orgId : "";
   const role = body?.role === "org_admin" ? "org_admin" : "member";
   if (!EMAIL_PATTERN.test(email) || !isStrongCareonPassword(password) || !UUID_PATTERN.test(orgId)) {
@@ -155,7 +155,7 @@ export async function PATCH(request: Request) {
 
   let payload: Record<string, unknown>;
   if (action === "reset_password") {
-    const password = typeof body?.password === "string" ? body.password : "";
+    const password = normalizeCareonPassword(typeof body?.password === "string" ? body.password : "");
     if (!isStrongCareonPassword(password)) {
       return NextResponse.json({ error: CAREON_PASSWORD_HINT }, { status: 400 });
     }

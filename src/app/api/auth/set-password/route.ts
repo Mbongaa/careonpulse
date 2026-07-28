@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { enforceLoginRateLimit, loginActorHash } from "@/lib/careon-assistant/runtime.server";
 import { scheduleAuditEvent } from "@/lib/careon-audit/audit.server";
-import { CAREON_PASSWORD_HINT, isStrongCareonPassword } from "@/lib/careon-password";
+import { CAREON_PASSWORD_HINT, isStrongCareonPassword, normalizeCareonPassword } from "@/lib/careon-password";
 import { InvalidJsonBodyError, readJsonBodyLimited } from "@/lib/http/read-json.server";
 import { isCareonDemoMode, isSupabaseAuthConfigured, SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 
@@ -54,7 +54,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Ongeldige aanvraag." }, { status: 400 });
   }
   const tokenHash = typeof body.tokenHash === "string" ? body.tokenHash.trim() : "";
-  const password = typeof body.password === "string" ? body.password : "";
+  // Rand-spaties normaliseren vóór policy én opslag — zie careon-password.ts.
+  const password = normalizeCareonPassword(typeof body.password === "string" ? body.password : "");
   if (!TOKEN_PATTERN.test(tokenHash)) {
     return NextResponse.json({ error: "Deze link is ongeldig of verlopen. Vraag een nieuwe link." }, { status: 400 });
   }

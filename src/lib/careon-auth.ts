@@ -72,6 +72,24 @@ export async function careonSignIn(username: string, password: string): Promise<
   return ok ? "ok" : "invalid";
 }
 
+/**
+ * Landingsroute na een geslaagde login: platformbeheerders gaan direct naar
+ * het superadmin-dashboard, alle andere accounts naar de module-launcher.
+ * Demo-modus (501) en elke fout vallen terug op de launcher.
+ */
+export async function careonPostLoginRoute(): Promise<string> {
+  try {
+    const response = await fetch("/api/auth/session", { cache: "no-store" });
+    if (response.ok) {
+      const payload = (await response.json().catch(() => null)) as { isSuperadmin?: boolean } | null;
+      if (payload?.isSuperadmin === true) return "/admin";
+    }
+  } catch {
+    // Val terug op de launcher; de proxy en (admin)-layout bewaken de routes.
+  }
+  return "/modules";
+}
+
 export async function careonLogout(): Promise<boolean> {
   let response: Response;
   try {

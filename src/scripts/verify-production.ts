@@ -21,6 +21,7 @@ import { COCKPIT_KPIS } from "../data/careon/careon-kpis";
 import { KWALITEIT_COUNTERS } from "../data/careon/careon-kwaliteit";
 import { PATIENTEN_METRICS } from "../data/careon/careon-patienten";
 import { PLANNING_METRICS } from "../data/careon/careon-planning";
+import { bevatFinancieleFeiten } from "../lib/careon-assistant/financieel-gate";
 import { buildProductionAssistantFacts } from "../lib/careon-production/assistant-facts";
 import { computeProductionSnapshot } from "../lib/careon-production/compute-snapshot";
 import {
@@ -44,6 +45,7 @@ import {
   VERWIJZERS_PROVENANCE,
   widgetSource,
 } from "../lib/careon-production/provenance";
+import { redigeerAgendaFactsFinancieel } from "../lib/careon-production/redactie";
 import {
   isAgendaFacts,
   isDeclaratiesFacts,
@@ -2136,6 +2138,130 @@ if (fs.existsSync(echteToeslagenPath)) {
   check("echt toeslagen: geen namen in aggregaat", JSON.stringify(echteFacts).includes("Abdirahman"), false);
 } else {
   console.log("(toeslagen-export niet aanwezig — sanity-pass overgeslagen)");
+}
+
+// ---- Financiële rolregel: redactie voor leden (klantbesluit 28-07-2026) ----
+// De agenda wordt voor leden genuld (niet gestript): de guard blijft slagen,
+// alle niet-financiële cijfers blijven identiek en alleen omzet/onderhanden/
+// facturatie en de financiële signaleringen verdwijnen.
+const agendaLid = redigeerAgendaFactsFinancieel(agendaFacts);
+check("redactie: geredigeerde agenda passeert de guard", isAgendaFacts(agendaLid), true);
+check(
+  "redactie: alle omzetvelden genuld en facturatie leeg",
+  [
+    agendaLid.cellen.every(
+      (cel) => cel.omzetGerealiseerd === 0 && cel.onderhanden === 0 && cel.onderhandenSessies === 0,
+    ),
+    agendaLid.facturatie.length,
+  ],
+  [true, 0],
+);
+const snapLid = computeProductionSnapshot(state, { locatie: "Alle locaties" }, REFERENCE, { agenda: agendaLid });
+const agendaSnapLid = snapLid.agenda;
+if (!agendaSnapLid) {
+  throw new Error("geredigeerde agenda-snapshot ontbreekt");
+}
+const zonderOmzet = (rows: typeof snapAgenda.monthlyFull) =>
+  rows.map(({ omzet, omzetVecozo, omzetServicebureau, omzetRmoRma, ...rest }) => rest);
+check(
+  "redactie: niet-financiële snapshotdelen identiek",
+  JSON.stringify([
+    snapLid.patientenMetrics,
+    snapLid.cockpitSummary,
+    snapLid.zorgvorm,
+    snapLid.wachttijdTrend,
+    snapLid.dossiersProductie,
+    snapLid.behandelaren,
+    zonderOmzet(snapLid.monthlyFull),
+    agendaSnapLid.planningMetrics,
+    agendaSnapLid.noshowWeekdagen,
+    agendaSnapLid.urenverdeling,
+    agendaSnapLid.contact,
+    agendaSnapLid.vooruitblik,
+  ]),
+  JSON.stringify([
+    snapAgenda.patientenMetrics,
+    snapAgenda.cockpitSummary,
+    snapAgenda.zorgvorm,
+    snapAgenda.wachttijdTrend,
+    snapAgenda.dossiersProductie,
+    snapAgenda.behandelaren,
+    zonderOmzet(snapAgenda.monthlyFull),
+    agendaSnap.planningMetrics,
+    agendaSnap.noshowWeekdagen,
+    agendaSnap.urenverdeling,
+    agendaSnap.contact,
+    agendaSnap.vooruitblik,
+  ]),
+);
+check(
+  "redactie: geen financiële signaleringen voor leden",
+  snapLid.signaleringen.filter((alert) => alert.page === "financieel"),
+  [],
+);
+check(
+  "redactie: niet-financiële signaleringen ongewijzigd",
+  snapLid.signaleringen.map((alert) => alert.titel),
+  snapAgenda.signaleringen.filter((alert) => alert.page !== "financieel").map((alert) => alert.titel),
+);
+check(
+  "redactie: cockpit-omzetkaarten dragen geen waarde meer",
+  ["omzettotaal", "omzetverz", "omzetinfo", "omzetrmo"].every((id) => {
+    const kpi = snapLid.cockpitKpis[id];
+    return kpi === undefined || kpi.value === 0;
+  }),
+  true,
+);
+check(
+  "redactie: behandelaarStats houden sessies/uren, omzet 0",
+  Object.entries(agendaSnapLid.behandelaarStats).every(([naam, stats]) => {
+    const vol = agendaSnap.behandelaarStats[naam];
+    return (
+      vol !== undefined &&
+      stats.omzet === 0 &&
+      stats.sessies === vol.sessies &&
+      stats.directeUren === vol.directeUren &&
+      stats.totaleUren === vol.totaleUren
+    );
+  }),
+  true,
+);
+
+// Assistent-grounding voor leden: geen financiële sleutels, en het feitenblad
+// overleeft de server-side contextscrub (grounding blijft bruikbaar).
+const lidFacts = buildProductionAssistantFacts(
+  snapLid,
+  { periode: "12m", locatie: "Alle locaties", team: "Alle teams" },
+  { intent: "directie-overzicht", financieelZichtbaar: false },
+);
+check("redactie: ledengrounding zonder omzet-KPI's", /"id":"omzet/.test(lidFacts), false);
+check("redactie: ledengrounding overleeft contextscrub", bevatFinancieleFeiten(lidFacts), false);
+const lidFinancieel = buildProductionAssistantFacts(
+  snapLid,
+  { periode: "12m", locatie: "Alle locaties", team: "Alle teams" },
+  { intent: "financieel-omzet", financieelZichtbaar: false },
+);
+check("redactie: financieel-intent voor leden = niet beschikbaar", lidFinancieel.includes('"beschikbaar":false'), true);
+// Elke intent moet voor leden schoon zijn — één financiële sleutel of vakterm
+// en de server-scrub gooit het hele feitenblok weg (plus audit-ruis).
+for (const intent of [
+  "directie-overzicht",
+  "noshow-analyse",
+  "capaciteit-planning",
+  "patienten-instroom",
+  "financieel-omzet",
+  "kwaliteit-dossier",
+  "verzuim-hr",
+  "behandelaar-coaching",
+  "databron-status",
+  "assistent-acties",
+] as const) {
+  const grounding = buildProductionAssistantFacts(
+    snapLid,
+    { periode: "12m", locatie: "Alle locaties", team: "Alle teams" },
+    { intent, includeNames: true, financieelZichtbaar: false },
+  );
+  check(`redactie: ledengrounding ${intent} overleeft contextscrub`, bevatFinancieleFeiten(grounding), false);
 }
 
 console.log(`\nverify-production: ${passes} passed, ${failures} failed`);

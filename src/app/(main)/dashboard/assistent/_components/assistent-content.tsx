@@ -18,6 +18,7 @@ import { Activity, BarChart3, Brain, ChevronUp, Loader2, PanelLeft, Printer, X, 
 import { useCareonHr } from "@/app/(main)/dashboard/_components/careon/careon-hr-provider";
 import { useCareonMiddelen } from "@/app/(main)/dashboard/_components/careon/careon-middelen-provider";
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
+import { useCareonSessionInfo } from "@/app/(main)/dashboard/_components/careon/careon-session-provider";
 import { Thread } from "@/components/assistant-ui/thread";
 import { ThreadList, type ThreadListLabels } from "@/components/assistant-ui/thread-list";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +43,8 @@ import { CAREON_LOCATIONS } from "@/data/careon/careon-filters";
 import { COCKPIT_KPIS } from "@/data/careon/careon-kpis";
 import { CAREON_MONTHLY } from "@/data/careon/careon-shared-charts";
 import type { CareonFilters, CareonKpi, CareonSource } from "@/data/careon/careon-types";
+import { FINANCIEEL_WEIGERTEKST, isFinancieleAssistentVraag } from "@/lib/careon-assistant/financieel-gate";
+import { redigeerFinancieleAssistentResponse } from "@/lib/careon-assistant/financieel-redactie";
 import { getCareonAssistantSessionId } from "@/lib/careon-assistant/session.client";
 import { isSupabaseAuthMode } from "@/lib/careon-auth";
 import type { HrState } from "@/lib/careon-hr/types";
@@ -277,6 +280,7 @@ function buildGrounding(
     source: CareonSource;
     production: ProductionSnapshot | null;
     hr: HrState;
+    financieelZichtbaar: boolean;
   },
   query: string,
 ): string {
@@ -291,13 +295,18 @@ function buildGrounding(
     return buildProductionAssistantFacts(ctx.production, ctx.filters, {
       intent: response.artifact.intent,
       includeNames: /\b(behandelaar|medewerker|naam|caseload|coaching)\b/i.test(query),
+      financieelZichtbaar: ctx.financieelZichtbaar,
     });
   }
   const { artifact } = response;
   return JSON.stringify({
     filters: ctx.filters,
     databron: ctx.source.label,
-    cockpitKpis: ctx.kpis.map((kpi) => ({ label: kpi.label, waarde: kpi.value, vorigeMaand: kpi.prev })),
+    // Financiële rolregel: ook de demo-KPI's (omzetkaarten) blijven voor
+    // leden buiten de grounding — de server scrubt daarnaast zelf.
+    cockpitKpis: ctx.kpis
+      .filter((kpi) => ctx.financieelZichtbaar || kpi.page !== "financieel")
+      .map((kpi) => ({ label: kpi.label, waarde: kpi.value, vorigeMaand: kpi.prev })),
     artefact: {
       intent: artifact.intent,
       pagina: artifact.pageLabel,
@@ -323,6 +332,10 @@ function historyFromMessages(messages: ChatModelRunOptions["messages"]) {
 export function AssistentContent() {
   const { kpis, filters, source, production } = useCareon();
   const { state: hr } = useCareonHr();
+  // Financiële rolregel (klantbesluit 28-07-2026): leden krijgen geen
+  // financiële antwoorden, grounding of canvasinhoud; de server-route dwingt
+  // dezelfde regel af.
+  const { financieelZichtbaar } = useCareonSessionInfo();
 
   const [reasoningStyle, setReasoningStyle] = useState<ReasoningStyle>("standaard");
   const reasoningRef = useRef<ReasoningStyle>("standaard");
@@ -587,8 +600,8 @@ export function AssistentContent() {
 
   // Everything the turn generator needs, via a ref so the adapter identity
   // stays stable while filters/source/kpis change between turns.
-  const turnContextRef = useRef({ kpis, filters, source, production, hr });
-  turnContextRef.current = { kpis, filters, source, production, hr };
+  const turnContextRef = useRef({ kpis, filters, source, production, hr, financieelZichtbaar });
+  turnContextRef.current = { kpis, filters, source, production, hr, financieelZichtbaar };
 
   // Middelen-registratie + databron-kandidaten voor assistent-acties
   // (handoff 11): zelfde bron-afleiding als de pagina Medewerkers & middelen.
@@ -622,12 +635,39 @@ export function AssistentContent() {
       return;
     }
 
+    // Financiële rolregel: leden krijgen op financiële vragen een vaste
+    // weigering — geen servercall, geen canvas. De server-route dwingt
+    // dezelfde regel onafhankelijk af.
+    if (
+      !turnContextRef.current.financieelZichtbaar &&
+      (isFinancieleAssistentVraag(text) || intentHint === "financieel-omzet")
+    ) {
+      for (let index = STREAM_CHUNK; index < FINANCIEEL_WEIGERTEKST.length; index += STREAM_CHUNK) {
+        yield runResult(FINANCIEEL_WEIGERTEKST.slice(0, index), {});
+        await sleepFrame(STREAM_FRAME_MS, options.abortSignal);
+      }
+      yield runResult(FINANCIEEL_WEIGERTEKST, {}, true);
+      return;
+    }
+
     setCanvas((prev) => ({ ...prev, pending: true, stage: "thinking" }));
     try {
       yield runResult("", { visualPending: true });
 
       const resolvedResponse = resolveAssistantResponse(text, turnContextRef.current, intentHint);
-      const response =
+      // Vangnet naast de vraagclassificatie: routeert de intentie-inferentie
+      // (bijv. op "verzekeraar") alsnog naar het financiële domein, dan geldt
+      // dezelfde weigering — er wordt nooit een financieel canvas opgebouwd.
+      if (!turnContextRef.current.financieelZichtbaar && resolvedResponse.artifact.intent === "financieel-omzet") {
+        setCanvas((prev) => ({ ...prev, pending: false, stage: prev.artifact ? "ready" : "idle" }));
+        for (let index = STREAM_CHUNK; index < FINANCIEEL_WEIGERTEKST.length; index += STREAM_CHUNK) {
+          yield runResult(FINANCIEEL_WEIGERTEKST.slice(0, index), {});
+          await sleepFrame(STREAM_FRAME_MS, options.abortSignal);
+        }
+        yield runResult(FINANCIEEL_WEIGERTEKST, {}, true);
+        return;
+      }
+      const opgebouwd =
         aiLiveRef.current && turnContextRef.current.production && resolvedResponse.artifact.intent !== "verzuim-hr"
           ? {
               ...resolvedResponse,
@@ -638,6 +678,11 @@ export function AssistentContent() {
               ),
             }
           : resolvedResponse;
+      // Ook niet-financiële beurten dragen voor leden geen financiële tegels,
+      // claims of zinnen in canvas en kernantwoord (demo-/terugvalpad).
+      const response = turnContextRef.current.financieelZichtbaar
+        ? opgebouwd
+        : redigeerFinancieleAssistentResponse(opgebouwd);
       const messageKey = `turn-${Date.now()}`;
       const commitCanvas = () =>
         setCanvas({
@@ -978,7 +1023,12 @@ export function AssistentContent() {
   }, []);
 
   const adapter = useMemo(() => ({ run: runTurn }), [runTurn]);
-  const threadListAdapter = useMemo(() => new CareonAssistantThreadListAdapter(), []);
+  // Financiële rolregel: teruggelezen beurten (server én lokale cache van
+  // een eerdere admin-sessie) worden voor leden geredigeerd.
+  const threadListAdapter = useMemo(
+    () => new CareonAssistantThreadListAdapter(financieelZichtbaar),
+    [financieelZichtbaar],
+  );
   const runtime = useRemoteThreadListRuntime({
     adapter: threadListAdapter,
     runtimeHook: function CareonAssistantThreadRuntime() {
@@ -1089,7 +1139,9 @@ export function AssistentContent() {
                     sendMessage: "Bericht versturen",
                     stopGenerating: "Stoppen met genereren",
                     welcomeTitle: "Goedendag!",
-                    welcomeSubtitle: "Vraag naar patiënten, planning, financiën, kwaliteit of HR.",
+                    welcomeSubtitle: financieelZichtbaar
+                      ? "Vraag naar patiënten, planning, financiën, kwaliteit of HR."
+                      : "Vraag naar patiënten, planning, kwaliteit of HR.",
                   }}
                   footerBeforeComposer={
                     <div className="flex flex-col gap-2">
@@ -1272,6 +1324,9 @@ function AssistantQuickPrompts() {
   const threadRuntime = useThreadRuntime();
   const isRunning = useAuiState((s) => s.thread.isRunning);
   const isEmpty = useAuiState((s) => s.thread.isEmpty);
+  // Financiële rolregel: de omzet-promptchip bestaat voor leden niet.
+  const { financieelZichtbaar } = useCareonSessionInfo();
+  const prompts = ASSISTANT_QUICK_PROMPTS.filter((prompt) => financieelZichtbaar || prompt.id !== "financieel-omzet");
 
   return (
     // One horizontally scrollable row on phones; wraps normally from sm up.
@@ -1283,7 +1338,7 @@ function AssistantQuickPrompts() {
         !isEmpty && "max-sm:hidden",
       )}
     >
-      {ASSISTANT_QUICK_PROMPTS.map((prompt) => (
+      {prompts.map((prompt) => (
         <Button
           key={prompt.id}
           type="button"

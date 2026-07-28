@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { magFinancieelZien } from "@/lib/careon-financieel-rol";
 import { getCareonSession } from "@/lib/supabase/session.server";
 
 // Sessie-informatie voor de UI (accountweergave, admin-toegang). Lekt niets:
@@ -36,6 +37,7 @@ export async function GET() {
       orgId: session.orgId,
       orgRole: session.orgRole,
       isSuperadmin: session.isSuperadmin,
+      financieelZichtbaar: magFinancieelZien(session),
     },
     { headers: { "Cache-Control": "no-store" } },
   );

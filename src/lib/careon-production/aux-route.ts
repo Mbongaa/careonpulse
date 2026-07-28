@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { scheduleAuditEvent } from "@/lib/careon-audit/audit.server";
+import { magFinancieelZien } from "@/lib/careon-financieel-rol";
 import { InvalidJsonBodyError, RequestPayloadTooLargeError, readJsonBodyLimited } from "@/lib/http/read-json.server";
 import { POSTGREST_URL, userRestHeaders } from "@/lib/supabase/postgrest.server";
 import { type CareonSession, requireCareonSession } from "@/lib/supabase/session.server";
@@ -25,7 +26,17 @@ async function storageFetch(input: string, init?: RequestInit): Promise<Response
   }
 }
 
-export function createAuxStateHandlers<T>(table: string, isValid: (value: unknown) => value is T, label: string) {
+/** Financiële rolregel per aggregaat: "geheel" verbergt de volledige staat
+    voor leden (toeslagen/declaraties zijn puur financieel); "redigeer" levert
+    leden een genulde variant (agenda is gemengd — planning/no-show blijven). */
+export type AuxFinancieelBeleid<T> = { modus: "geheel" } | { modus: "redigeer"; redigeer: (state: T) => T };
+
+export function createAuxStateHandlers<T>(
+  table: string,
+  isValid: (value: unknown) => value is T,
+  label: string,
+  financieel?: AuxFinancieelBeleid<T>,
+) {
   async function GET() {
     const auth = await requireCareonSession();
     if ("denied" in auth) return auth.denied;
@@ -45,7 +56,10 @@ export function createAuxStateHandlers<T>(table: string, isValid: (value: unknow
       return NextResponse.json({ error: "Supabase niet bereikbaar." }, { status: 502 });
     }
     const rows = (await response.json()) as { state: unknown }[];
-    const state = rows[0] && isValid(rows[0].state) ? rows[0].state : null;
+    let state = rows[0] && isValid(rows[0].state) ? rows[0].state : null;
+    if (state !== null && financieel && !magFinancieelZien(session)) {
+      state = financieel.modus === "geheel" ? null : financieel.redigeer(state);
+    }
     return NextResponse.json({ configured: true, state });
   }
 
@@ -53,6 +67,18 @@ export function createAuxStateHandlers<T>(table: string, isValid: (value: unknow
     const auth = await requireCareonSession();
     if ("denied" in auth) return auth.denied;
     const session: CareonSession = auth.session;
+    // Wie (een deel van) een aggregaat niet mag zien, mag hem ook niet
+    // vervangen: een push wint org-breed (nieuwste rij). Voor de gemengde
+    // agenda geldt dat evengoed — een lid zou anders zijn geredigeerde
+    // (genulde) GET-kopie kunnen terugposten en zo de omzet van de hele
+    // organisatie wissen. De lokale import in de eigen browser blijft werken;
+    // alleen de centrale vervanging is beheerdersterrein.
+    if (financieel && !magFinancieelZien(session)) {
+      return NextResponse.json(
+        { error: "Alleen organisatiebeheerders kunnen deze export centraal koppelen." },
+        { status: 403 },
+      );
+    }
 
     let body: { state?: unknown; operationId?: unknown };
     try {

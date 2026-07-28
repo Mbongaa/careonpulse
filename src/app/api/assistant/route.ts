@@ -1,4 +1,11 @@
 import {
+  FINANCIEEL_PROMPTREGELS,
+  FINANCIEEL_WEIGERTEKST,
+  filterFinancieleHistory,
+  isFinancieleAssistentVraag,
+  verwijderFinancieleContext,
+} from "@/lib/careon-assistant/financieel-gate";
+import {
   ASSISTANT_API_MODE,
   ASSISTANT_MODEL,
   ASSISTANT_PROMPT_VERSION,
@@ -15,6 +22,7 @@ import {
   pruneAssistantEvents,
   writeAssistantEvent as writeAssistantEventBase,
 } from "@/lib/careon-assistant/runtime.server";
+import { magFinancieelZien } from "@/lib/careon-financieel-rol";
 import { ASSISTANT_MAX_CONTEXT_CHARS } from "@/lib/careon-middelen/assistant-grounding";
 import {
   getAssistantChatTools,
@@ -122,7 +130,12 @@ function allowedTools(body: AssistantRequest): MiddelenToolName[] {
   ];
 }
 
-function systemPrompt(style: "standaard" | "diep", context: string, tools: readonly MiddelenToolName[]): string {
+function systemPrompt(
+  style: "standaard" | "diep",
+  context: string,
+  tools: readonly MiddelenToolName[],
+  financieelGeblokkeerd = false,
+): string {
   const depth =
     style === "diep"
       ? "Geef een diepgaand, diagnostisch antwoord met oorzaken, verbanden en concrete vervolgacties (maximaal circa 10 zinnen)."
@@ -149,6 +162,7 @@ function systemPrompt(style: "standaard" | "diep", context: string, tools: reado
     "Respecteer proxy- en ondergrensdefinities in de context.",
     "Een antwoord is managementondersteuning en geen diagnose, behandeladvies of geautomatiseerd klinisch besluit.",
     depth,
+    ...(financieelGeblokkeerd ? ["", ...FINANCIEEL_PROMPTREGELS] : []),
     ...acties,
     "",
     `PROMPTVERSIE: ${ASSISTANT_PROMPT_VERSION}`,
@@ -225,8 +239,14 @@ function providerRequest(
   steps: StepMessage[],
   tools: MiddelenToolName[],
   actorHash: string,
+  financieelGeblokkeerd: boolean,
 ): { url: string; body: Record<string, unknown> } {
-  const instructions = systemPrompt(body.style === "diep" ? "diep" : "standaard", context, tools);
+  const instructions = systemPrompt(
+    body.style === "diep" ? "diep" : "standaard",
+    context,
+    tools,
+    financieelGeblokkeerd,
+  );
   if (ASSISTANT_API_MODE === "responses") {
     return {
       url: `${OPENAI_API_BASE_URL}/responses`,
@@ -340,17 +360,64 @@ export async function POST(request: Request) {
   const body = await readLimitedJson(request);
   if (!body) return new Response("Ongeldige of te grote aanvraag.", { status: 400, headers: responseHeaders });
   const question = (body.question ?? "").slice(0, MAX_QUESTION_CHARS).trim();
-  const context = (body.context ?? "").slice(0, MAX_CONTEXT_CHARS);
+  let context = (body.context ?? "").slice(0, MAX_CONTEXT_CHARS);
   if (!question) return new Response("Lege vraag.", { status: 400, headers: responseHeaders });
 
   const steps = sanitizeSteps(Array.isArray(body.steps) ? body.steps : []);
   if (steps === null) return new Response("Ongeldige aanvraag.", { status: 400, headers: responseHeaders });
   const tools = allowedTools(body);
   const eventStream = body.events === true || body.tools === true;
-  const history = (body.history ?? [])
+  let history = (body.history ?? [])
     .filter((turn) => (turn.role === "user" || turn.role === "assistant") && typeof turn.content === "string")
     .slice(-MAX_HISTORY_TURNS)
     .map((turn) => ({ role: turn.role, content: turn.content.slice(0, MAX_QUESTION_CHARS) }));
+
+  // Financiële rolregel (klantbesluit 28-07-2026). Alleen hier afdwingbaar:
+  // de context is een client-samengestelde string. Vóór de moderatiecall,
+  // zodat een weigering geen OpenAI-verkeer kost. Demo-modus (identity null)
+  // kent geen rollen en blijft volledig.
+  const financieelToegestaan = identity === null || magFinancieelZien(identity);
+  if (!financieelToegestaan) {
+    if (isFinancieleAssistentVraag(question)) {
+      void writeAssistantEvent({
+        requestId,
+        actorHash,
+        eventType: "request_blocked",
+        model: ASSISTANT_MODEL,
+        statusCode: 200,
+        durationMs: Date.now() - startedAt,
+        metadata: { reason: "financieel_rol" },
+      });
+      // Zelfde wire-vorm als een normaal antwoord: de weigering landt gewoon
+      // als assistentbericht in de chat.
+      if (eventStream) {
+        const frames = [
+          JSON.stringify({ t: "meta", requestId, model: ASSISTANT_MODEL, promptVersion: ASSISTANT_PROMPT_VERSION }),
+          JSON.stringify({ t: "text", d: FINANCIEEL_WEIGERTEKST }),
+          JSON.stringify({ t: "done", reason: "stop" }),
+        ].join("\n");
+        return new Response(`${frames}\n`, {
+          headers: { ...responseHeaders, "Content-Type": "application/x-ndjson; charset=utf-8" },
+        });
+      }
+      return new Response(FINANCIEEL_WEIGERTEKST, {
+        headers: { ...responseHeaders, "Content-Type": "text/plain; charset=utf-8" },
+      });
+    }
+    const geschoond = verwijderFinancieleContext(context);
+    context = geschoond.context;
+    history = filterFinancieleHistory(history);
+    if (geschoond.verwijderd) {
+      void writeAssistantEvent({
+        requestId,
+        actorHash,
+        eventType: "request_blocked",
+        model: ASSISTANT_MODEL,
+        statusCode: 200,
+        metadata: { reason: "financiele_context_verwijderd" },
+      });
+    }
+  }
 
   void pruneAssistantEvents();
   void writeAssistantEvent({
@@ -383,7 +450,7 @@ export async function POST(request: Request) {
     });
   }
 
-  const provider = providerRequest(body, question, context, history, steps, tools, actorHash);
+  const provider = providerRequest(body, question, context, history, steps, tools, actorHash, !financieelToegestaan);
   let upstream: Response;
   try {
     upstream = await fetchOpenAIWithRetry(
