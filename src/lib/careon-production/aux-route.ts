@@ -31,11 +31,21 @@ async function storageFetch(input: string, init?: RequestInit): Promise<Response
     leden een genulde variant (agenda is gemengd — planning/no-show blijven). */
 export type AuxFinancieelBeleid<T> = { modus: "geheel" } | { modus: "redigeer"; redigeer: (state: T) => T };
 
+/**
+ * @param table Basistabel: bron voor POST (insert + idempotentie).
+ * @param leesRelatie Optionele leesrelatie voor GET. Nodig sinds migratie 0015:
+ *   de financiële aggregaten staan in RLS op slot voor gewone leden, en het
+ *   gemengde agenda-aggregaat wordt door hen gelezen via de redigerende view
+ *   `careon_agenda_state_public`. Een view is niet insertable, dus lezen en
+ *   schrijven moeten uiteen kunnen lopen. Zonder waarde blijft alles de
+ *   basistabel gebruiken.
+ */
 export function createAuxStateHandlers<T>(
   table: string,
   isValid: (value: unknown) => value is T,
   label: string,
   financieel?: AuxFinancieelBeleid<T>,
+  leesRelatie?: string,
 ) {
   async function GET() {
     const auth = await requireCareonSession();
@@ -48,15 +58,35 @@ export function createAuxStateHandlers<T>(
       order: "saved_at.desc",
       limit: "1",
     });
-    const response = await storageFetch(`${POSTGREST_URL}/${table}?${params}`, {
+    // Onvoorwaardelijk uit de leesrelatie: de view geeft financieel-
+    // gerechtigden dezelfde volledige staat als de basistabel, dus een
+    // rolafhankelijke keuze zou alleen maar twee paden opleveren die kunnen
+    // uiteenlopen.
+    let response = await storageFetch(`${POSTGREST_URL}/${leesRelatie ?? table}?${params}`, {
       headers: userRestHeaders(session),
       cache: "no-store",
     });
+    // Uitrolvangnet: draait deze code vóór migratie 0015, dan bestaat de view
+    // nog niet (PostgREST: 404). Terugvallen op de basistabel is dan veilig —
+    // de policies van 0010 gelden nog én de redactie hieronder draait toch —
+    // en voorkomt dat het agenda-aggregaat stilzwijgend terugvalt op
+    // demo-constanten. Ná 0015 wordt deze tak nooit meer geraakt.
+    if (leesRelatie && response?.status === 404) {
+      console.warn(`Leesrelatie ${leesRelatie} ontbreekt (migratie 0015 nog niet toegepast?); val terug op ${table}.`);
+      response = await storageFetch(`${POSTGREST_URL}/${table}?${params}`, {
+        headers: userRestHeaders(session),
+        cache: "no-store",
+      });
+    }
     if (!response?.ok) {
       return NextResponse.json({ error: "Supabase niet bereikbaar." }, { status: 502 });
     }
     const rows = (await response.json()) as { state: unknown }[];
     let state = rows[0] && isValid(rows[0].state) ? rows[0].state : null;
+    // Blijft staan náást de RLS/view uit 0015: die dekt alleen de gehoste
+    // databank, terwijl dezelfde redactieregel ook geldt zonder database (demo
+    // en de lokale browseropslag). Twee lagen die hetzelfde nullen kan geen
+    // kwaad; één laag missen wel.
     if (state !== null && financieel && !magFinancieelZien(session)) {
       state = financieel.modus === "geheel" ? null : financieel.redigeer(state);
     }
@@ -72,10 +102,27 @@ export function createAuxStateHandlers<T>(
     // agenda geldt dat evengoed — een lid zou anders zijn geredigeerde
     // (genulde) GET-kopie kunnen terugposten en zo de omzet van de hele
     // organisatie wissen. De lokale import in de eigen browser blijft werken;
-    // alleen de centrale vervanging is beheerdersterrein.
+    // alleen de centrale vervanging is beheerdersterrein. Een merge-on-write
+    // zou de gemengde agenda alsnog kunnen openzetten, maar hoort bij het
+    // aggregaat zelf, en de RLS op deze tabellen weigert de schrijfactie toch
+    // al op databaseniveau — route en database moeten hetzelfde antwoord geven.
+    //
+    // `reden` is er voor de client: dit is een rolbesluit, geen mislukte sync.
+    // Zonder dat onderscheid toont de importkaart de rode "Centrale opslag
+    // mislukt"-melding terwijl er niets kapot is.
     if (financieel && !magFinancieelZien(session)) {
+      scheduleAuditEvent({
+        action: "state.append_denied",
+        resource: table,
+        orgId: session.orgId,
+        userId: session.userId,
+        detail: { reason: "financieel_beheerder" },
+      });
       return NextResponse.json(
-        { error: "Alleen organisatiebeheerders kunnen deze export centraal koppelen." },
+        {
+          error: "Alleen organisatiebeheerders koppelen deze export centraal.",
+          reden: "alleen_beheerder",
+        },
         { status: 403 },
       );
     }
@@ -100,6 +147,10 @@ export function createAuxStateHandlers<T>(
       return NextResponse.json({ error: `Ongeldige ${label}.` }, { status: 400 });
     }
 
+    // Schrijven gaat altijd naar de basistabel — ook de idempotentie-lookup
+    // hieronder. Een view is niet insertable, en de ledenview filtert bovendien
+    // op lidmaatschap, dus een lookup daarop zou rijen kunnen missen die er wél
+    // zijn en de 409 ten onrechte als storing melden.
     const response = await storageFetch(`${POSTGREST_URL}/${table}`, {
       method: "POST",
       headers: userRestHeaders(session),

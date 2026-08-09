@@ -4,8 +4,8 @@ import { useEffect } from "react";
 
 import { createPortal } from "react-dom";
 
+import { useCareonOrgNaam } from "@/app/(main)/dashboard/_components/careon/careon-session-provider";
 import { ASSISTANT_INTENT_META, type AssistantArtifact } from "@/data/careon/careon-assistant";
-import { CAREON_ORG } from "@/data/careon/careon-filters";
 import type { CareonSource } from "@/data/careon/careon-types";
 
 import { AssistantClaims, AssistantSources, AssistantVisualizationBlock } from "./assistant-canvas";
@@ -31,6 +31,7 @@ export function AssistantExportOverlay({
   source,
   onClose,
 }: Readonly<{ payload: AssistantExportPayload; source: CareonSource; onClose: () => void }>) {
+  const orgNaam = useCareonOrgNaam();
   useEffect(() => {
     document.documentElement.dataset.printFlow = "true";
     const handleAfterPrint = () => onClose();
@@ -49,7 +50,7 @@ export function AssistantExportOverlay({
     <div data-print-root data-print-flow="true">
       <div data-print-paper className="bg-white p-10 text-neutral-900">
         <header className="mb-6 border-neutral-300 border-b pb-4">
-          <p className="text-neutral-500 text-xs uppercase tracking-wide">Careon Pulse · {CAREON_ORG.name}</p>
+          <p className="text-neutral-500 text-xs uppercase tracking-wide">Careon Pulse · {orgNaam}</p>
           <h1 className="mt-1 font-semibold text-xl">
             {payload.mode === "artifact" ? "Artefact-export" : "Gespreksexport AI-assistent"}
           </h1>

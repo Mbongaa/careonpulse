@@ -9,6 +9,7 @@ import { careonDetailHref } from "@/data/careon/careon-kpi-details";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 import { PATIENTEN_METRICS } from "@/data/careon/careon-patienten";
 
+import { demoKpiMetric } from "../../details/_lib/kpi-demo-waarde";
 import { PopulatieProfielPanel } from "./populatie-profiel-panel";
 import { TreeknormPanel } from "./treeknorm-panel";
 import { VraagtAandachtPanel } from "./vraagt-aandacht";
@@ -16,14 +17,17 @@ import { WachttijdTrendPanel } from "./wachttijd-trend-panel";
 import { ZorgvormPanel } from "./zorgvorm-panel";
 
 export function PatientenContent() {
-  const { production } = useCareon();
+  const { production, overrides, factor } = useCareon();
 
   // Productie: live metrics (op label) vervangen de demo-constanten; KPI's
   // zonder EPD-bron behouden demo-waarden en dragen een demo-badge. De
   // detailId reist expliciet mee zodat de drill-down in beide modi werkt.
+  // Demo: dezelfde rekenregel als de cockpit en de drilldown (CSV-override +
+  // locatieschaal voor schaalbare KPI's), anders toont "Actieve patiënten" hier
+  // 1.248 waar de cockpit en de detailpagina 549 tonen.
   const metrics = PATIENTEN_METRICS.map((metric) => {
     const live = production?.patientenMetrics[metric.label];
-    return live ? { ...live, detailId: metric.detailId } : metric;
+    return live ? { ...live, detailId: metric.detailId } : demoKpiMetric(metric, overrides, factor);
   });
 
   return (

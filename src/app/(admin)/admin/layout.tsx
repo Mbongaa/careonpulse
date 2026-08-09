@@ -8,6 +8,7 @@ import { ShieldCheck } from "lucide-react";
 import { getCareonSession } from "@/lib/supabase/session.server";
 
 import { AdminNav } from "./_components/admin-nav";
+import { AdminUitloggen } from "./_components/admin-uitloggen";
 
 // Beheerlaag (handoff 13, fase 4): alleen platformbeheerders. De proxy eist al
 // een sessie voor /admin; deze server-side check dwingt de superadmin-rol af —
@@ -36,6 +37,7 @@ export default async function AdminLayout({ children }: Readonly<{ children: Rea
           >
             Naar dashboard
           </Link>
+          <AdminUitloggen />
         </div>
       </header>
       <AdminNav />

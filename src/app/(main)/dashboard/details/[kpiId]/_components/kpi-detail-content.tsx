@@ -14,7 +14,7 @@ import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/care
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
 import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import { Button } from "@/components/ui/button";
-import { demoDetailRows } from "@/data/careon/careon-detail-records";
+import { demoDetailRows, type KpiDetailRow } from "@/data/careon/careon-detail-records";
 import { KPI_DETAIL_BY_ID, type KpiDetailColumn } from "@/data/careon/careon-kpi-details";
 import { CAREON_PAGE_META, CAREON_ROUTES } from "@/data/careon/careon-pages";
 import { CAREON_MONTHS } from "@/data/careon/careon-shared-charts";
@@ -29,6 +29,7 @@ import {
 } from "@/lib/careon-production/detail-rows";
 import { DETAIL_WAIT_NOTES } from "@/lib/careon-production/provenance";
 
+import { demoKpiTrend, demoKpiWaarde } from "../../_lib/kpi-demo-waarde";
 import { KpiDetailTable } from "./kpi-detail-table";
 import { KpiDetailTrend } from "./kpi-detail-trend";
 
@@ -40,7 +41,7 @@ const DOSSIER_LINK_COLUMN: KpiDetailColumn = { key: "dossierUrl", header: "Dossi
 export function KpiDetailContent({ kpiId }: Readonly<{ kpiId: string }>) {
   const entry = KPI_DETAIL_BY_ID.get(kpiId);
   const router = useRouter();
-  const { filters, kpis, factor, production } = useCareon();
+  const { filters, overrides, factor, production } = useCareon();
   const { state: hrState } = useCareonHr();
   const isHrDetail = entry?.page === "hr" && isHrKpiId(kpiId);
   const hrMetric = useMemo(
@@ -55,69 +56,81 @@ export function KpiDetailContent({ kpiId }: Readonly<{ kpiId: string }>) {
 
   // Records: in productie de echte (al op vestiging gefilterde) ClientRecords,
   // anders de deterministische demo-set met client-side locatiefilter.
-  const rows = useMemo(() => {
+  // `locatieOpRijen` legt vast of het locatiefilter daadwerkelijk op deze rijen
+  // is toegepast — het bijschrift mag anders geen locatie claimen.
+  const { rows, locatieOpRijen } = useMemo<{ rows: KpiDetailRow[]; locatieOpRijen: boolean }>(() => {
     if (!entry) {
-      return [];
+      return { rows: [], locatieOpRijen: false };
     }
     if (isHrDetail && hrMetric) {
-      return [
-        {
-          key: "Handmatige HR-registratie",
-          value: hrMetric.value,
-          prev: hrMetric.prev,
-          updatedAt: HR_UPDATED_AT_FORMATTER.format(new Date(hrState.updatedAt)),
-        },
-      ];
+      return {
+        rows: [
+          {
+            key: "Handmatige HR-registratie",
+            value: hrMetric.value,
+            prev: hrMetric.prev,
+            updatedAt: HR_UPDATED_AT_FORMATTER.format(new Date(hrState.updatedAt)),
+          },
+        ],
+        locatieOpRijen: false,
+      };
     }
     if (aggDetail) {
-      return aggDetail.rows;
+      return { rows: aggDetail.rows, locatieOpRijen: true };
     }
     if (production && hasProductionDetailRows(entry.id, production)) {
-      return PRODUCTION_DETAIL_ROWS[entry.id](production);
+      return { rows: PRODUCTION_DETAIL_ROWS[entry.id](production), locatieOpRijen: true };
     }
     const demo = demoDetailRows(entry.id);
-    if (production || filters.locatie === "Alle locaties") {
-      return demo;
+    // Terugval op de demo-set in productie: bewust ongefilterd, want de
+    // demo-records kennen de vestigingen van deze klant niet.
+    if (production) {
+      return { rows: demo, locatieOpRijen: false };
     }
-    return demo.filter((row) => !row.loc || row.loc === filters.locatie);
+    const heeftLocatie = demo.some((row) => Boolean(row.loc));
+    if (filters.locatie === "Alle locaties") {
+      return { rows: demo, locatieOpRijen: heeftLocatie };
+    }
+    return { rows: demo.filter((row) => !row.loc || row.loc === filters.locatie), locatieOpRijen: heeftLocatie };
   }, [entry, production, filters.locatie, aggDetail, isHrDetail, hrMetric, hrState.updatedAt]);
 
   if (!entry) {
     return null;
   }
 
-  // Kop volgt de aangeklikte kaart: productie → live metric; demo → cockpit-KPI
-  // (inclusief locatieschaal en CSV-overrides) of de geauditeerde constante.
+  // Kop volgt de aangeklikte kaart: productie → live metric; demo → dezelfde
+  // rekenregel als élke KPI-kaart (CSV-override, daarna de locatieschaal voor
+  // schaalbare KPI's). Cockpit, eigenaarspagina en drilldown lopen zo alle drie
+  // door demoKpiWaarde en tonen per definitie hetzelfde getal.
   const liveMetric = !isHrDetail && production ? productionDetailMetric(production, entry.id) : null;
-  const cockpitKpi = kpis.find((k) => k.id === entry.id);
   let metric: CareonMetricLike;
   if (hrMetric) {
     metric = hrMetric;
   } else if (liveMetric) {
     metric = { ...liveMetric, label: entry.title };
   } else {
+    const basis = demoKpiWaarde(entry.id, { value: entry.value, prev: entry.prev }, overrides, factor);
     metric = {
       label: entry.title,
-      value: cockpitKpi && !production ? cockpitKpi.value : entry.value,
-      prev: cockpitKpi && !production ? cockpitKpi.prev : entry.prev,
+      value: basis.value,
+      prev: basis.prev,
       f: entry.f,
       betterLow: entry.betterLow,
       neutralDown: entry.neutralDown,
     };
   }
 
-  // Trend: productie alleen wanneer de export een echte reeks kent; demo
-  // schaalt de geauditeerde reeks mee met het locatiefilter.
+  // Trend: productie alleen wanneer de export een echte reeks kent; demo volgt
+  // de kopwaarde, dus dezelfde schaalvlag — anders eindigt de grafiek op een
+  // ander getal dan de kaart erboven.
   const liveTrend = !isHrDetail && production ? productionDetailTrend(production, entry.id) : null;
-  const demoTrend =
-    entry.scale && factor !== 1 ? entry.trend.map((point) => Math.round(point * factor * 10) / 10) : entry.trend;
   let hrTrend: number[] | null = null;
   let trendMonths = liveTrend?.labels;
   if (isHrDetail && hrMetric) {
     hrTrend = kpiId === "verzuim" ? hrState.verzuimTrend : [hrMetric.prev, hrMetric.value];
     trendMonths = kpiId === "verzuim" ? CAREON_MONTHS : ["Vorige maand", "Huidig"];
   }
-  const trend = hrTrend ?? (liveTrend ? liveTrend.values : demoTrend);
+  const trend = hrTrend ?? (liveTrend ? liveTrend.values : demoKpiTrend(entry.id, entry.trend, factor));
   const trendEntry =
     hrTrend && kpiId !== "verzuim" ? { ...entry, trendLabel: "Vorige maand en huidige waarde" } : entry;
   const showTrend = isHrDetail || !production || liveTrend !== null;
@@ -141,20 +154,41 @@ export function KpiDetailContent({ kpiId }: Readonly<{ kpiId: string }>) {
     columns = [...entry.columns, DOSSIER_LINK_COLUMN];
   }
 
+  const locatieGekozen = filters.locatie !== "Alle locaties";
   const teamNote =
     !production && filters.team !== "Alle teams" ? " · teamfilter niet van toepassing op deze detailweergave" : "";
-  let caption = `${nl.format(rows.length)} records · ${filters.locatie}${teamNote}`;
+  // Alleen een locatie noemen waar de rijen er ook echt op zijn gefilterd.
+  let caption = `${nl.format(rows.length)} records · ${locatieOpRijen ? filters.locatie : "Alle locaties"}${teamNote}`;
   if (isHrDetail) {
     caption = "1 handmatige HR-registratie · dezelfde waarde als op de HR-pagina";
   } else if (aggDetail) {
     caption = `${nl.format(rows.length)} ${aggDetail.eenheid} · geaggregeerd (losse afspraakregels worden uit privacy-oogpunt niet bewaard)`;
   }
-  let waitNote: string | undefined;
+
+  const noten: string[] = [];
   if (isHrDetail) {
-    waitNote = "De handmatige registratie bevat totaalwaarden; team- en persoonsregels worden niet afgeleid.";
+    noten.push("De handmatige registratie bevat totaalwaarden; team- en persoonsregels worden niet afgeleid.");
   } else if (production && !liveRows) {
-    waitNote = DETAIL_WAIT_NOTES[entry.page];
+    // Niet elke eigenaarspagina heeft een wachtnotitie.
+    const wachtNote: string | undefined = DETAIL_WAIT_NOTES[entry.page];
+    if (wachtNote) {
+      noten.push(wachtNote);
+    }
+    if (locatieGekozen) {
+      noten.push(`Het locatiefilter (${filters.locatie}) is niet toegepast op deze demo-records.`);
+    }
+  } else if (!production && locatieGekozen && locatieOpRijen) {
+    // Schaalbare KPI: kop én tabel gelden voor de gekozen vestiging, gelijk aan
+    // de kaart waarop is geklikt. Niet-schaalbare KPI's houden de geauditeerde
+    // organisatiebrede waarde terwijl de tabel wél filtert — dat verschil moet
+    // benoemd worden, anders lezen kop en tabel als twee tegenstrijdige cijfers.
+    noten.push(
+      entry.scale
+        ? `Waarde én records gelden voor ${filters.locatie} — hetzelfde getal als op de kaart waarop u klikte.`
+        : `De waarde hierboven geldt organisatiebreed — gelijk aan de kaart op ${CAREON_PAGE_META[entry.page].title}; deze tabel toont alleen ${filters.locatie}.`,
+    );
   }
+  const waitNote = noten.length > 0 ? noten.join(" ") : undefined;
 
   return (
     <div className="@container/main flex flex-col gap-4 md:gap-6">

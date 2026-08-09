@@ -9,11 +9,8 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { careonPostLoginRoute, careonSignIn } from "@/lib/careon-auth";
+import { CAREON_SIGNIN_MESSAGES, careonPostLoginRoute, careonSignIn } from "@/lib/careon-auth";
 import { cn } from "@/lib/utils";
-
-const INVALID_MESSAGE = "Onjuiste combinatie — probeer het opnieuw.";
-const UNAVAILABLE_MESSAGE = "Inloggen is tijdelijk niet beschikbaar — probeer het later opnieuw.";
 
 export function CareonLoginForm({ initiallyUnavailable = false }: Readonly<{ initiallyUnavailable?: boolean }>) {
   const router = useRouter();
@@ -22,7 +19,7 @@ export function CareonLoginForm({ initiallyUnavailable = false }: Readonly<{ ini
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [invalid, setInvalid] = useState(false);
-  const [errorMessage, setErrorMessage] = useState(initiallyUnavailable ? UNAVAILABLE_MESSAGE : "");
+  const [errorMessage, setErrorMessage] = useState(initiallyUnavailable ? CAREON_SIGNIN_MESSAGES.unavailable : "");
   const [shake, setShake] = useState(false);
 
   const canSubmit = username.trim() !== "" && password !== "" && !submitting;
@@ -43,8 +40,10 @@ export function CareonLoginForm({ initiallyUnavailable = false }: Readonly<{ ini
       return;
     }
     setSubmitting(false);
+    // Alleen een échte combinatiefout markeert de velden rood: bij "no-org"
+    // klopten de gegevens wél, dan helpt herinvoeren de gebruiker niet.
     setInvalid(result === "invalid");
-    setErrorMessage(result === "invalid" ? INVALID_MESSAGE : UNAVAILABLE_MESSAGE);
+    setErrorMessage(CAREON_SIGNIN_MESSAGES[result]);
     if (result === "invalid") {
       setShake(true);
       window.setTimeout(() => setShake(false), 550);

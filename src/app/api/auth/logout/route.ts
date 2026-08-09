@@ -23,6 +23,18 @@ export async function POST() {
   if (!user) {
     return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
   }
+  // Organisatie ophalen vóór het uitloggen — daarna is het access token weg en
+  // ziet RLS niets meer. Zonder org_id valt elke uitlogrij buiten het
+  // organisatiefilter van /admin/activiteit; dezelfde volgorde als
+  // getCareonSession(), zodat in- en uitloggen dezelfde organisatie dragen.
+  // Bewust niet via getCareonSession(): die weigert geblokkeerde accounts, en
+  // ook een geblokkeerde gebruiker moet zijn cookies kunnen laten wissen.
+  const { data: memberships } = await supabase
+    .from("organization_members")
+    .select("org_id")
+    .order("created_at")
+    .limit(1);
+  const orgId = (memberships?.[0] as { org_id?: string } | undefined)?.org_id ?? null;
   // De demo-identiteit kan gelijktijdig op meerdere locaties worden gebruikt.
   // Supabase gebruikt standaard global scope; local voorkomt dat één logout
   // alle andere browsers en apparaten van hetzelfde account afmeldt.
@@ -31,11 +43,12 @@ export async function POST() {
     scheduleAuditEvent({
       action: "auth.logout_failed",
       resource: "auth",
+      orgId,
       userId: user.id,
       detail: { reason: error.code ?? "sign_out_failed" },
     });
     return NextResponse.json({ error: "Uitloggen is niet voltooid." }, { status: 502 });
   }
-  scheduleAuditEvent({ action: "auth.logout", resource: "auth", userId: user.id });
+  scheduleAuditEvent({ action: "auth.logout", resource: "auth", orgId, userId: user.id });
   return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
 }

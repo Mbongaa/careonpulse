@@ -256,7 +256,40 @@ function round1(value: number): number {
 
 // Veghel: sinds de export van 2026-07 bevat de cliëntendata ook de tweede
 // instelling (Vurans Veghel) — genormaliseerd tot vestigingsplaats "Veghel".
+// Deze lijst is uitsluitend een weergavevolgorde-hint: welke vestigingen
+// bestáán komt uit de import (zie vestigingenIn/aanwezigeVestigingen).
 export const KNOWN_LOCATIES = ["Tilburg", "Veghel", "Breda", "Roermond"];
+
+/** Weergavevolgorde voor vestigingslabels: bekende vestigingen eerst in hun
+    vaste volgorde, daarna nieuwe vestigingen alfabetisch, "Onbekend" sluit af. */
+function ordenLocaties(labels: Iterable<string>): string[] {
+  const rang = (label: string) => {
+    if (label === "Onbekend") return KNOWN_LOCATIES.length + 1;
+    const index = KNOWN_LOCATIES.indexOf(label);
+    return index === -1 ? KNOWN_LOCATIES.length : index;
+  };
+  return [...new Set(labels)].sort((a, b) => rang(a) - rang(b) || a.localeCompare(b, "nl"));
+}
+
+/** Vestigingen die daadwerkelijk in een export voorkomen — de bron voor het
+    locatiefilter. Een nieuwe vestiging in het EPD (bv. De Zorgpoort of TGC
+    Eindhoven) is daarmee meteen filterbaar in plaats van stil "Onbekend". */
+export function aanwezigeVestigingen(records: readonly ClientRecord[]): string[] {
+  const aanwezig = new Set<string>();
+  for (const record of records) {
+    if (record.vestiging !== null) {
+      aanwezig.add(record.vestiging);
+    }
+  }
+  return ordenLocaties(aanwezig);
+}
+
+/** Vestigingsassen voor de per-locatie-panelen: de bekende vestigingen blijven
+    als vaste kolom staan (ook op 0), aangevuld met alles wat de import verder
+    meebrengt. */
+export function vestigingenIn(records: readonly ClientRecord[]): string[] {
+  return ordenLocaties([...KNOWN_LOCATIES, ...aanwezigeVestigingen(records)]);
+}
 
 // Verwachte uitbetaling (opgave klant, spiegelt zijn FACTURATIE.xlsx):
 // verzekeraarskanalen (Vecozo + servicebureau) ± 65%, RMO/RMA-regelingen 100%.
@@ -285,6 +318,10 @@ export function computeProductionSnapshot(
     filters.locatie === "Alle locaties"
       ? state.records
       : state.records.filter((record) => record.vestiging === filters.locatie);
+
+  // Vestigingsas van deze import: de bekende vier plus alles wat het EPD verder
+  // aanlevert. Zo valt een nieuwe vestiging niet stil in de "Onbekend"-bucket.
+  const locaties = vestigingenIn(state.records);
 
   const months = lastFullMonths(referenceIso, 12);
   const lastMonth = months[months.length - 1];
@@ -392,15 +429,17 @@ export function computeProductionSnapshot(
     { label: "60+ dagen", aantal: urgentWachtenden.length },
   ];
 
-  const wachtlijstPerLocatie: AantalGroep[] = KNOWN_LOCATIES.map((loc) => ({
-    label: loc,
-    aantal: wachtenden.filter((record) => record.vestiging === loc).length,
-  })).filter((groep) => filters.locatie === "Alle locaties" || groep.label === filters.locatie);
+  const wachtlijstPerLocatie: AantalGroep[] = locaties
+    .map((loc) => ({
+      label: loc,
+      aantal: wachtenden.filter((record) => record.vestiging === loc).length,
+    }))
+    .filter((groep) => filters.locatie === "Alle locaties" || groep.label === filters.locatie);
   // Wachtenden zonder (bekende) vestiging horen bij het totaal — zonder deze
   // bucket zouden de locatiebalken niet optellen tot "Totaal wachtend".
   if (filters.locatie === "Alle locaties") {
     const wachtendZonderVestiging = wachtenden.filter(
-      (record) => record.vestiging === null || !KNOWN_LOCATIES.includes(record.vestiging),
+      (record) => record.vestiging === null || !locaties.includes(record.vestiging),
     ).length;
     if (wachtendZonderVestiging > 0) {
       wachtlijstPerLocatie.push({ label: "Onbekend", aantal: wachtendZonderVestiging });
@@ -485,28 +524,28 @@ export function computeProductionSnapshot(
   const wachtHuidig = mean(gerealiseerdeWacht(kwartaalStart, lastMonth.endIso));
   const wachtVorig = mean(gerealiseerdeWacht(vorigKwartaalStart, vorigKwartaalEind));
 
-  const treekLocaties = KNOWN_LOCATIES.filter(
-    (loc) => filters.locatie === "Alle locaties" || loc === filters.locatie,
-  ).map((loc) => {
-    let intakeWaarden = gerealiseerdeWacht(kwartaalStart, lastMonth.endIso, loc);
-    let intakeVenster: "kwartaal" | "12mnd" = "kwartaal";
-    if (intakeWaarden.length < 3) {
-      intakeWaarden = gerealiseerdeWacht(months[0].key.concat("-01"), lastMonth.endIso, loc);
-      intakeVenster = "12mnd";
-    }
-    const intakeGem = mean(intakeWaarden);
-    const behandelingDuur = mean(
-      behandelingWachtenden
-        .filter((record) => record.vestiging === loc)
-        .map((record) => wachtduurDagen(record, referenceIso)),
-    );
-    return {
-      loc,
-      intake: intakeGem === null ? null : round1(intakeGem / 7),
-      behandeling: behandelingDuur === null ? null : round1(behandelingDuur / 7),
-      intakeVenster,
-    };
-  });
+  const treekLocaties = locaties
+    .filter((loc) => filters.locatie === "Alle locaties" || loc === filters.locatie)
+    .map((loc) => {
+      let intakeWaarden = gerealiseerdeWacht(kwartaalStart, lastMonth.endIso, loc);
+      let intakeVenster: "kwartaal" | "12mnd" = "kwartaal";
+      if (intakeWaarden.length < 3) {
+        intakeWaarden = gerealiseerdeWacht(months[0].key.concat("-01"), lastMonth.endIso, loc);
+        intakeVenster = "12mnd";
+      }
+      const intakeGem = mean(intakeWaarden);
+      const behandelingDuur = mean(
+        behandelingWachtenden
+          .filter((record) => record.vestiging === loc)
+          .map((record) => wachtduurDagen(record, referenceIso)),
+      );
+      return {
+        loc,
+        intake: intakeGem === null ? null : round1(intakeGem / 7),
+        behandeling: behandelingDuur === null ? null : round1(behandelingDuur / 7),
+        intakeVenster,
+      };
+    });
 
   // ---- Behandelaren & regiebehandelaren ----
   const behandelaren = [...groupBy(actieveClienten, (record) => record.behandelaar).entries()]
@@ -1067,8 +1106,7 @@ export function computeProductionSnapshot(
   // Over de óngefilterde set: actieve cliënten die bij geen enkele bekende
   // vestiging horen en dus buiten elk locatiefilter vallen (banner-melding).
   const zonderVestiging = state.records.filter(
-    (record) =>
-      activeAt(record, referenceIso) && (record.vestiging === null || !KNOWN_LOCATIES.includes(record.vestiging)),
+    (record) => activeAt(record, referenceIso) && (record.vestiging === null || !locaties.includes(record.vestiging)),
   ).length;
 
   // ---- Agenda-export: planning, no-show, uren, omzet en contactrecentheid ----
@@ -1077,6 +1115,13 @@ export function computeProductionSnapshot(
   if (agendaFacts) {
     const inFilter = (locatie: string | null) => filters.locatie === "Alle locaties" || locatie === filters.locatie;
     const cellen = agendaFacts.cellen.filter((cel) => inFilter(cel.locatie));
+
+    // De agenda-export kan vestigingen bevatten die (nog) niet in de
+    // cliëntendata staan; ook die horen op de per-locatie-assen thuis.
+    const agendaLocaties = ordenLocaties([
+      ...locaties,
+      ...agendaFacts.cellen.map((cel) => cel.locatie).filter((locatie): locatie is string => locatie !== null),
+    ]);
 
     // Blok-rijen (Afwezig) dragen geen locatie: attribueer ze aan de modale
     // sessie-locatie van de behandelaar (gedocumenteerde benadering).
@@ -1304,7 +1349,8 @@ export function computeProductionSnapshot(
         .reduce((sum, blok) => sum + blok.blokMin, 0);
       return { sessieMin, blokMin };
     };
-    const bezettingPerLocatie = KNOWN_LOCATIES.filter((loc) => inFilter(loc))
+    const bezettingPerLocatie = agendaLocaties
+      .filter((loc) => inFilter(loc))
       .map((loc) => {
         const { sessieMin, blokMin } = bezettingVoor(loc);
         const totaal = sessieMin + blokMin;
@@ -1453,7 +1499,7 @@ export function computeProductionSnapshot(
       const label = cel.locatie ?? "Onbekend";
       omzetLocaties.set(label, (omzetLocaties.get(label) ?? 0) + cel.omzet);
     }
-    const omzetPerLocatie = [...KNOWN_LOCATIES, "Onbekend"]
+    const omzetPerLocatie = ordenLocaties([...agendaLocaties, ...omzetLocaties.keys()])
       .filter((loc) => (omzetLocaties.get(loc) ?? 0) > 0)
       .map((loc) => ({ label: loc, aantal: Math.round(omzetLocaties.get(loc) ?? 0) }));
 

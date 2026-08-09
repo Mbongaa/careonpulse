@@ -9,9 +9,19 @@ export type CareonModule = {
   name: string;
   description: string;
   status: CareonModuleStatus;
-  /** Interne route van de module; alleen aanwezig wanneer status "live" is. */
+  /**
+   * Route van de module; alleen aanwezig wanneer status "live" is. Interne
+   * routes ("/dashboard/…") navigeren binnen de app; een volledige URL opent
+   * een externe module (bijv. YAAZ/HumHub op de comms-plane).
+   */
   href?: string;
 };
+
+// YAAZ (Module 2 — communicatie, HumHub op de comms-plane) gaat live zodra de
+// omgeving zijn URL kent: lokaal http://localhost (platform-deploy-stack),
+// later de publieke comms-URL. Zonder URL blijft de tegel "binnenkort", zodat
+// dezelfde code geldig blijft voor omgevingen zonder draaiende comms-plane.
+const YAAZ_URL = process.env.NEXT_PUBLIC_YAAZ_URL;
 
 export const CAREON_MODULES: readonly CareonModule[] = [
   {
@@ -21,10 +31,18 @@ export const CAREON_MODULES: readonly CareonModule[] = [
     status: "live",
     href: "/dashboard/directiecockpit",
   },
-  {
-    id: "yaaz",
-    name: "YAAZ",
-    description: "Nieuwe module voor TGC Groep.",
-    status: "coming-soon",
-  },
+  YAAZ_URL
+    ? {
+        id: "yaaz",
+        name: "YAAZ",
+        description: "Communicatieplatform: nieuwsfeed, berichten, Spaces en bestanden.",
+        status: "live",
+        href: YAAZ_URL,
+      }
+    : {
+        id: "yaaz",
+        name: "YAAZ",
+        description: "Nieuwe module binnen Careon Pulse.",
+        status: "coming-soon",
+      },
 ];

@@ -69,10 +69,17 @@ test.describe("auth", () => {
     await page.waitForURL("**/modules");
     await expect(page.getByRole("heading", { name: "Kies een module" })).toBeVisible();
 
-    // YAAZ staat als "binnenkort" op het scherm en is bewust geen link.
+    // YAAZ: met NEXT_PUBLIC_YAAZ_URL in de build is de tegel een externe link
+    // naar de comms-plane; zonder die URL blijft het bewust "binnenkort" zonder
+    // link. De assertie leest de gebouwde staat (build-time inlined env), zodat
+    // de suite in beide omgevingsvormen geldig blijft.
     await expect(page.getByText("YAAZ", { exact: true })).toBeVisible();
-    await expect(page.getByText("Binnenkort beschikbaar")).toBeVisible();
-    await expect(page.getByRole("link", { name: /YAAZ/ })).toHaveCount(0);
+    const yaazLink = page.getByRole("link", { name: /YAAZ/ });
+    if ((await yaazLink.count()) > 0) {
+      await expect(yaazLink).toHaveAttribute("href", /^https?:\/\//);
+    } else {
+      await expect(page.getByText("Binnenkort beschikbaar")).toBeVisible();
+    }
 
     await page.getByRole("link", { name: /Careon Pulse Directie/ }).click();
     await page.waitForURL("**/dashboard/directiecockpit");

@@ -12,8 +12,14 @@ import type {
   MiddelenState,
   MiddelType,
 } from "@/lib/careon-middelen/types";
+import {
+  bewaakCacheEigenaar,
+  cacheEigenaarOvergenomen,
+  careonCacheEigenaar,
+} from "@/lib/careon-tenant/cache-owner.client";
 
 import { useCareon } from "./careon-provider";
+import { useCareonSessionInfo } from "./careon-session-provider";
 
 // Handmatig bijgehouden middelen & inventaris (handoff 09). De registratie is
 // één administratie los van de databron: opgeslagen staat wint altijd; zonder
@@ -90,6 +96,7 @@ function mergeAudit(huidig: MiddelenChangeAudit | null, volgend: MiddelenChangeA
 
 export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactNode }>) {
   const { isProduction } = useCareon();
+  const sessie = useCareonSessionInfo();
   const [stored, setStored] = useState<MiddelenState | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<MiddelenSyncStatus>("laden");
@@ -107,20 +114,41 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryAttemptRef = useRef(0);
 
+  // Een échte organisatie (ingelogd, met lidmaatschap) start met een lege
+  // registratie — niet met de demoset. Bewust niet op `isProduction`: dat
+  // vereist een geladen EPD-import, en juist een nieuwe organisatie heeft die
+  // nog niet. Zonder deze grens kreeg klant 2 de teams én de tien
+  // demomedewerkers van klant 1 te zien als "haar" registratie, en publiceerde
+  // haar eerste bewerking dat als eigen centrale stand.
+  const echteOrganisatie = sessie.authed && Boolean(sessie.orgId);
   const state = useMemo(() => {
-    const basis = stored ?? (isProduction ? EMPTY_MIDDELEN_STATE : DEMO_MIDDELEN_STATE);
-    return basis.teams === undefined ? { ...basis, teams: TEAM_SEED } : basis;
-  }, [stored, isProduction]);
+    const basis = stored ?? (echteOrganisatie || isProduction ? EMPTY_MIDDELEN_STATE : DEMO_MIDDELEN_STATE);
+    // Een stand van vóór de teamstructuur (v1-cache of een oude centrale rij)
+    // krijgt alsnog een startstand: in demo de geauditeerde structuur, voor een
+    // echte organisatie leeg.
+    if (basis.teams !== undefined) return basis;
+    return { ...basis, teams: echteOrganisatie || isProduction ? [] : TEAM_SEED };
+  }, [stored, echteOrganisatie, isProduction]);
 
   // Synchrone spiegel: opeenvolgende assistentacties lezen altijd de laatst
   // berekende staat, ook voordat React opnieuw heeft gerenderd.
   const stateRef = useRef(state);
   stateRef.current = state;
+  // Eigenaar van de lokale cache (organisatie, of het demo-merk): een cache van
+  // een andere organisatie mag niet gehydrateerd én al helemaal niet gepusht
+  // worden. Via een ref, zodat de hydratatie een echte mount-eenmaligheid blijft.
+  const cacheEigenaarRef = useRef<string | null>(null);
+  cacheEigenaarRef.current = careonCacheEigenaar(sessie);
   const schedulePushRef = useRef<() => void>(() => undefined);
   const scheduleRetryRef = useRef<() => void>(() => undefined);
 
   const flushPending = useCallback(async () => {
     if (pushingRef.current || conflictRef.current || !dirtyRef.current) return;
+    // Nam een andere identiteit deze browser over (tab bleef open, collega
+    // logde in), dan mag deze tab niets meer wegschrijven: de push zou onder
+    // diens cookie landen en de registratie van de nieuwe organisatie
+    // overschrijven. De cache blijft staan; de stempelbewaking ruimt hem op.
+    if (cacheEigenaarOvergenomen(cacheEigenaarRef.current)) return;
     pushingRef.current = true;
     const snapshot = stateRef.current;
     const generation = generationRef.current;
@@ -217,6 +245,7 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
 
   useEffect(() => {
     mountedRef.current = true;
+    bewaakCacheEigenaar(cacheEigenaarRef.current);
     const local = loadMiddelenCache();
     if (local) {
       setStored(local.state);
@@ -257,7 +286,12 @@ export function CareonMiddelenProvider({ children }: Readonly<{ children: ReactN
         stateRef.current = remote.state;
         setStored(remote.state);
         saveMiddelenState(remote.state, { revision: remote.revision, dirty: false });
-      } else if (local) {
+      } else if (local && !cacheEigenaarOvergenomen(cacheEigenaarRef.current)) {
+        // Lege centrale registratie + lokale kopie: die kopie is de enige bron
+        // en wordt alsnog gepubliceerd. Alleen wanneer deze browser inmiddels
+        // van iemand anders is, blijft dat achterwege — anders zou de
+        // inventaris van de vorige organisatie de lege registratie van de
+        // nieuwe vullen.
         dirtyRef.current = true;
         pendingOperationRef.current = crypto.randomUUID();
         pendingAuditRef.current = { source: "manual" };

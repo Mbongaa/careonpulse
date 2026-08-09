@@ -13,6 +13,13 @@ import {
   isHrIsoDate,
   normalizeHrKpiValue,
 } from "@/lib/careon-hr/types";
+import {
+  bewaakCacheEigenaar,
+  cacheEigenaarOvergenomen,
+  careonCacheEigenaar,
+} from "@/lib/careon-tenant/cache-owner.client";
+
+import { useCareonSessionInfo } from "./careon-session-provider";
 
 // Handmatig bijgehouden HR-registratie (handoff 12). Eén administratie los van
 // de databron: opgeslagen staat wint altijd; zonder opgeslagen staat toont de
@@ -67,6 +74,7 @@ function mergeAudit(huidig: HrChangeAudit | null, volgend: HrChangeAudit): HrCha
 }
 
 export function CareonHrProvider({ children }: Readonly<{ children: ReactNode }>) {
+  const sessie = useCareonSessionInfo();
   const [stored, setStored] = useState<HrState | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [syncStatus, setSyncStatus] = useState<HrSyncStatus>("laden");
@@ -88,11 +96,21 @@ export function CareonHrProvider({ children }: Readonly<{ children: ReactNode }>
 
   const stateRef = useRef(state);
   stateRef.current = state;
+  // Eigenaar van de lokale cache (organisatie, of het demo-merk): een cache van
+  // een andere organisatie mag niet gehydrateerd én al helemaal niet gepusht
+  // worden. Via een ref, zodat de hydratatie een echte mount-eenmaligheid blijft.
+  const cacheEigenaarRef = useRef<string | null>(null);
+  cacheEigenaarRef.current = careonCacheEigenaar(sessie);
   const schedulePushRef = useRef<() => void>(() => undefined);
   const scheduleRetryRef = useRef<() => void>(() => undefined);
 
   const flushPending = useCallback(async () => {
     if (pushingRef.current || conflictRef.current || !dirtyRef.current) return;
+    // Nam een andere identiteit deze browser over (tab bleef open, collega
+    // logde in), dan mag deze tab niets meer wegschrijven: de push zou onder
+    // diens cookie landen en de registratie van de nieuwe organisatie
+    // overschrijven. De cache blijft staan; de stempelbewaking ruimt hem op.
+    if (cacheEigenaarOvergenomen(cacheEigenaarRef.current)) return;
     pushingRef.current = true;
     const snapshot = stateRef.current;
     const generation = generationRef.current;
@@ -185,6 +203,7 @@ export function CareonHrProvider({ children }: Readonly<{ children: ReactNode }>
 
   useEffect(() => {
     mountedRef.current = true;
+    bewaakCacheEigenaar(cacheEigenaarRef.current);
     const local = loadHrCache();
     if (local) {
       setStored(local.state);

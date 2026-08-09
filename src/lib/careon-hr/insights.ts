@@ -26,11 +26,24 @@ export function hrMetrics(state: HrState): CareonMetric[] {
   });
 }
 
-export function hrBigBinnenDagen(state: HrState, vandaag: Date, grens = 90): HrBigMetDagen[] {
-  return state.bigRegistraties
+/** Eén definitie van het BIG-venster voor zowel het HR-paneel als de
+    signalering; die liepen uiteen (`<= 90` naast `< 90`), waardoor een
+    registratie die precies over 90 dagen verloopt wél in het paneel stond maar
+    niet in de melding. `inclusiefVerlopen` is het enige verschil dat blijft: het
+    paneel toont ook al verlopen registraties, de melding heet "<90 dgn". */
+export function hrBigVenster(
+  registraties: readonly HrBigRegistratie[],
+  vandaag: Date,
+  { grens = 90, inclusiefVerlopen = false }: { grens?: number; inclusiefVerlopen?: boolean } = {},
+): HrBigMetDagen[] {
+  return registraties
     .map((registratie) => ({ ...registratie, dagen: bigDagenTot(registratie.verloopt, vandaag) }))
-    .filter((registratie) => registratie.dagen >= 0 && registratie.dagen < grens)
+    .filter((registratie) => registratie.dagen < grens && (inclusiefVerlopen ? true : registratie.dagen >= 0))
     .sort((a, b) => a.dagen - b.dagen || a.naam.localeCompare(b.naam, "nl"));
+}
+
+export function hrBigBinnenDagen(state: HrState, vandaag: Date, grens = 90): HrBigMetDagen[] {
+  return hrBigVenster(state.bigRegistraties, vandaag, { grens });
 }
 
 export function formatHrDate(value: string): string {

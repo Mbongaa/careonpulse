@@ -23,6 +23,13 @@ const ROUTES = [
 ];
 
 async function auditRoute(page: Page, route: string, theme: "light" | "dark" | "careon") {
+  // Het logo-merkteken en de tagline faden in over 4,6s, uitsluitend onder
+  // `prefers-reduced-motion: no-preference`. Zonder deze emulatie meet axe soms
+  // een half doorzichtige tagline en meldt het een contrastfout die op het
+  // eindbeeld niet bestaat — een uitkomst die van de timing afhangt, niet van
+  // de toegankelijkheid. Met `reduce` staat de animatie uit en toetsen we de
+  // bedoelde eindkleuren, precies wat een audit hoort te meten.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   // theme_mode is a client cookie read by the theme boot script.
   await page.context().addCookies([{ name: "theme_mode", value: theme, url: "http://localhost:3299" }]);
   await page.addInitScript(() => {

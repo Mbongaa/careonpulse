@@ -6,7 +6,8 @@ import { CRITICAL_ALERT_COUNT } from "@/data/careon/careon-alerts";
 import { CAREON_LOCATION_SCALE, CAREON_LOCATIONS } from "@/data/careon/careon-filters";
 import { COCKPIT_KPIS } from "@/data/careon/careon-kpis";
 import type { CareonFilters, CareonKpi, CareonKpiOverrides, CareonSource } from "@/data/careon/careon-types";
-import { computeProductionSnapshot, KNOWN_LOCATIES } from "@/lib/careon-production/compute-snapshot";
+import { filterFinancieleAlerts } from "@/lib/careon-financieel-rol";
+import { aanwezigeVestigingen, computeProductionSnapshot } from "@/lib/careon-production/compute-snapshot";
 import { redigeerAgendaFactsFinancieel } from "@/lib/careon-production/redactie";
 import {
   fetchRemoteAgendaFacts,
@@ -48,6 +49,7 @@ import type {
   ToeslagenFacts,
   VerwijzersFacts,
 } from "@/lib/careon-production/types";
+import { bewaakCacheEigenaar, careonCacheEigenaar } from "@/lib/careon-tenant/cache-owner.client";
 
 import { useCareonSessionInfo } from "./careon-session-provider";
 
@@ -107,7 +109,12 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
   // al geredigeerde aggregaten, maar dezelfde redactie draait hier nogmaals
   // over álles wat de provider binnenkomt — ook een oudere localStorage-kopie
   // van een gedeelde werkplek toont een lid dan nooit financiële cijfers.
-  const { financieelZichtbaar } = useCareonSessionInfo();
+  // Naast de rol telt de organisatie: een cache van org A mag nooit in een
+  // sessie van org B landen (gedeelde werkplek, sessie verlopen zonder
+  // uitloggen). De eigenaarscontrole draait vóór elke hydratatie.
+  const sessie = useCareonSessionInfo();
+  const financieelZichtbaar = sessie.financieelZichtbaar;
+  const cacheEigenaar = careonCacheEigenaar(sessie);
   const [filters, setFilters] = useState<CareonFilters>({
     periode: "12m",
     locatie: "Alle locaties",
@@ -133,6 +140,7 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
   // oudere import in localStorage hebben. Een expliciete demo-keuze
   // ("Herstel demo-data") blokkeert de auto-activatie tot een nieuwe import.
   useEffect(() => {
+    bewaakCacheEigenaar(cacheEigenaar);
     const stored = loadProductionState();
     // Een gemarkeerd-geredigeerde (leden)kopie is voor een beheerder
     // onbruikbaar — negeren, zodat de volledige centrale versie zo dadelijk
@@ -206,8 +214,8 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
     return () => {
       cancelled = true;
     };
-    // financieelZichtbaar is server-gezaaid en verandert nooit binnen een sessie.
-  }, [financieelZichtbaar]);
+    // Beide waarden zijn server-gezaaid en veranderen nooit binnen een sessie.
+  }, [financieelZichtbaar, cacheEigenaar]);
 
   const setFilter = useCallback((key: keyof CareonFilters, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -272,8 +280,12 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
 
   // Een lid mag de (gemengde) agenda-export wél koppelen — het bestand komt
   // van zijn eigen werkplek — maar houdt lokaal alleen de geredigeerde
-  // variant over; centraal gaat het volledige aggregaat heen (admins zien
-  // omzet dus gewoon).
+  // variant over. De centrale push slaagt alleen voor organisatiebeheerders:
+  // de route weigert een ledenpush met 403 ("alleen_beheerder"), omdat een
+  // teruggeposte geredigeerde kopie anders de omzet van de hele organisatie
+  // zou wissen. Voor een lid blijft de import dus beperkt tot zijn eigen
+  // browser; de importkaart meldt dat rolbesluit apart van een echte
+  // synchronisatiefout.
   const activateAgenda = useCallback(
     async (facts: AgendaFacts): Promise<ActivationResult> => {
       const zichtbaar = financieelZichtbaar ? facts : redigeerAgendaFactsFinancieel(facts);
@@ -347,16 +359,14 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
     [isProduction, productionState, filters.locatie, agendaFacts, verwijzersFacts, toeslagenFacts, declaratiesFacts],
   );
 
-  // Locatiefilter-opties: demo toont de geauditeerde lijst; productie alleen
-  // vestigingen die echt in de data voorkomen (incl. Veghel sinds juli 2026).
+  // Locatiefilter-opties: demo houdt de geauditeerde lijst (CAREON_LOCATIONS is
+  // vastgelegd in verify:careon). Productie leidt de opties af uit de import
+  // zelf, niet uit een vaste vier — een nieuwe vestiging in het EPD (De
+  // Zorgpoort, TGC Eindhoven) is daarmee meteen filterbaar in plaats van stil
+  // op te gaan in "Onbekend".
   const locatieOpties = useMemo<string[]>(() => {
     if (!isProduction || !productionState) return [...CAREON_LOCATIONS];
-    const aanwezig = new Set(
-      productionState.records
-        .map((record) => record.vestiging)
-        .filter((vestiging): vestiging is string => vestiging !== null),
-    );
-    return ["Alle locaties", ...KNOWN_LOCATIES.filter((loc) => aanwezig.has(loc))];
+    return ["Alle locaties", ...aanwezigeVestigingen(productionState.records)];
   }, [isProduction, productionState]);
 
   const kpis = useMemo(
@@ -377,8 +387,13 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
     [overrides, factor],
   );
 
+  // Badge = kritieke signaleringen zoals deze gebruiker ze op Signaleringen
+  // ziet: een financiële regel die voor een lid is weggefilterd mag niet als
+  // onvindbaar cijfer in de badge blijven staan. In demo verandert dat de
+  // geauditeerde telling niet (die regels zijn "middel"/"hoog").
   const alertCount = production
-    ? production.signaleringen.filter((alert) => alert.sev === "kritiek").length
+    ? filterFinancieleAlerts(production.signaleringen, financieelZichtbaar).filter((alert) => alert.sev === "kritiek")
+        .length
     : CRITICAL_ALERT_COUNT;
 
   // Verborgen filters zijn in productie ook semantisch uitgeschakeld: een in

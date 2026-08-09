@@ -17,16 +17,25 @@ import { DOSSIER_CHECKS, DOSSIER_SUMMARY } from "@/data/careon/careon-dossiercon
 import { careonDetailHref } from "@/data/careon/careon-kpi-details";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 
+import { demoKpiWaarde } from "../../details/_lib/kpi-demo-waarde";
+
 const nl = new Intl.NumberFormat("nl-NL");
 const nlDec1 = new Intl.NumberFormat("nl-NL", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 const SEV_BAR_TONE = { kritiek: "bad", hoog: "warn", middel: "accent" } as const;
 
 export function DossiercontroleContent() {
-  const { production } = useCareon();
+  const { production, overrides, factor } = useCareon();
 
   // Eén tegel-definitie voor beide modi: alleen waarde en subtekst wisselen.
   const controle = production ? production.dossiercontrole : null;
+  // Twee tegels dragen een cockpit-KPI ("Gecontroleerde dossiers" = actief,
+  // "Niet compleet" = dossiersnc); die volgen in demo dezelfde rekenregel als
+  // de cockpit- en drilldown-kaart, anders tonen ze onder een locatiefilter een
+  // ander getal dan de detailpagina die ze openen. Compliance en de
+  // dossierkwaliteitsscore zijn niet-schaalbaar en blijven dus ongewijzigd.
+  const demoTegel = (detailId: string, waarde: number) =>
+    demoKpiWaarde(detailId, { value: waarde, prev: null }, overrides, factor).value;
   // Elke tegel opent zijn KPI-drilldown (handoff 08); de tegel-opmaak zelf
   // blijft het geauditeerde origineel.
   const summaryTiles = [
@@ -39,14 +48,14 @@ export function DossiercontroleContent() {
     },
     {
       label: "Gecontroleerde dossiers",
-      value: nl.format(controle ? controle.gecontroleerd : DOSSIER_SUMMARY.gecontroleerd),
+      value: nl.format(controle ? controle.gecontroleerd : demoTegel("actief", DOSSIER_SUMMARY.gecontroleerd)),
       sub: "actieve dossiers",
       widget: "Gecontroleerde dossiers",
       detailId: "actief",
     },
     {
       label: "Niet compleet",
-      value: nl.format(controle ? controle.nietCompleet : DOSSIER_SUMMARY.nietCompleet),
+      value: nl.format(controle ? controle.nietCompleet : demoTegel("dossiersnc", DOSSIER_SUMMARY.nietCompleet)),
       sub: controle ? "mist diagnose, typering of verwijzer" : "kritieke items",
       widget: "Niet compleet",
       detailId: "dossiersnc",

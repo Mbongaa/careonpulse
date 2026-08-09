@@ -18,7 +18,9 @@ export const CAREON_ROUTES: Record<CareonPageId, string> = {
 export const CAREON_PAGE_META: Record<CareonPageId, { title: string; sub: string }> = {
   cockpit: {
     title: "Directiecockpit",
-    sub: "Alles wat er vandaag speelt binnen TGC Groep — in één oogopslag.",
+    // Paginametadata kan niet van de sessie afhangen; de zichtbare kop op de
+    // cockpit noemt de organisatie wél (directiecockpit-content.tsx).
+    sub: "Alles wat er vandaag speelt binnen uw organisatie — in één oogopslag.",
   },
   signaleringen: {
     title: "Signaleringen",

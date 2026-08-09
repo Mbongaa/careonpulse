@@ -35,6 +35,9 @@ export const metadata: Metadata = {
     apple: "/icons/apple-touch-icon.png",
   },
   // De og-afbeelding zelf komt uit src/app/opengraph-image.png (file-conventie).
+  // Titel en omschrijving komen uit APP_CONFIG.meta en zijn bewust klantneutraal:
+  // robots.txt houdt crawlers tegen, maar niet de link-previews van WhatsApp,
+  // Teams of Slack. Voeg hier dus nooit een klantnaam toe.
   openGraph: {
     type: "website",
     locale: "nl_NL",

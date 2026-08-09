@@ -91,9 +91,12 @@ export async function GET() {
 
   // Drie runs i.p.v. één, plus een volledigheidscontrole: een run waarvan de
   // records-insert halverwege faalde mag niet als "laatste stand" doorgaan en
-  // de vorige goede run verduisteren.
+  // de vorige goede run verduisteren. Geordend op created_at (servertijd,
+  // migratie 0017): imported_at is de klok van de importerende browser, en één
+  // werkstation met een scheve klok zette daarmee de nieuwste run onder een
+  // oudere. imported_at blijft in de payload als het gemelde exportmoment.
   const runResponse = await storageFetch(
-    `${POSTGREST_URL}/careon_import_runs?select=id,file_name,imported_at,total_rows&org_id=eq.${session.orgId}&order=imported_at.desc&limit=3`,
+    `${POSTGREST_URL}/careon_import_runs?select=id,file_name,imported_at,total_rows&org_id=eq.${session.orgId}&order=created_at.desc&limit=3`,
     { headers: userRestHeaders(session), cache: "no-store" },
   );
   if (!runResponse?.ok) {

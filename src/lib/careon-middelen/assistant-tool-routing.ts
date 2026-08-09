@@ -18,3 +18,16 @@ export function includeMiddelenNotes(text: string): boolean {
 export function includeMiddelenNames(text: string): boolean {
   return !ALLEEN_AGGREGAAT.test(text) || EXPLICIETE_NAMEN.test(text);
 }
+
+/**
+ * Beslisregel van de live beurt (AVG-risicopunt uit handoff 11): de
+ * personeelsregistratie — namen, functies, talen, teamtags — gaat alleen naar
+ * de AI-provider wanneer de beurt die namen echt nodig heeft. Een pure telling
+ * krijgt uitsluitend aggregaten. Actiebeurten hebben de namen wél nodig (de
+ * executor resolvet erop, en het model moet weten wie er bestaat), net als
+ * vervolgbeurten op een openstaand concept: die bouwen op eerder geraakte
+ * medewerkers voort.
+ */
+export function includeMiddelenNamesForTurn(text: string, openConcept = false): boolean {
+  return openConcept || isMiddelenAction(text) || includeMiddelenNames(text);
+}

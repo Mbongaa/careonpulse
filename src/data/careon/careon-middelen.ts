@@ -138,9 +138,16 @@ export const DEMO_MIDDELEN_STATE: MiddelenState = {
   updatedAt: SEED_UPDATED_AT,
 };
 
+/**
+ * Startstand voor een organisatie zónder eigen registratie (productie-modus).
+ * Bewust géén TEAM_SEED: die structuur is van de eerste klant, en een tweede
+ * organisatie publiceerde bij haar eerste bewerking andermans teams en
+ * locaties als haar eigen registratie. Teams beheert elke organisatie zelf op
+ * Medewerkers & middelen; de demoseed houdt zijn geauditeerde structuur.
+ */
 export const EMPTY_MIDDELEN_STATE: MiddelenState = {
   medewerkers: [],
   inventaris: [],
-  teams: TEAM_SEED,
+  teams: [],
   updatedAt: "1970-01-01T00:00:00.000Z",
 };

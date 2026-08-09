@@ -14,12 +14,14 @@ import {
   Pencil,
   Printer,
   RefreshCw,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { CareonDonut, CareonDonutLegend } from "@/app/(main)/dashboard/_components/careon/careon-donut";
 import { useCareonMiddelen } from "@/app/(main)/dashboard/_components/careon/careon-middelen-provider";
+import { CareonMiddelenSyncLine } from "@/app/(main)/dashboard/_components/careon/careon-middelen-sync-line";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -640,11 +642,37 @@ function ConceptBesluitBalk() {
   const toontConcept = canvas.artifact === concept.artifact;
   const basisVerouderd = concept.status === "open" && registratie.state.updatedAt !== concept.basisUpdatedAt;
 
+  // Toepassen schrijft eerst lokaal en duwt daarna (gedebouncet) naar de
+  // centrale opslag. Die push kan mislukken of op een conflict stuiten; de
+  // balk mag dan geen succes melden — de sync-regel toont de echte stand en
+  // draagt de herstelknoppen (opnieuw proberen / versiekeuze).
+  const centraalNietGelukt = registratie.syncStatus === "fout" || registratie.syncStatus === "conflict";
+
   if (concept.status === "toegepast") {
     return (
-      <div className="flex items-center gap-2 border-b bg-emerald-500/10 px-4 py-2 text-emerald-700 text-xs dark:text-emerald-400">
-        <Check className="size-3.5 shrink-0" />
-        Concept toegepast en opgeslagen ({wijzigingen} wijzigingen).
+      <div
+        className={cn(
+          "flex flex-col border-b",
+          centraalNietGelukt ? "bg-amber-500/10" : "bg-emerald-500/10",
+          registratie.syncStatus === "fout" && "bg-red-500/10",
+        )}
+      >
+        <div
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 text-xs",
+            centraalNietGelukt ? "text-amber-800 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-400",
+          )}
+        >
+          {centraalNietGelukt ? (
+            <TriangleAlert className="size-3.5 shrink-0" />
+          ) : (
+            <Check className="size-3.5 shrink-0" />
+          )}
+          {centraalNietGelukt
+            ? `Concept toegepast in deze browser (${wijzigingen} wijzigingen) — nog niet centraal opgeslagen.`
+            : `Concept toegepast en opgeslagen (${wijzigingen} wijzigingen).`}
+        </div>
+        <CareonMiddelenSyncLine className="border-t px-4 py-1.5" />
       </div>
     );
   }
@@ -673,7 +701,11 @@ function ConceptBesluitBalk() {
               disabled={
                 wijzigingen === 0 ||
                 (destructieveWijzigingen > 0 && !destructiefBevestigd) ||
-                (hogeImpact && !bulkBevestigd)
+                (hogeImpact && !bulkBevestigd) ||
+                // Bij een openstaand conflict duwt de provider niets naar de
+                // centrale opslag; toepassen zou dan stil alleen lokaal landen
+                // en bij "Centrale versie" alsnog verdwijnen.
+                registratie.syncStatus === "conflict"
               }
               onClick={() => besluitConcept("toepassen")}
             >
@@ -735,6 +767,12 @@ function ConceptBesluitBalk() {
             <RefreshCw className="size-3" />
             Herbereken
           </Button>
+        </div>
+      ) : null}
+      {registratie.syncStatus === "conflict" ? (
+        <div className="flex flex-col gap-1 border-amber-500/20 border-t px-4 py-1.5 text-amber-800 text-xs dark:text-amber-300">
+          <span>Toepassen kan pas nadat het versieconflict met de centrale registratie is opgelost.</span>
+          <CareonMiddelenSyncLine />
         </div>
       ) : null}
     </div>

@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CAREON_PASSWORD_HINT, CAREON_PASSWORD_MIN_LENGTH, isStrongCareonPassword } from "@/lib/careon-password";
 
+import { AdminActieMelding } from "../../_components/admin-ui";
+
 // Handmatige provisioning (handoff 13, besluit 3): de beheerder kiest het
 // startwachtwoord en geeft het zelf door — er verlaat geen e-mail het systeem.
 export function UserCreateForm({ organizations }: Readonly<{ organizations: { id: string; name: string }[] }>) {
@@ -21,7 +23,7 @@ export function UserCreateForm({ organizations }: Readonly<{ organizations: { id
   const [orgId, setOrgId] = useState(organizations.length > 0 ? organizations[0].id : "");
   const [role, setRole] = useState<"member" | "org_admin">("member");
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ tone: "ok" | "fout"; tekst: string } | null>(null);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -36,13 +38,13 @@ export function UserCreateForm({ organizations }: Readonly<{ organizations: { id
       });
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
       if (!response.ok) {
-        setMessage(payload?.error ?? "Aanmaken mislukt.");
+        setMessage({ tone: "fout", tekst: payload?.error ?? "Aanmaken mislukt." });
         return;
       }
       setEmail("");
       setFullName("");
       setPassword("");
-      setMessage("Gebruiker aangemaakt. Geef het wachtwoord persoonlijk door.");
+      setMessage({ tone: "ok", tekst: "Gebruiker aangemaakt. Geef het wachtwoord persoonlijk door." });
       router.refresh();
     } finally {
       setBusy(false);
@@ -114,7 +116,11 @@ export function UserCreateForm({ organizations }: Readonly<{ organizations: { id
         {busy && <Loader2 className="size-4 animate-spin" />}
         Aanmaken
       </Button>
-      {message && <p className="w-full text-muted-foreground text-sm">{message}</p>}
+      {message && (
+        <p className="w-full">
+          <AdminActieMelding tone={message.tone}>{message.tekst}</AdminActieMelding>
+        </p>
+      )}
     </form>
   );
 }

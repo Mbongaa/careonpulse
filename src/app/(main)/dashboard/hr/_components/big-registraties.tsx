@@ -4,7 +4,8 @@ import { CareonChartCard } from "@/app/(main)/dashboard/_components/careon/careo
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { HR_BIG_NOTE } from "@/data/careon/careon-hr";
-import { bigDagenTot, type HrBigRegistratie } from "@/lib/careon-hr/types";
+import { hrBigVenster } from "@/lib/careon-hr/insights";
+import type { HrBigRegistratie } from "@/lib/careon-hr/types";
 import { cn, getInitials } from "@/lib/utils";
 
 import { bigDagenBadgeClass, bigDagenLabel } from "./big-badge";
@@ -16,17 +17,15 @@ function toonDatum(iso: string): string {
 }
 
 // Toont de registraties die binnen 90 dagen verlopen (of al verlopen zijn),
-// oplopend op resterende dagen. De dagen worden live berekend uit de opgeslagen
-// verloopdatum, zodat de teller nooit veroudert.
+// oplopend op resterende dagen. Het venster komt uit hrBigVenster, hetzelfde
+// venster dat de signalering gebruikt — de dagen worden live berekend uit de
+// opgeslagen verloopdatum, zodat de teller nooit veroudert.
 export function BigRegistratiesPanel({
   registraties,
   vandaag,
   className,
 }: Readonly<{ registraties: HrBigRegistratie[]; vandaag: Date; className?: string }>) {
-  const rijen = registraties
-    .map((registratie) => ({ ...registratie, dagen: bigDagenTot(registratie.verloopt, vandaag) }))
-    .filter((registratie) => registratie.dagen <= 90)
-    .sort((a, b) => a.dagen - b.dagen);
+  const rijen = hrBigVenster(registraties, vandaag, { inclusiefVerlopen: true });
 
   return (
     <CareonChartCard title="BIG-registraties" sub="Verloopt binnen 90 dagen" className={className} footer={HR_BIG_NOTE}>

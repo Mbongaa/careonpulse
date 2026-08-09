@@ -8,7 +8,10 @@ import { CareonLiveBanner } from "@/app/(main)/dashboard/_components/careon/care
 import { CareonOmzetChart } from "@/app/(main)/dashboard/_components/careon/careon-omzet-chart";
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
-import { useCareonSessionInfo } from "@/app/(main)/dashboard/_components/careon/careon-session-provider";
+import {
+  useCareonOrgNaam,
+  useCareonSessionInfo,
+} from "@/app/(main)/dashboard/_components/careon/careon-session-provider";
 import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import { careonDetailHref } from "@/data/careon/careon-kpi-details";
 import { COCKPIT_INSIGHTS } from "@/data/careon/careon-kpis";
@@ -22,8 +25,9 @@ export function DirectiecockpitContent() {
   // Financiële rolregel: voor leden verdwijnen de omzetkaarten, de
   // omzetgrafiek en het omzet-insight volledig (klantbesluit 28-07-2026).
   const { financieelZichtbaar } = useCareonSessionInfo();
+  const orgNaam = useCareonOrgNaam();
 
-  const scope = filters.locatie === "Alle locaties" ? "binnen TGC Groep" : `binnen locatie ${filters.locatie}`;
+  const scope = filters.locatie === "Alle locaties" ? `binnen ${orgNaam}` : `binnen locatie ${filters.locatie}`;
 
   // In productie-modus vervangen EPD-waarden de demo-constanten voor de
   // live/afgeleide KPI's; demo-KPI's behouden hun waarde en krijgen een badge.

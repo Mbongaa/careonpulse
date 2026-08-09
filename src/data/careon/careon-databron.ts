@@ -31,7 +31,14 @@ export interface CsvParseResult {
 
 // Parser behavior mirrors the audited bundle: ";" or "," separators, decimal
 // commas, and only KPI ids from the Directiecockpit set are recognized.
-export function parseKpiCsv(fileName: string, text: string): CsvParseResult {
+export function parseKpiCsv(
+  fileName: string,
+  text: string,
+  // Reeds geïmporteerde overrides. Zonder deze context zou een tweede,
+  // gedeeltelijke import de afgeleide kopkaart terugrekenen op de
+  // demo-constanten en een totaal tonen dat niet klopt met de splitkaarten.
+  bestaand: Readonly<Record<string, { value: number; prev: number }>> = {},
+): CsvParseResult {
   // Herkenbare cliëntendata-export in de verkeerde kaart: verwijs naar de
   // productie-kaart i.p.v. het generieke "geen herkenbare KPI's"-advies.
   // (Aanvulling op het geauditeerde gedrag: het origineel kende dit bestandstype niet.)
@@ -71,12 +78,13 @@ export function parseKpiCsv(fileName: string, text: string): CsvParseResult {
     };
   }
 
-  // Afgeleide kopkaart: Totale omzet = som van de deelbedragen. Reflecteert de
-  // ge-importeerde waarden (of de bestaande demo-waarden waar een deel ontbreekt),
-  // zodat het kopcijfer nooit uit de pas loopt met de splitsing.
+  // Afgeleide kopkaart: Totale omzet = som van de deelbedragen. Volgorde van
+  // herkomst: dit bestand → een eerdere import → de demo-constante, zodat het
+  // kopcijfer nooit uit de pas loopt met de splitkaarten die de cockpit toont.
   if ("omzetverz" in overrides || "omzetinfo" in overrides) {
     const deel = (id: string): { value: number; prev: number } => {
       if (id in overrides) return overrides[id];
+      if (id in bestaand) return bestaand[id];
       const kpi = COCKPIT_KPIS.find((k) => k.id === id);
       return { value: kpi?.value ?? 0, prev: kpi?.prev ?? 0 };
     };

@@ -18,7 +18,10 @@ import { Activity, BarChart3, Brain, ChevronUp, Loader2, PanelLeft, Printer, X, 
 import { useCareonHr } from "@/app/(main)/dashboard/_components/careon/careon-hr-provider";
 import { useCareonMiddelen } from "@/app/(main)/dashboard/_components/careon/careon-middelen-provider";
 import { useCareon } from "@/app/(main)/dashboard/_components/careon/careon-provider";
-import { useCareonSessionInfo } from "@/app/(main)/dashboard/_components/careon/careon-session-provider";
+import {
+  useCareonOrgNaam,
+  useCareonSessionInfo,
+} from "@/app/(main)/dashboard/_components/careon/careon-session-provider";
 import { Thread } from "@/components/assistant-ui/thread";
 import { ThreadList, type ThreadListLabels } from "@/components/assistant-ui/thread-list";
 import { Badge } from "@/components/ui/badge";
@@ -55,7 +58,11 @@ import {
   type MiddelenBron,
 } from "@/lib/careon-middelen/assistant-executor";
 import { assembleAssistantContext, middelenGrounding } from "@/lib/careon-middelen/assistant-grounding";
-import { includeMiddelenNotes, isMiddelenAction } from "@/lib/careon-middelen/assistant-tool-routing";
+import {
+  includeMiddelenNamesForTurn,
+  includeMiddelenNotes,
+  isMiddelenAction,
+} from "@/lib/careon-middelen/assistant-tool-routing";
 import { MIDDELEN_TOOL_NAMES } from "@/lib/careon-middelen/assistant-tools";
 import { type ConceptActie, createConceptMiddelenApi, replayConceptActies } from "@/lib/careon-middelen/concept";
 import { buildProductionAssistantArtifact } from "@/lib/careon-production/assistant-artifact";
@@ -336,6 +343,8 @@ export function AssistentContent() {
   // financiële antwoorden, grounding of canvasinhoud; de server-route dwingt
   // dezelfde regel af.
   const { financieelZichtbaar } = useCareonSessionInfo();
+  // Klantnaam voor de databron-statuskaart van de assistent.
+  const orgNaam = useCareonOrgNaam();
 
   const [reasoningStyle, setReasoningStyle] = useState<ReasoningStyle>("standaard");
   const reasoningRef = useRef<ReasoningStyle>("standaard");
@@ -600,8 +609,8 @@ export function AssistentContent() {
 
   // Everything the turn generator needs, via a ref so the adapter identity
   // stays stable while filters/source/kpis change between turns.
-  const turnContextRef = useRef({ kpis, filters, source, production, hr, financieelZichtbaar });
-  turnContextRef.current = { kpis, filters, source, production, hr, financieelZichtbaar };
+  const turnContextRef = useRef({ kpis, filters, source, production, hr, financieelZichtbaar, orgNaam });
+  turnContextRef.current = { kpis, filters, source, production, hr, financieelZichtbaar, orgNaam };
 
   // Middelen-registratie + databron-kandidaten voor assistent-acties
   // (handoff 11): zelfde bron-afleiding als de pagina Medewerkers & middelen.
@@ -726,6 +735,9 @@ export function AssistentContent() {
         // blijft veilig binnen de bestaande, nog niet opgeslagen concept-kopie.
         const selectedTools = [...MIDDELEN_TOOL_NAMES];
         const notesRelevant = includeMiddelenNotes(text);
+        // AVG (handoff 11): pure tellingen worden met aggregaten beantwoord —
+        // dan verlaat de personeelsregistratie deze browser niet.
+        const namesRelevant = includeMiddelenNamesForTurn(text, openConcept !== null);
         let toolsUsed = false;
         // Aankondigings-vangnet: één deterministische por wanneer het model
         // acties aankondigt maar stopt zonder tool-aanroepen.
@@ -779,7 +791,7 @@ export function AssistentContent() {
             buildGrounding(response, turnContextRef.current, text),
             middelenGrounding(conceptBasis, middelenRef.current.bron, {
               includeNotes: notesRelevant,
-              includeNames: true,
+              includeNames: namesRelevant,
             }),
             conceptNotitie,
           );
@@ -889,7 +901,9 @@ export function AssistentContent() {
                 if (typeof parsed === "object" && parsed !== null) {
                   args = parsed as ToolCallMessagePart["args"];
                   if (call.name === "lees_middelen_registratie") {
-                    args = { ...args, inclusiefNotities: notesRelevant };
+                    // Zelfde privacygrens als de grounding: het lees-resultaat
+                    // gaat als tool-transcript terug naar de provider.
+                    args = { ...args, inclusiefNotities: notesRelevant, inclusiefNamen: namesRelevant };
                   }
                 } else parseFout = true;
               } catch {

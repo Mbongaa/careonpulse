@@ -24,7 +24,22 @@ import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 import { CAREON_TIMEFRAME_LABELS, type CareonTimeframe, timeframeKeys } from "@/data/careon/careon-timeframe";
 import { KNOWN_LOCATIES } from "@/lib/careon-production/compute-snapshot";
 
+import { demoKpiMetric } from "../../details/_lib/kpi-demo-waarde";
+
 const nl = new Intl.NumberFormat("nl-NL");
+
+/** Weergavevolgorde voor vestigingslabels: bekende vestigingen in hun vaste
+    volgorde, daarna wat de import verder meebrengt alfabetisch, "Onbekend"
+    sluit af. De labels zelf komen uit de snapshot — een nieuwe vestiging mag
+    niet uit het overzicht vallen omdat ze niet in KNOWN_LOCATIES staat. */
+function ordenLocatielabels(labels: Iterable<string>): string[] {
+  const rang = (label: string) => {
+    if (label === "Onbekend") return KNOWN_LOCATIES.length + 1;
+    const index = KNOWN_LOCATIES.indexOf(label);
+    return index === -1 ? KNOWN_LOCATIES.length : index;
+  };
+  return [...new Set(labels)].sort((a, b) => rang(a) - rang(b) || a.localeCompare(b, "nl"));
+}
 
 /** Som per groep over de maandsleutels binnen het gekozen tijdvenster. */
 function venstersom(rows: readonly { key: string; groep: string; omzet: number }[], keys: Set<string>) {
@@ -39,7 +54,7 @@ function venstersom(rows: readonly { key: string; groep: string; omzet: number }
 const eurK = (bedrag: number) => `€ ${nl.format(Math.round(bedrag / 1000))}K`;
 
 export function FinancieelContent() {
-  const { production } = useCareon();
+  const { production, overrides, factor } = useCareon();
   const agenda = production?.agenda;
   const financieel = agenda?.financieel;
   const toeslagen = production?.toeslagen;
@@ -51,12 +66,14 @@ export function FinancieelContent() {
   // Vervangings-patroon: agenda-metrics zijn gesleuteld op de demo-labels.
   // Alle kaarten linken naar hun KPI-drilldown; agenda-/declaratie-gedreven
   // drilldowns tonen daar de geaggregeerde maand- of debiteurentabel.
+  // Demo: dezelfde rekenregel als de cockpit en de drilldown, zodat "Omzet
+  // verzekeraars" hier niet € 425K toont waar de cockpit € 187K toont.
   const metrics = FINANCIEEL_METRICS.map((metric) => {
     const live = financieel?.metrics[metric.label];
     if (live) {
       return { metric: live, detailId: metric.detailId, widget: metric.label };
     }
-    return { metric, detailId: metric.detailId, widget: metric.label };
+    return { metric: demoKpiMetric(metric, overrides, factor), detailId: metric.detailId, widget: metric.label };
   });
   // Productie-exclusieve kaarten zonder demo-slot (driedeling klantoverzicht):
   // "Totale omzet" voorop, "Omzet RMO/RMA" direct na de servicebureau-kaart.
@@ -98,7 +115,7 @@ export function FinancieelContent() {
       financieel.omzetLocatieMaand.map((row) => ({ key: row.key, groep: row.loc, omzet: row.omzet })),
       timeframeKeys(maandKeys, locatieTf),
     );
-    locatieItems = [...KNOWN_LOCATIES, "Onbekend"]
+    locatieItems = ordenLocatielabels(totalen.keys())
       .filter((loc) => (totalen.get(loc) ?? 0) > 0)
       .map((loc) => ({
         label: loc,

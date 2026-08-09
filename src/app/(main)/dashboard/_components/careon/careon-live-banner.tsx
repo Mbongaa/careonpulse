@@ -18,11 +18,18 @@ export function CareonLiveBanner({ page }: Readonly<{ page: string }>) {
     return null;
   }
 
-  // Actieve cliënten zonder (bekende) vestiging vallen buiten elk specifiek
-  // locatiefilter — zonder melding is "Tilburg + Breda + Roermond ≠ totaal"
-  // niet te herleiden.
+  // Actieve cliënten zonder (bekende) vestiging vallen buiten élke
+  // locatie-uitsplitsing — zonder melding is "Tilburg + Breda + Roermond ≠
+  // totaal" niet te herleiden. Ook op "Alle locaties" tonen: juist daar leest
+  // een directeur de per-locatiepanelen als volledig, terwijl deze cliënten in
+  // geen enkele balk meetellen.
+  const zonderVestiging = production.meta.zonderVestiging;
   const buitenFilter =
-    filters.locatie !== "Alle locaties" && production.meta.zonderVestiging > 0 ? production.meta.zonderVestiging : null;
+    zonderVestiging > 0
+      ? `${zonderVestiging} actieve cliënten zonder vestigingslabel vallen buiten ${
+          filters.locatie === "Alle locaties" ? "elke locatie-uitsplitsing" : "dit locatiefilter"
+        }`
+      : null;
 
   const counts = pageLiveCounts(
     page,
@@ -82,7 +89,7 @@ export function CareonLiveBanner({ page }: Readonly<{ page: string }>) {
       {buitenFilter !== null && (
         <>
           <span>·</span>
-          <span>{buitenFilter} actieve cliënten zonder vestigingslabel vallen buiten dit locatiefilter</span>
+          <span>{buitenFilter}</span>
         </>
       )}
     </div>

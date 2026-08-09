@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { scheduleAuditEvent } from "@/lib/careon-audit/audit.server";
-import { isCareonHostedDemoEmail } from "@/lib/careon-demo-account";
+import { CAREON_HOSTED_DEMO_EMAIL_DOMAIN, isCareonHostedDemoEmail } from "@/lib/careon-demo-account";
 import { CAREON_PASSWORD_HINT, isStrongCareonPassword, normalizeCareonPassword } from "@/lib/careon-password";
 import { InvalidJsonBodyError, readJsonBodyLimited } from "@/lib/http/read-json.server";
 import { requireOrgAdmin } from "@/lib/supabase/session.server";
@@ -20,6 +20,11 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Effectief permanent; GoTrue kent geen "oneindig" — 100 jaar volstaat.
 const BAN_FOREVER = "876600h";
+// Canonieke app-URL voor wachtwoord-links. Zonder deze waarde valt de route
+// terug op de door de browser gezette Origin — nooit op Host/x-forwarded-host,
+// want die kiest de aanvrager zelf en zou de link (mét token) naar een vreemd
+// domein wijzen.
+const PUBLIC_APP_URL = process.env.CAREON_PUBLIC_APP_URL?.trim().replace(/\/+$/, "") ?? "";
 
 function serviceHeaders(): HeadersInit {
   return {
@@ -54,12 +59,30 @@ async function restGet<T>(path: string): Promise<T | null> {
   }
 }
 
+/** Basis-URL voor de wachtwoord-link: geconfigureerd, anders de Origin die de
+    browser zelf zet (die gaat bij POST/PATCH altijd mee). Host-achtige headers
+    blijven buiten beschouwing — anders bepaalt de aanvrager waar het token
+    naartoe gaat. */
+function appOrigin(request: Request): string | null {
+  if (PUBLIC_APP_URL) return PUBLIC_APP_URL;
+  const origin = request.headers.get("origin");
+  if (!origin) return null;
+  try {
+    const url = new URL(origin);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Herstel-link voor "wachtwoord zelf instellen" (variant A, geen e-mail-
  * infrastructuur): GoTrue genereert het token, wij bouwen de app-link die de
  * beheerder persoonlijk doorgeeft. Het token verschijnt nooit in audit/logs.
  */
 async function maakWachtwoordLink(email: string, request: Request): Promise<string | null> {
+  const origin = appOrigin(request);
+  if (!origin) return null;
   const response = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
     method: "POST",
     headers: serviceHeaders(),
@@ -69,9 +92,6 @@ async function maakWachtwoordLink(email: string, request: Request): Promise<stri
   if (!response?.ok) return null;
   const payload = (await response.json()) as { hashed_token?: string };
   if (!payload.hashed_token) return null;
-  const origin =
-    request.headers.get("origin") ??
-    `${request.headers.get("x-forwarded-proto") ?? "https"}://${request.headers.get("host") ?? ""}`;
   return `${origin}/auth/v1/wachtwoord-instellen?token=${encodeURIComponent(payload.hashed_token)}`;
 }
 
@@ -82,27 +102,33 @@ interface AuthUserRecord {
   banned_until?: string | null;
 }
 
+async function getAuthUser(userId: string): Promise<AuthUserRecord | null> {
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+    headers: serviceHeaders(),
+    cache: "no-store",
+    signal: AbortSignal.timeout(8_000),
+  }).catch(() => null);
+  if (!response?.ok) return null;
+  return (await response.json()) as AuthUserRecord;
+}
+
 /**
- * Alle auth-accounts, gepagineerd — de gebruikerslijst is platformbreed, dus
- * één pagina van 200 mist leden zodra het totaal daarboven komt en toont dan
- * stille, foute statussen (e-mail "—", banned=false). Cap van 25 pagina's
- * (5.000 accounts) als bovengrens tegen runaway-loops.
+ * Auth-gegevens van precies de leden van déze organisatie. Eerder liep deze
+ * route de volledige platformbrede gebruikerslijst af (tot 25 pagina's van
+ * 200), waardoor de kosten van "Gebruikersbeheer" meeschaalden met alle
+ * tenants samen in plaats van met de eigen organisatie. Alles-of-niets blijft:
+ * een half opgehaalde lijst zou stille, foute statussen tonen (e-mail "—",
+ * banned=false). Gelijktijdigheid begrensd zodat een grote organisatie GoTrue
+ * niet in één klap overspoelt.
  */
-async function listAuthUsersPaged(): Promise<Map<string, AuthUserRecord> | null> {
+async function listAuthUsersById(userIds: string[]): Promise<Map<string, AuthUserRecord> | null> {
   const byId = new Map<string, AuthUserRecord>();
-  for (let page = 1; page <= 25; page += 1) {
-    const response = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?page=${page}&per_page=200`, {
-      headers: serviceHeaders(),
-      cache: "no-store",
-      signal: AbortSignal.timeout(8_000),
-    }).catch(() => null);
-    if (!response?.ok) return null;
-    const payload = (await response.json()) as { users?: AuthUserRecord[] };
-    const users = payload.users ?? [];
-    for (const user of users) byId.set(user.id, user);
-    // Pas stoppen bij een lége pagina: GoTrue mag per_page stilzwijgend
-    // clampen, dus "minder dan gevraagd" is geen betrouwbaar eindsignaal.
-    if (users.length === 0) break;
+  for (let start = 0; start < userIds.length; start += 10) {
+    const records = await Promise.all(userIds.slice(start, start + 10).map((userId) => getAuthUser(userId)));
+    for (const record of records) {
+      if (!record?.id) return null;
+      byId.set(record.id, record);
+    }
   }
   return byId;
 }
@@ -127,15 +153,26 @@ export async function GET() {
   if ("denied" in auth) return auth.denied;
   const orgId = auth.session.orgId as string;
 
-  const [memberships, profiles, platformAdmins, authById] = await Promise.all([
-    restGet<{ user_id: string; role: "org_admin" | "member" }[]>(
-      `organization_members?org_id=eq.${orgId}&select=user_id,role&order=created_at.asc`,
-    ),
-    restGet<{ id: string; full_name: string }[]>("profiles?select=id,full_name"),
-    restGet<{ user_id: string }[]>("platform_admins?select=user_id"),
-    listAuthUsersPaged(),
+  const memberships = await restGet<{ user_id: string; role: "org_admin" | "member" }[]>(
+    `organization_members?org_id=eq.${orgId}&select=user_id,role&order=created_at.asc`,
+  );
+  if (!memberships) {
+    return NextResponse.json({ error: "Ledenlijst kon niet worden opgehaald." }, { status: 502 });
+  }
+  if (memberships.length === 0) {
+    return NextResponse.json({ members: [] }, { headers: { "Cache-Control": "no-store" } });
+  }
+
+  // Profielen en platformrollen worden op dezelfde ledenverzameling begrensd;
+  // een organisatiebeheerder heeft nooit een platformbrede lijst nodig.
+  const memberIds = memberships.map((membership) => membership.user_id).filter((id) => UUID_PATTERN.test(id));
+  const idFilter = `in.(${memberIds.join(",")})`;
+  const [profiles, platformAdmins, authById] = await Promise.all([
+    restGet<{ id: string; full_name: string }[]>(`profiles?select=id,full_name&id=${idFilter}`),
+    restGet<{ user_id: string }[]>(`platform_admins?select=user_id&user_id=${idFilter}`),
+    listAuthUsersById(memberIds),
   ]);
-  if (!memberships || !authById) {
+  if (!authById) {
     return NextResponse.json({ error: "Ledenlijst kon niet worden opgehaald." }, { status: 502 });
   }
   const nameById = new Map((profiles ?? []).map((profile) => [profile.id, profile.full_name]));
@@ -169,8 +206,11 @@ export async function POST(request: Request) {
   if (!EMAIL_PATTERN.test(email)) {
     return NextResponse.json({ error: "Ongeldig e-mailadres." }, { status: 400 });
   }
-  // Het demodomein is gereserveerd voor het vaste demoaccount.
-  if (isCareonHostedDemoEmail(email)) {
+  // Het hele demodomein is gereserveerd, niet alleen user1@: de login vult
+  // kale gebruikersnamen aan met dit domein, dus een account erop zou de
+  // naamruimte van de demo-login overnemen (inloggen als "bob" i.p.v. met een
+  // e-mailadres). De melding sprak al over het domein; de controle nu ook.
+  if (email.endsWith(`@${CAREON_HOSTED_DEMO_EMAIL_DOMAIN}`)) {
     return NextResponse.json({ error: "Dit e-maildomein is gereserveerd." }, { status: 400 });
   }
 
@@ -321,6 +361,15 @@ export async function PATCH(request: Request) {
   if (!response?.ok) {
     return NextResponse.json({ error: "Actie mislukt." }, { status: 502 });
   }
+  // Zelfde nabehandeling als /api/admin/users: er wordt bewust niets
+  // ingetrokken. De GoTrue-beheer-API kent geen pad om andermans sessies te
+  // beëindigen (`admin.signOut()` POST't naar /logout met het JWT van de
+  // gebruiker zélf; /admin/users/{id}/sessions bestaat niet en zou een 404
+  // geven). De blokkade geldt via de sessielaag: getCareonSession() én de
+  // proxy toetsen `banned_until` bij ieder verzoek, dus de toegang valt bij de
+  // eerstvolgende aanvraag dicht. Bij reset_password blijft een al uitgegeven
+  // access token geldig tot zijn vervaltijd — blokkeer het account wanneer de
+  // toegang direct dicht moet.
 
   scheduleAuditEvent({
     action: `org.user.${action}`,

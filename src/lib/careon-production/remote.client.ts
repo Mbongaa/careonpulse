@@ -28,7 +28,13 @@ function syncHeaders(extra?: HeadersInit): HeadersInit {
   return { ...extra };
 }
 
-export type PushResult = "ok" | "unconfigured" | "failed";
+/**
+ * "alleen_beheerder" is géén storing: de route weigert de centrale koppeling
+ * van een financieel (of gemengd) aggregaat aan wie de cijfers niet mag zien.
+ * De import zelf is dan gewoon geslaagd. Zonder dit onderscheid meldt de
+ * importkaart een mislukte synchronisatie voor volstrekt normaal rolgedrag.
+ */
+export type PushResult = "ok" | "unconfigured" | "failed" | "alleen_beheerder";
 
 export async function fetchRemoteProductionState(): Promise<ProductionState | null> {
   try {
@@ -87,6 +93,13 @@ async function pushAuxState(endpoint: string, state: unknown): Promise<PushResul
       body: JSON.stringify({ state, operationId }),
     });
     if (response.status === 501) return "unconfigured";
+    // Twee bronnen van 403 op deze routes: de financiële rolregel (die stuurt
+    // `reden` mee) en een account zonder organisatie. Alleen de eerste is
+    // verwacht gedrag; de tweede moet een storing blijven.
+    if (response.status === 403) {
+      const payload = (await response.json().catch(() => null)) as { reden?: unknown } | null;
+      return payload?.reden === "alleen_beheerder" ? "alleen_beheerder" : "failed";
+    }
     return response.ok ? "ok" : "failed";
   } catch {
     return "failed";

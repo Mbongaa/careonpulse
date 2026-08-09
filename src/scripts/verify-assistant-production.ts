@@ -5,8 +5,9 @@
  */
 
 import type { CareonFilters } from "../data/careon/careon-types";
+import { executeMiddelenTool } from "../lib/careon-middelen/assistant-executor";
 import { assembleAssistantContext, middelenGrounding } from "../lib/careon-middelen/assistant-grounding";
-import { includeMiddelenNames } from "../lib/careon-middelen/assistant-tool-routing";
+import { includeMiddelenNames, includeMiddelenNamesForTurn } from "../lib/careon-middelen/assistant-tool-routing";
 import {
   getAssistantChatTools,
   getAssistantResponsesTools,
@@ -76,13 +77,64 @@ const middelen: MiddelenState = {
 const bron = { medewerkers: ["Test Medewerker", "Bron Medewerker"], locaties: [] };
 const zonderNotities = middelenGrounding(middelen, bron);
 const metNotities = middelenGrounding(middelen, bron, { includeNotes: true });
-const tellingZonderNamen = middelenGrounding(middelen, bron, { includeNames: false });
+// Exact de beslissing die de live beurt neemt (assistent-content.tsx), zodat
+// deze gate meet wat productie doet in plaats van een losse hulpfunctie.
+const telVraag = "Hoeveel medewerkers zijn er?";
+const actieVraag = "Geef Jan Jansen een laptop";
+const tellingZonderNamen = middelenGrounding(middelen, bron, {
+  includeNames: includeMiddelenNamesForTurn(telVraag),
+});
 check("vrije notities standaard geredigeerd", !zonderNotities.includes("PRIVÉ-123"));
 check("vrije notities alleen expliciet beschikbaar", metNotities.includes("PRIVÉ-123"));
-check("pure telling herkent dat namen niet nodig zijn", includeMiddelenNames("Hoeveel medewerkers zijn er?") === false);
+check("pure telling herkent dat namen niet nodig zijn", includeMiddelenNames(telVraag) === false);
+check("live beurt stuurt bij een pure telling geen namen mee", includeMiddelenNamesForTurn(telVraag) === false);
+check("actiebeurt houdt namen beschikbaar voor naam-resolutie", includeMiddelenNamesForTurn(actieVraag) === true);
+check(
+  "vervolgbeurt op een openstaand concept houdt namen beschikbaar",
+  includeMiddelenNamesForTurn(telVraag, true) === true,
+);
 check(
   "pure telling verstuurt aggregaten zonder namen",
   tellingZonderNamen.includes('"aggregaten"') && !tellingZonderNamen.includes("Test Medewerker"),
+);
+
+// Het lees-tool gaat als tool-transcript terug naar de provider en moet
+// dezelfde grens hanteren als de grounding.
+const conceptApi = {
+  getState: () => middelen,
+  setMiddel: () => undefined,
+  setFunctie: () => undefined,
+  setUitDienst: () => undefined,
+  setTaal: () => undefined,
+  setTeamTag: () => undefined,
+  setNotitie: () => undefined,
+  addPersoon: () => false,
+  removePersoon: () => undefined,
+  addTeam: () => false,
+  removeTeam: () => undefined,
+  setInventarisVeld: () => undefined,
+  addLocatie: () => false,
+  removeLocatie: () => undefined,
+};
+const leesZonderNamen = executeMiddelenTool(
+  "lees_middelen_registratie",
+  { inclusiefNamen: includeMiddelenNamesForTurn(telVraag) },
+  conceptApi,
+  bron,
+);
+const leesMetNamen = executeMiddelenTool(
+  "lees_middelen_registratie",
+  { inclusiefNamen: includeMiddelenNamesForTurn(actieVraag) },
+  conceptApi,
+  bron,
+);
+check(
+  "lees-tool laat namen weg bij een pure telling",
+  !JSON.stringify(leesZonderNamen.registratie).includes("Test Medewerker"),
+);
+check(
+  "lees-tool geeft bij een actiebeurt de namen wel",
+  JSON.stringify(leesMetNamen.registratie).includes("Test Medewerker"),
 );
 check(
   "niet-relevante middelencontext kan volledig wegblijven",

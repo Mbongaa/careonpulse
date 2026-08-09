@@ -162,6 +162,14 @@ function bulkDoelen(
   return { doelen: overgebleven, onbekend };
 }
 
+function telling(waarden: (string | undefined)[]): Record<string, number> {
+  const resultaat: Record<string, number> = {};
+  for (const waarde of waarden) {
+    if (waarde) resultaat[waarde] = (resultaat[waarde] ?? 0) + 1;
+  }
+  return resultaat;
+}
+
 type Handler = (args: Record<string, unknown>, api: MiddelenActieApi, bron: MiddelenBron) => MiddelenActieResultaat;
 
 const HANDLERS: Record<MiddelenToolName, Handler> = {
@@ -170,9 +178,34 @@ const HANDLERS: Record<MiddelenToolName, Handler> = {
     const geregistreerd = new Set(state.medewerkers.map((rij) => rij.naam));
     const zonderRegistratie = bron.medewerkers.filter((naam) => !geregistreerd.has(naam));
     const inclusiefNotities = args.inclusiefNotities === true;
+    // AVG (handoff 11): de client zet dit op false bij een pure telling —
+    // dan mag ook dit tool-resultaat de personeelsregistratie niet alsnog naar
+    // de provider lekken. Standaard true, zodat actiebeurten onveranderd
+    // blijven werken.
+    const inclusiefNamen = args.inclusiefNamen !== false;
+    const melding = `Registratie gelezen: ${state.medewerkers.length + zonderRegistratie.length} medewerkers in totaal (${state.medewerkers.length} met registratierij, ${zonderRegistratie.length} uit de databron zonder registratie), ${state.inventaris.length} inventarislocaties.`;
+    if (!inclusiefNamen) {
+      return {
+        status: "ok",
+        melding,
+        registratie: {
+          toelichting:
+            "Alleen aggregaten: deze vraag is een telling, dus medewerkersnamen zijn niet meegestuurd. Vraag de gebruiker om een expliciete namenvraag wanneer de naam toch nodig is.",
+          aantalMedewerkersTotaal: state.medewerkers.length + zonderRegistratie.length,
+          aantalGeregistreerd: state.medewerkers.length,
+          aantalBronZonderRegistratie: zonderRegistratie.length,
+          aantalUitDienst: state.medewerkers.filter((rij) => rij.uitDienst).length,
+          middelen: telling(state.medewerkers.flatMap((rij) => rij.middelen)),
+          functies: telling(state.medewerkers.map((rij) => rij.functie)),
+          talen: telling(state.medewerkers.flatMap((rij) => rij.talen ?? [])),
+          teamtags: telling(state.medewerkers.flatMap((rij) => rij.teams ?? [])),
+          inventaris: state.inventaris,
+        },
+      };
+    }
     return {
       status: "ok",
-      melding: `Registratie gelezen: ${state.medewerkers.length + zonderRegistratie.length} medewerkers in totaal (${state.medewerkers.length} met registratierij, ${zonderRegistratie.length} uit de databron zonder registratie), ${state.inventaris.length} inventarislocaties.`,
+      melding,
       registratie: {
         medewerkers: state.medewerkers.slice(0, MAX_LEES_MEDEWERKERS).map((rij) => {
           // accountEmail (Gebruikersbeheer) is account-PII en voor geen enkele

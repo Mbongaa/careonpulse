@@ -130,6 +130,8 @@ export interface AssistantContext {
   source: CareonSource;
   /** Actuele handmatige HR-registratie; seed alleen voor oudere aanroepers/tests. */
   hr?: HrState;
+  /** Naam van de organisatie van de aanvrager; leeg = geauditeerde demo-klant. */
+  orgNaam?: string;
 }
 
 export const ASSISTANT_INTENT_META: Record<AssistantIntentId, { label: string }> = {
@@ -1113,7 +1115,7 @@ function buildDatabronStatus(query: string, ctx: AssistantContext): AssistantRes
         id: "bron",
         kind: "status-card",
         title: "Actieve databron",
-        sub: `${CAREON_ORG.name} · ${CAREON_ORG.customerChip}`,
+        sub: ctx.orgNaam?.trim() ? ctx.orgNaam.trim() : `${CAREON_ORG.name} · ${CAREON_ORG.customerChip}`,
         statusRows: [
           { title: ctx.source.label, detail: ctx.source.detail, tone: modeTone },
           {

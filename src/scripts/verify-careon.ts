@@ -9,11 +9,13 @@
  * Usage: npm run verify:careon  (release gate G5)
  */
 
+import { demoKpiTrend, demoKpiWaarde } from "../app/(main)/dashboard/details/_lib/kpi-demo-waarde";
 import { CAREON_ALERTS, CRITICAL_ALERT_COUNT } from "../data/careon/careon-alerts";
 import { ASSISTANT_QUICK_PROMPTS, resolveAssistantResponse } from "../data/careon/careon-assistant";
 import { BEHANDELAREN, caseloadTone, ncTone, noshowTone } from "../data/careon/careon-behandelaren";
 import { parseKpiCsv, SAMPLE_CSV_CONTENT } from "../data/careon/careon-databron";
 import { buildDetailRowsFresh, DETAIL_LOCS, demoDetailRows } from "../data/careon/careon-detail-records";
+import { DOSSIER_SUMMARY } from "../data/careon/careon-dossiercontrole";
 import {
   ACTIEVE_CLIENTEN,
   DIAGNOSE_GROEPEN,
@@ -41,7 +43,7 @@ import { PATIENTEN_METRICS } from "../data/careon/careon-patienten";
 import { PLANNING_METRICS } from "../data/careon/careon-planning";
 import { CAREON_MONTHLY } from "../data/careon/careon-shared-charts";
 import { sliceTimeframe, timeframeKeys } from "../data/careon/careon-timeframe";
-import type { CareonMetric } from "../data/careon/careon-types";
+import type { CareonKpiFormat, CareonMetric } from "../data/careon/careon-types";
 import {
   bevatFinancieleFeiten,
   FINANCIEEL_VERVANGTEKST,
@@ -488,6 +490,116 @@ for (const id of ["omzetverz", "omzetinfo"]) {
     DETAIL_LOCS.map((loc) => entry.value * CAREON_LOCATION_SCALE[loc]),
   );
 }
+
+// ---- Kaart ≡ drilldown-kop onder elk locatiefilter ----
+// De incoherentie die dit blok bewaakt: de Directiecockpit schaalt zijn kaarten
+// met de locatiefactor en verwerkt de Databron-CSV, de eigenaarspagina's deden
+// geen van beide — dezelfde KPI toonde één klik verderop twee getallen. Alle
+// kaarten lopen nu door demoKpiWaarde; deze assertions vallen om zodra één
+// plek die regel weer omzeilt.
+
+// 1. De gedeelde regel reproduceert de cockpit-provider exact (careon-provider
+//    berekent `kpis` nog inline; die inline-versie is hier het referentiepunt).
+for (const loc of CAREON_LOCATIONS) {
+  const f = CAREON_LOCATION_SCALE[loc];
+  for (const kpi of COCKPIT_KPIS) {
+    const verwacht =
+      kpi.scale && f !== 1
+        ? { value: Math.round(kpi.value * f), prev: Math.round(kpi.prev * f) }
+        : { value: kpi.value, prev: kpi.prev };
+    check(`cockpitregel = gedeelde regel ${kpi.id} ${loc}`, demoKpiWaarde(kpi.id, kpi, {}, f), verwacht);
+  }
+}
+
+// 2. Elke kaart met een drilldown toont onder elk locatiefilter exact de
+//    kopwaarde van die drilldown. Dossiercontrole rendert samenvattingstegels
+//    i.p.v. CareonMetric-kaarten, dus die staan hier expliciet.
+const DOSSIER_TEGELS: { page: string; detailId: string; value: number; f: CareonKpiFormat }[] = [
+  { page: "dossiers", detailId: "dossier-compliance", value: DOSSIER_SUMMARY.compliancePct, f: "pct" },
+  { page: "dossiers", detailId: "actief", value: DOSSIER_SUMMARY.gecontroleerd, f: "int" },
+  { page: "dossiers", detailId: "dossiersnc", value: DOSSIER_SUMMARY.nietCompleet, f: "int" },
+  { page: "dossiers", detailId: "dossierkwaliteit", value: DOSSIER_SUMMARY.auditScore, f: "dec1" },
+];
+const kaartenMetDrilldown = [
+  ...CARD_SOURCES.flatMap(([page, metrics]) =>
+    metrics.filter((m) => m.detailId).map((m) => ({ page, detailId: m.detailId as string, value: m.value, f: m.f })),
+  ),
+  ...DOSSIER_TEGELS,
+];
+for (const loc of CAREON_LOCATIONS) {
+  const f = CAREON_LOCATION_SCALE[loc];
+  for (const kaart of kaartenMetDrilldown) {
+    const entry = KPI_DETAIL_BY_ID.get(kaart.detailId);
+    // Gedeelde entry met een andere weergavevorm (planning "No-shows" 63 ↔
+    // cockpit "No-show" 3,4%): daar dekt de tel-reconciliatie de kaartwaarde.
+    if (!entry || entry.f !== kaart.f) {
+      continue;
+    }
+    check(
+      `kaart = drilldown-kop ${kaart.page} ${kaart.detailId} ${loc}`,
+      demoKpiWaarde(kaart.detailId, { value: kaart.value, prev: null }, {}, f).value,
+      demoKpiWaarde(kaart.detailId, { value: entry.value, prev: null }, {}, f).value,
+    );
+  }
+}
+
+// 3. De kop van een schaalbare drilldown = de tabel eronder. Tellingen mogen
+//    ±1 afwijken (zondervervolg 31: de drie afrondingen sommeren tot 32).
+for (const loc of DETAIL_LOCS) {
+  const f = CAREON_LOCATION_SCALE[loc];
+  for (const entry of KPI_DETAILS.filter((d) => d.scale)) {
+    const kop = demoKpiWaarde(entry.id, { value: entry.value, prev: null }, {}, f).value;
+    const rijen = demoDetailRows(entry.id).filter((r) => !r.loc || r.loc === loc);
+    const rec = entry.reconcile;
+    if (rec.kind === "count") {
+      check(`kop = tabel ${entry.id} ${loc}`, Math.abs(rijen.length - kop) <= 1, true);
+    } else if (rec.kind === "sum") {
+      const som = rijen.reduce((sum, r) => sum + Number(r[rec.field] ?? 0), 0);
+      check(`kop = tabelsom ${entry.id} ${loc}`, Math.round(som), kop);
+    }
+  }
+}
+
+// 4. De trendgrafiek eindigt op de kopwaarde (eurK-reeksen in duizenden).
+for (const loc of CAREON_LOCATIONS) {
+  const f = CAREON_LOCATION_SCALE[loc];
+  for (const entry of KPI_DETAILS.filter((d) => d.scale)) {
+    const kop = demoKpiWaarde(entry.id, { value: entry.value, prev: null }, {}, f).value;
+    const inK = entry.f === "eurK" ? 1000 : 1;
+    const verwacht = entry.f === "int" ? Math.round(kop / inK) : Math.round((kop / inK) * 10) / 10;
+    check(`trend eindigt op kopwaarde ${entry.id} ${loc}`, demoKpiTrend(entry.id, entry.trend, f)[11], verwacht);
+  }
+}
+
+// 5. Percentages en scores schalen nooit mee met een locatie (geauditeerde regel).
+for (const loc of CAREON_LOCATIONS) {
+  const f = CAREON_LOCATION_SCALE[loc];
+  for (const entry of KPI_DETAILS.filter((d) => d.f === "pct" || d.f === "pct0" || d.f === "dec1")) {
+    check(
+      `percentage/score schaalt niet ${entry.id} ${loc}`,
+      demoKpiWaarde(entry.id, { value: entry.value, prev: null }, {}, f).value,
+      entry.value,
+    );
+  }
+}
+
+// 6. Databron-CSV: de override komt op elke kaart terecht (niet alleen de
+//    cockpit) en gaat vóór de locatieschaal, precies zoals in de bron-bundle.
+const csvOverrides = { actief: { value: 1300, prev: 1248 } };
+check("csv-override op alle kaarten", demoKpiWaarde("actief", { value: 1248, prev: 1215 }, csvOverrides, 1), {
+  value: 1300,
+  prev: 1248,
+});
+check(
+  "csv-override schaalt daarna mee",
+  demoKpiWaarde("actief", { value: 1248, prev: 1215 }, csvOverrides, CAREON_LOCATION_SCALE.Tilburg),
+  { value: Math.round(1300 * 0.44), prev: Math.round(1248 * 0.44) },
+);
+check(
+  "csv-override raakt alleen zijn eigen KPI",
+  demoKpiWaarde("wachtlijst-intake", { value: 43, prev: 51 }, csvOverrides, 1),
+  { value: 43, prev: 51 },
+);
 
 // Wachtlijst: één consistente set — locatieverdeling en duur-buckets geauditeerd.
 const wachtRows = demoDetailRows("wachtlijst-totaal");

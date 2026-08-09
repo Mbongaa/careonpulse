@@ -220,10 +220,23 @@ gebruikers dezelfde data.
    `supabase/migrations/0007_careon_hr.sql` en
    `supabase/migrations/0008_runtime_operations_hardening.sql`.
 3. Zet `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` én
-   `SUPABASE_SERVICE_ROLE_KEY` in `.env.local` en herstart. Voer ook
-   `supabase/migrations/0009`–`0012` uit (echte accounts, org-scoping,
-   chats, audit — handoff 13). Het oude sync-token is vervallen: toegang
-   loopt via Supabase Auth-sessies.
+   `SUPABASE_SERVICE_ROLE_KEY` in `.env.local` en herstart. Voer daarna de
+   resterende migraties op volgorde uit:
+   - `0009`–`0012` — echte accounts, org-scoping, chats, audit (handoff 13);
+   - `0013_login_rate_limit.sql` — brute-force-rem per bezoekers-IP;
+   - `0014_rename_org_tgc.sql` — organisatie ZSG → TGC;
+   - `20260726175252_auth_security_hardening.sql` — auth-hardening;
+   - `0015_financieel_rls.sql` — financiële rolregel in RLS + de redigerende
+     agenda-view (audit 29-07-2026). **Toepassen vóór de bijbehorende code
+     uitrolt**; de route valt terug op de basistabel zolang de view ontbreekt,
+     maar leden zien dan nog het ongeredigeerde aggregaat via PostgREST;
+   - `0016_login_account_throttle.sql` — brute-force-rem per account;
+   - `0017_import_runs_created_at.sql` — servertijdstempel + index voor
+     EPD-import-runs (functionele audit 29-07-2026). **Toepassen vóór de
+     bijbehorende code uitrolt**: beheer én de productie-GET sorteren op
+     `created_at` en geven zonder deze kolom een PostgREST-400.
+
+   Het oude sync-token is vervallen: toegang loopt via Supabase Auth-sessies.
 
 Naast de browser-import is er een server-side verversing:
 `npm run push:production` parseert de nieuwste export per soort uit
@@ -291,6 +304,15 @@ die op gedeelde werkplekken.
    loopt onder RLS per organisatie. Resterend vóór publieke hosting:
    wachtwoordbeleid/hygiëne bij accountuitgifte (handmatige provisioning),
    optioneel TOTP voor de superadmin, en de Supabase-DPA (punt hieronder).
+1b. **⛔ OPENSTAAND — Supabase-DPA (verwerkersovereenkomst).** Dit document
+   noemt de DPA sinds de eerste versie als harde voorwaarde, terwijl het
+   dashboard live staat met echte cliëntdata (1.267 records). Er is nergens
+   vastgelegd dat de DPA is getekend. Dit is géén codeprobleem en wordt niet
+   opgelost door een release: leg vóór oplevering vast dát de DPA getekend is
+   (met datum en bewijs), óf leg een gedateerde, door de eigenaar ondertekende
+   risicoaanvaarding vast. Zolang geen van beide er is, is "deliverable 1
+   afgerond" niet verdedigbaar. Zet in dezelfde ronde de Supabase
+   leaked-password protection aan en besluit over TOTP voor de superadmin.
 2. **Echte exports nooit committen.** `.gitignore` bevat
    `cli_ntendata_export*.csv` en `*export*.csv`; bewaar exports buiten de
    repo en verwijder ze na import.

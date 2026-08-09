@@ -16,13 +16,12 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { APP_CONFIG } from "@/config/app-config";
-import { CAREON_ORG } from "@/data/careon/careon-filters";
 import { rootUser } from "@/data/users";
 import { sidebarItems } from "@/navigation/sidebar/sidebar-items";
 import { usePreferencesStore } from "@/stores/preferences/preferences-provider";
 
 import { CareonLogo } from "../careon/careon-logo";
-import { useCareonSessionInfo } from "../careon/careon-session-provider";
+import { useCareonKlantChip, useCareonSessionInfo } from "../careon/careon-session-provider";
 import { NavMain } from "./nav-main";
 import { NavUser } from "./nav-user";
 
@@ -81,6 +80,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   // (klantbesluit 28-07-2026). In demo-modus blijft de sidebar het
   // geauditeerde origineel.
   const { orgRole, isSuperadmin, financieelZichtbaar } = useCareonSessionInfo();
+  // Klantregel uit de sessie: klant 2 hoort hier niet de naam van klant 1 te lezen.
+  const klantChip = useCareonKlantChip();
   const beheerZichtbaar = orgRole === "org_admin" || isSuperadmin;
   const navItems = useMemo(() => {
     let groups = sidebarItems;
@@ -121,7 +122,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </Link>
           </SidebarMenuItem>
           <SidebarMenuItem className="careon-client-chip mx-2 px-2 py-2 group-data-[collapsible=icon]:hidden">
-            <span className="text-muted-foreground text-xs">{CAREON_ORG.customerChip}</span>
+            <span className="text-muted-foreground text-xs">{klantChip}</span>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>

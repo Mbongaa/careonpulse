@@ -1,3 +1,5 @@
+import { scheduleAuditEvent } from "@/lib/careon-audit/audit.server";
+
 import { timingSafeEqual } from "node:crypto";
 
 export const runtime = "nodejs";
@@ -48,14 +50,37 @@ export async function GET(request: Request) {
     });
     if (!response.ok) {
       console.error("Scheduled Careon maintenance failed", { status: response.status });
+      // Ook een mislukte run laat een spoor na: zonder auditrij is een stil
+      // gestopte cron (verlopen CRON_SECRET, RPC-fout) in het product
+      // onzichtbaar, terwijl de retentiebeloftes eraan hangen.
+      scheduleAuditEvent({
+        action: "maintenance.prune_failed",
+        resource: "careon_prune_runtime_data",
+        detail: { status: String(response.status) },
+      });
       return Response.json({ status: "failed" }, { status: 502 });
     }
+    const result = await response.json();
+    scheduleAuditEvent({
+      action: "maintenance.prune",
+      resource: "careon_prune_runtime_data",
+      detail: {
+        events: String(EVENT_RETENTION_DAYS),
+        chats: String(CHAT_RETENTION_DAYS),
+        audit: String(AUDIT_RETENTION_DAYS),
+      },
+    });
     return Response.json(
-      { status: "completed", result: await response.json(), timestamp: new Date().toISOString() },
+      { status: "completed", result, timestamp: new Date().toISOString() },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
     console.error("Scheduled Careon maintenance unavailable", error);
+    scheduleAuditEvent({
+      action: "maintenance.prune_failed",
+      resource: "careon_prune_runtime_data",
+      detail: { status: "unavailable" },
+    });
     return Response.json({ status: "failed" }, { status: 502 });
   }
 }

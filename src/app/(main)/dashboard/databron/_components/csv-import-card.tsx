@@ -20,12 +20,19 @@ export function CsvImportCard() {
   function handleFile(file: File) {
     const reader = new FileReader();
     reader.onload = () => {
-      const result = parseKpiCsv(file.name, String(reader.result ?? ""));
+      // De al geïmporteerde overrides gaan mee: bij een tweede, gedeeltelijke
+      // import moet de afgeleide "Totale omzet" op die waarden verder rekenen.
+      const result = parseKpiCsv(file.name, String(reader.result ?? ""), overrides);
       setMessage({ text: result.message, ok: result.ok });
       if (result.ok) {
         setOverrides({ ...overrides, ...result.overrides });
         setSource({ mode: "csv", label: "CSV-import", detail: file.name });
       }
+    };
+    // Zonder deze tak doet de kaart bij een onleesbaar bestand (rechten,
+    // netwerkschijf, ingetrokken USB) zichtbaar niets.
+    reader.onerror = () => {
+      setMessage({ text: `${file.name} kon niet worden gelezen — probeer het bestand opnieuw.`, ok: false });
     };
     reader.readAsText(file);
   }

@@ -115,8 +115,16 @@ export function KpiDetailTable({
       <CardContent className="px-0">
         <p className="border-b px-4 py-3 text-muted-foreground text-xs">{caption}</p>
 
+        {/* Een KPI mag legitiem nul records hebben (filter, of niets te melden);
+            kale kolomkoppen lezen dan als een laadfout. */}
+        {rows.length === 0 && (
+          <p className="px-4 py-8 text-center text-muted-foreground text-sm">
+            Geen records voor deze selectie — er zijn geen onderliggende regels bij dit cijfer.
+          </p>
+        )}
+
         {/* Mobiel: één compacte kaart per record in plaats van de brede tabel. */}
-        <ul className="divide-y md:hidden">
+        <ul className={cn("divide-y md:hidden", rows.length === 0 && "hidden")}>
           {shown.map((row) => (
             <li key={row.key} className="space-y-3 p-4">
               {identityColumn ? (
@@ -140,7 +148,7 @@ export function KpiDetailTable({
           ))}
         </ul>
 
-        <div className="hidden md:block">
+        <div className={cn("hidden", rows.length > 0 && "md:block")}>
           <Table>
             <TableHeader>
               <TableRow>

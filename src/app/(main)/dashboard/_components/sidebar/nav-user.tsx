@@ -15,7 +15,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
-import { CAREON_LOGIN_ROUTE, careonLogout } from "@/lib/careon-auth";
+import { CAREON_LOGIN_ROUTE, careonLogoutMetSignaal } from "@/lib/careon-auth";
+import { meldOnbewaardeRegistraties } from "@/lib/careon-uitlog-melding.client";
 import { getInitials } from "@/lib/utils";
 
 import { useCareonSessionInfo } from "../careon/careon-session-provider";
@@ -48,11 +49,13 @@ export function NavUser({
       : user;
 
   const handleLogout = async () => {
-    const loggedOut = await careonLogout();
-    if (!loggedOut) {
+    const { ok, onbewaard } = await careonLogoutMetSignaal();
+    if (!ok) {
       toast.error("Uitloggen is niet voltooid. Probeer het opnieuw.");
       return;
     }
+    // De Toaster hangt in de root-layout, dus de melding overleeft de navigatie.
+    meldOnbewaardeRegistraties(onbewaard);
     router.replace(CAREON_LOGIN_ROUTE);
   };
 

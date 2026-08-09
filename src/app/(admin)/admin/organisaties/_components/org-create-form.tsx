@@ -10,12 +10,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+import { AdminActieMelding } from "../../_components/admin-ui";
+
 export function OrgCreateForm() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ tone: "ok" | "fout"; tekst: string } | null>(null);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -30,12 +32,12 @@ export function OrgCreateForm() {
       });
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
       if (!response.ok) {
-        setMessage(payload?.error ?? "Aanmaken mislukt.");
+        setMessage({ tone: "fout", tekst: payload?.error ?? "Aanmaken mislukt." });
         return;
       }
       setName("");
       setSlug("");
-      setMessage("Organisatie aangemaakt.");
+      setMessage({ tone: "ok", tekst: "Organisatie aangemaakt." });
       router.refresh();
     } finally {
       setBusy(false);
@@ -63,7 +65,7 @@ export function OrgCreateForm() {
         {busy && <Loader2 className="size-4 animate-spin" />}
         Aanmaken
       </Button>
-      {message && <p className="text-muted-foreground text-sm">{message}</p>}
+      {message && <AdminActieMelding tone={message.tone}>{message.tekst}</AdminActieMelding>}
     </form>
   );
 }

@@ -61,6 +61,12 @@ function ImportSlot({
       setError(parseError);
       setPreview(parsed);
     };
+    // Zonder deze tak doet de slot bij een onleesbaar bestand zichtbaar niets.
+    reader.onerror = () => {
+      setActivation(null);
+      setPreview(null);
+      setError(`${file.name} kon niet worden gelezen — probeer het bestand opnieuw.`);
+    };
     reader.readAsText(file);
   }
 
@@ -101,6 +107,14 @@ function ImportSlot({
         <p className="flex items-start gap-2 text-amber-700 text-xs dark:text-amber-400" role="status">
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
           Centrale opslag mislukt — deze import is alleen in deze browser beschikbaar.
+        </p>
+      )}
+      {/* Rolbesluit, geen storing: de route weigert de centrale koppeling voor
+          wie de financiële cijfers niet mag zien. Bewust neutraal (geen amber,
+          geen waarschuwingsicoon) — er is niets misgegaan. */}
+      {activation?.sync === "alleen_beheerder" && (
+        <p className="text-muted-foreground text-xs" role="status">
+          Alleen organisatiebeheerders koppelen deze export centraal — jouw import blijft in deze browser gewoon actief.
         </p>
       )}
       {activation?.sync === "ok" && (

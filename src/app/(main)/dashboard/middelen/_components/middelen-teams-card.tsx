@@ -5,6 +5,7 @@ import { type FormEvent, useState } from "react";
 import { Plus, X } from "lucide-react";
 
 import { useCareonMiddelen } from "@/app/(main)/dashboard/_components/careon/careon-middelen-provider";
+import { useCareonOrgNaam } from "@/app/(main)/dashboard/_components/careon/careon-session-provider";
 import { CareonHandmatigBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -51,6 +52,7 @@ function TeamToevoegen({ locatie }: Readonly<{ locatie: string }>) {
 
 export function MiddelenTeamsCard({ bronLocaties }: Readonly<{ bronLocaties: string[] }>) {
   const { state, removeTeam } = useCareonMiddelen();
+  const orgNaam = useCareonOrgNaam();
   const teams = state.teams ?? [];
 
   // Secties voor élke bekende locatie (structuur ∪ databron ∪ inventaris):
@@ -73,7 +75,7 @@ export function MiddelenTeamsCard({ bronLocaties }: Readonly<{ bronLocaties: str
           <CareonHandmatigBadge />
         </h2>
         <p className="text-muted-foreground text-xs">
-          Moederbedrijf TGC Groep · locaties zoals in Vektis geregistreerd. Beheer de structuur hier; tag medewerkers in
+          Moederbedrijf {orgNaam} · locaties zoals in Vektis geregistreerd. Beheer de structuur hier; tag medewerkers in
           de tabel hierboven.
         </p>
       </div>

@@ -14,6 +14,7 @@ import {
 import { careonDetailHref } from "@/data/careon/careon-kpi-details";
 import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 
+import { demoKpiMetric } from "../../details/_lib/kpi-demo-waarde";
 import { MedewerkerProductieLiveTable } from "./medewerker-productie-live-table";
 import { MedewerkerProductieTable } from "./medewerker-productie-table";
 import {
@@ -30,7 +31,7 @@ import { WachtlijstPanel } from "./wachtlijst-panel";
 import { BehandelduurPanel, ZorgvraagtyperingPanel } from "./zorg-analyse-panels";
 
 export function DossiersProductieContent() {
-  const { filters, production } = useCareon();
+  const { filters, production, overrides, factor } = useCareon();
 
   // Demo: tabel volgt locatie- en teamfilter. Productie: de snapshot is al op
   // vestiging gefilterd (teamfilter is verborgen — alle EPD-trajecten zijn SGGZ).
@@ -41,13 +42,17 @@ export function DossiersProductieContent() {
   );
   const medewerkerCount = production ? production.dossiersProductie.medewerkers.length : demoRows.length;
 
+  // "Actieve cliënten" en "Afsluitingen" zijn schaalbare KPI's met een
+  // drilldown, dus de kaarten hier lopen via dezelfde gedeelde rekenregel als
+  // de eigenaarspagina's en de detailpagina — anders toont deze pagina onder
+  // een locatiefilter een ander getal dan de drilldown één klik verderop.
   const metrics = DOSSIERS_PRODUCTIE_METRICS.map((metric) => {
     if (!production) {
-      return metric;
+      return demoKpiMetric(metric, overrides, factor);
     }
     // De detailId reist expliciet mee zodat de drill-down in beide modi werkt.
-    const live = production.dossiersProductie.metrics[metric.label] ?? metric;
-    return { ...live, detailId: metric.detailId };
+    const live = production.dossiersProductie.metrics[metric.label];
+    return live ? { ...live, detailId: metric.detailId } : demoKpiMetric(metric, overrides, factor);
   });
 
   return (

@@ -23,6 +23,29 @@ interface MessageRow {
   payload: unknown;
 }
 
+type RepositoryItem = { message?: { id?: unknown }; parentId?: unknown } | null;
+
+/**
+ * De cap houdt de NIEUWSTE berichten aan (daar wijst `head_id` naar). Het
+ * oudste bewaarde bericht verwijst dan naar een afgekapte ouder; die keten
+ * wordt hier hersteld door zulke items opnieuw te wortelen — @assistant-ui
+ * weigert anders de hele import ("Parent message not found") en het gesprek
+ * zou helemaal niet meer openen.
+ */
+function herwortelAfgekapteKeten(items: RepositoryItem[]): { messages: unknown[]; ids: Set<string> } {
+  const ids = new Set<string>();
+  for (const item of items) {
+    const id = item?.message?.id;
+    if (typeof id === "string") ids.add(id);
+  }
+  const messages = items.map((item) => {
+    const parentId = item?.parentId;
+    if (typeof parentId !== "string" || ids.has(parentId)) return item;
+    return { ...item, parentId: null };
+  });
+  return { messages, ids };
+}
+
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await requireCareonSession();
   if ("denied" in auth) return auth.denied;
@@ -33,11 +56,14 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: "Ongeldige aanvraag." }, { status: 400 });
   }
 
+  // Aflopend ophalen en daarna omdraaien: bij een gesprek boven de cap moeten
+  // de RECENTE beurten bewaard blijven (het model en de gebruiker lezen die),
+  // niet de oudste.
   const messageParams = new URLSearchParams({
     select: "payload",
     user_id: `eq.${session.userId}`,
     thread_id: `eq.${threadId}`,
-    order: "id.asc",
+    order: "id.desc",
     limit: String(MAX_MESSAGES),
   });
   const threadParams = new URLSearchParams({
@@ -62,11 +88,23 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const rows = (await messagesResponse.json()) as MessageRow[];
   const [thread] = (await threadResponse.json()) as { head_id: string | null }[];
   const financieelZichtbaar = magFinancieelZien(session);
+  const { messages, ids } = herwortelAfgekapteKeten(
+    rows
+      .reverse()
+      .map((row) =>
+        financieelZichtbaar
+          ? (row.payload as RepositoryItem)
+          : (redigeerFinancieelThreadPayload(row.payload) as RepositoryItem),
+      ),
+  );
+  // Een head buiten de bewaarde reeks laat @assistant-ui struikelen; dan valt
+  // de repository terug op het laatste bericht.
+  const headId = thread?.head_id && ids.has(thread.head_id) ? thread.head_id : null;
   return NextResponse.json({
     configured: true,
     repository: {
-      messages: rows.map((row) => (financieelZichtbaar ? row.payload : redigeerFinancieelThreadPayload(row.payload))),
-      ...(thread?.head_id ? { headId: thread.head_id } : {}),
+      messages,
+      ...(headId ? { headId } : {}),
     },
   });
 }

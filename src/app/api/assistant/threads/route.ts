@@ -90,6 +90,16 @@ export async function POST(request: Request) {
   if (!response?.ok) {
     return NextResponse.json({ error: "Gesprek kon niet worden opgeslagen." }, { status: 502 });
   }
+  // Net als verwijderen is het ontstaan van een gesprek auditwaardig: de
+  // superadmin kan gesprekken inzien, dus het spoor moet compleet zijn.
+  // Metadata-only — nooit titel of inhoud.
+  scheduleAuditEvent({
+    action: "assistant.thread.create",
+    resource: "assistant_threads",
+    resourceId: threadId,
+    orgId: session.orgId,
+    userId: session.userId,
+  });
   return NextResponse.json({ configured: true });
 }
 
@@ -128,6 +138,19 @@ export async function PATCH(request: Request) {
   if (!response?.ok) {
     return NextResponse.json({ error: "Gesprek kon niet worden bijgewerkt." }, { status: 502 });
   }
+  // De titel zelf is gespreksinhoud en gaat nooit het logboek in — alleen dát
+  // er hernoemd is, plus de nieuwe archiveringsstand.
+  scheduleAuditEvent({
+    action: "assistant.thread.update",
+    resource: "assistant_threads",
+    resourceId: threadId,
+    orgId: session.orgId,
+    userId: session.userId,
+    detail: {
+      hernoemd: title !== undefined,
+      ...(typeof status === "string" ? { status } : {}),
+    },
+  });
   return NextResponse.json({ configured: true });
 }
 

@@ -32,10 +32,16 @@ export async function POST(request: Request) {
   const actorHash = loginActorHash(request);
   const limit = await enforceLoginRateLimit(actorHash);
   if (!limit.allowed) {
+    // Zonder actor-identiteit is een reeks blokkades niet te onderscheiden van
+    // ruis; de hash is gezouten en onomkeerbaar, dus privacyveilig.
     scheduleAuditEvent({
       action: "auth.set_password_blocked",
       resource: "auth",
-      detail: { reason: limit.source === "unavailable" ? "rate_limit_unavailable" : "rate_limit" },
+      detail: {
+        reason: limit.source === "unavailable" ? "rate_limit_unavailable" : "rate_limit",
+        scope: "ip",
+        actor: actorHash,
+      },
     });
     const status = limit.source === "unavailable" ? 503 : 429;
     return NextResponse.json(

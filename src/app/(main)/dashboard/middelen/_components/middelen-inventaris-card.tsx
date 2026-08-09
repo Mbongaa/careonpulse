@@ -34,14 +34,28 @@ interface InventarisRij extends LocatieInventaris {
 
 function AantalInput({ rij, veld, label }: Readonly<{ rij: InventarisRij; veld: InventarisVeld; label: string }>) {
   const { setInventarisVeld } = useCareonMiddelen();
+  // Een leeg of half getypt veld levert NaN op; die werd als 0 vastgelegd én
+  // centraal gepusht, zodat wissen-en-hertypen een 0 in de registratie achterliet.
+  // De ruwe tekst blijft daarom per invoerveld lokaal staan tot er een geldig
+  // getal uit komt; bij verlaten valt het veld terug op de opgeslagen waarde.
+  // Zelfde idioom als de HR-editors.
+  const [ruw, setRuw] = useState<string | null>(null);
+
   return (
     <Input
       type="number"
       min={0}
-      value={rij[veld] ?? 0}
+      value={ruw ?? String(rij[veld] ?? 0)}
       aria-label={`${label} — ${rij.locatie}`}
       className="h-8 w-24 text-right text-xs tabular-nums"
-      onChange={(event) => setInventarisVeld(rij.locatie, veld, event.target.valueAsNumber)}
+      onChange={(event) => {
+        setRuw(event.target.value);
+        const getal = event.target.valueAsNumber;
+        if (Number.isFinite(getal)) {
+          setInventarisVeld(rij.locatie, veld, getal);
+        }
+      }}
+      onBlur={() => setRuw(null)}
     />
   );
 }

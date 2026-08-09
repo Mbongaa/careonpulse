@@ -44,7 +44,8 @@
         color: #94a3c7;
         line-height: 1.55;
       }
-      button {
+      .retry {
+        display: inline-block;
         padding: 0.65rem 1.4rem;
         border: 1px solid rgb(128 139 255 / 35%);
         border-radius: 999px;
@@ -52,10 +53,15 @@
         color: #dce5ff;
         font-size: 0.95rem;
         font-weight: 600;
+        text-decoration: none;
         cursor: pointer;
       }
-      button:hover {
+      .retry:hover {
         background: rgb(22 155 255 / 30%);
+      }
+      .retry:focus-visible {
+        outline: 2px solid #7c4dff;
+        outline-offset: 3px;
       }
     </style>
   </head>
@@ -78,7 +84,14 @@
       </div>
       <h1>U bent offline</h1>
       <p>Careon Pulse heeft een internetverbinding nodig om het dashboard te laden. Controleer uw verbinding en probeer het opnieuw.</p>
-      <button type="button" onclick="location.reload()">Opnieuw proberen</button>
+      <!--
+        Geen knop met onclick: de CSP van src/proxy.ts zet script-src-attr 'none'
+        en die header wordt met deze pagina meegecachet door de service worker,
+        dus een inline handler kan hier nooit draaien. Een gewone link doet
+        hetzelfde werk — offline serveert de service worker deze pagina opnieuw,
+        online opent het dashboard.
+      -->
+      <a class="retry" href="/dashboard/directiecockpit">Opnieuw proberen</a>
     </main>
   </body>
 </html>

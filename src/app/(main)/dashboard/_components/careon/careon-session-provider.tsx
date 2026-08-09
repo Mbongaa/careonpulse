@@ -2,6 +2,7 @@
 
 import { createContext, type ReactNode, useContext } from "react";
 
+import { careonKlantChip, careonOrgNaam } from "@/lib/careon-org-naam";
 import { type CareonSessionInfo, DEMO_SESSION_INFO } from "@/lib/careon-session-info";
 
 // Rol- en identiteitscontext voor alle dashboard-widgets. De waarde wordt
@@ -15,6 +16,21 @@ const CareonSessionContext = createContext<CareonSessionInfo>(DEMO_SESSION_INFO)
 
 export function useCareonSessionInfo(): CareonSessionInfo {
   return useContext(CareonSessionContext);
+}
+
+/**
+ * Klantnaam voor weergave: de organisatie van de ingelogde gebruiker, en in
+ * demo-modus de geauditeerde demo-klant. Elk scherm dat de klant noemt hoort
+ * hier langs te gaan — anders staat de naam van klant 1 in de omgeving van
+ * klant 2.
+ */
+export function useCareonOrgNaam(): string {
+  return careonOrgNaam(useContext(CareonSessionContext).orgName);
+}
+
+/** Zijbalkregel: "Klant: <naam>" (demo houdt de geauditeerde chip mét locaties). */
+export function useCareonKlantChip(): string {
+  return careonKlantChip(useContext(CareonSessionContext).orgName);
 }
 
 export function CareonSessionProvider({

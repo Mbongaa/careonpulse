@@ -3,8 +3,9 @@
  * calls are mocked; no network, API key, or database is used.
  */
 
+import { amsterdamDagGrens } from "../lib/careon-admin/admin.server";
 import { authenticatedActorHash, loginActorHash } from "../lib/careon-assistant/runtime.server";
-import { isCareonHostedDemoEmail } from "../lib/careon-demo-account";
+import { CAREON_HOSTED_DEMO_EMAIL, isCareonHostedDemoEmail } from "../lib/careon-demo-account";
 import { RequestPayloadTooLargeError, readJsonBodyLimited } from "../lib/http/read-json.server";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -69,6 +70,154 @@ async function main() {
   check(
     "chat-updatepolicy controleert organisatie in USING en WITH CHECK",
     (chatMigration.match(/app\.is_org_member\(org_id\)/g) ?? []).length >= 4,
+  );
+
+  // Financiële rolregel in de database (0015): de anon-key staat in de
+  // clientbundle, dus deze regel moet in RLS staan en niet alleen in route-code.
+  const financieelMigration = fs.readFileSync(
+    path.resolve(process.cwd(), "supabase/migrations/0015_financieel_rls.sql"),
+    "utf8",
+  );
+  const financieleTabellen = ["careon_agenda_state", "careon_toeslagen_state", "careon_declaraties_state"];
+  check(
+    "financiële aggregaten verliezen de rolblinde policies uit 0010",
+    financieleTabellen.every((table) => financieelMigration.includes(`'${table}'`)) &&
+      financieelMigration.includes("t || '_member_select'") &&
+      financieelMigration.includes("t || '_member_insert'"),
+  );
+  check(
+    "select én insert op financiële aggregaten eisen de rolregel",
+    (financieelMigration.match(/app\.mag_financieel_zien\(org_id\)/g) ?? []).length >= 2,
+  );
+  check(
+    "financiële aggregaten blijven append-only voor clients",
+    financieelMigration.includes("revoke update, delete, truncate on table public.%I from anon, authenticated") &&
+      !/grant[^;]*\b(update|delete)\b[^;]*to authenticated/i.test(financieelMigration),
+  );
+  check(
+    "SQL-rolregel spiegelt magFinancieelZien (org_admin, platformbeheer, demoaccount)",
+    financieelMigration.includes("app.is_superadmin()") &&
+      financieelMigration.includes("m.role = 'org_admin'") &&
+      financieelMigration.includes(`lower(btrim(u.email)) = '${CAREON_HOSTED_DEMO_EMAIL}'`),
+  );
+  // De ledenview mag de RLS van de basistabel overslaan (die is nu financieel
+  // dicht), maar moet dan zélf op lidmaatschap filteren.
+  check(
+    "ledenview op de agenda scheidt organisaties zelf",
+    financieelMigration.includes("create view public.careon_agenda_state_public") &&
+      !/with \(\s*security_invoker/i.test(financieelMigration) &&
+      /from public\.careon_agenda_state s\s+where app\.is_org_member\(s\.org_id\) or app\.is_superadmin\(\)/.test(
+        financieelMigration,
+      ) &&
+      !/grant insert[^;]*careon_agenda_state_public/i.test(financieelMigration),
+  );
+  // Sleutelpariteit: de view nult exact wat redactie.ts nult. Loopt dit uiteen,
+  // dan lekt de databank meer dan de route — of breekt de typeguard.
+  const redactieSource = fs.readFileSync(path.resolve(process.cwd(), "src/lib/careon-production/redactie.ts"), "utf8");
+  const genuldeSleutels = [...redactieSource.matchAll(/(\w+): 0\b/g)].map((match) => match[1]);
+  const sqlSleutels = [
+    ...(financieelMigration.match(/jsonb_build_object\(([^)]*)\)/)?.[1].matchAll(/'(\w+)', 0/g) ?? []),
+  ].map((match) => match[1]);
+  check(
+    "view nult dezelfde omzetsleutels als redactie.ts",
+    genuldeSleutels.length === 3 &&
+      sqlSleutels.length === genuldeSleutels.length &&
+      genuldeSleutels.every((key) => sqlSleutels.includes(key)),
+  );
+  check(
+    "view leegt de facturatie net als redactie.ts",
+    /facturatie: \[\]/.test(redactieSource) && financieelMigration.includes("'{facturatie}', '[]'::jsonb"),
+  );
+
+  // Beheer-tijdweergave: de (admin)-pagina's renderen op de server (UTC op
+  // Vercel). Zonder expliciete zone las de beheerder elk tijdstip 1–2 uur
+  // naast de Nederlandse klok en sneden de datumfilters op UTC-dagen — dit
+  // was een bevestigde bevinding van de functionele audit van 29-07 en mag
+  // niet stil terugkeren.
+  const adminUiSource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/app/(admin)/admin/_components/admin-ui.tsx"),
+    "utf8",
+  );
+  const adminServerSource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/lib/careon-admin/admin.server.ts"),
+    "utf8",
+  );
+  // Aangehecht aan formatMoment zélf, niet ergens verderop in het bestand.
+  const formatMomentBron = adminUiSource.slice(adminUiSource.indexOf("export function formatMoment"));
+  const formatMomentBody = formatMomentBron.slice(0, formatMomentBron.indexOf("\n}"));
+  check("beheer-tijdstempels renderen in Europe/Amsterdam", formatMomentBody.includes('timeZone: "Europe/Amsterdam"'));
+  check(
+    "audit-datumfilters gebruiken de Amsterdamse daggrens",
+    /gte\.\$\{amsterdamDagGrens\(filters\.vanaf\)\}/.test(adminServerSource) &&
+      /lt\.\$\{amsterdamDagGrens\(filters\.tot, 1\)\}/.test(adminServerSource),
+  );
+  // Uitgevoerd, niet alleen als brontekst gecontroleerd: de eerste versie van
+  // deze functie zat er op beide DST-overgangsdagen precies één uur naast en
+  // een tekstuele check had dat groen laten passeren.
+  check(
+    "amsterdamDagGrens: zomer- en winterdag",
+    amsterdamDagGrens("2026-07-29") === "2026-07-28T22:00:00.000Z" &&
+      amsterdamDagGrens("2026-01-15") === "2026-01-14T23:00:00.000Z",
+  );
+  check(
+    "amsterdamDagGrens: DST-overgangsdagen (voorjaar en najaar)",
+    amsterdamDagGrens("2026-03-29") === "2026-03-28T23:00:00.000Z" &&
+      amsterdamDagGrens("2026-10-25") === "2026-10-24T22:00:00.000Z",
+  );
+  check(
+    "amsterdamDagGrens: tot-grens (dag erbij) over de DST-overgang heen",
+    amsterdamDagGrens("2026-03-28", 1) === "2026-03-28T23:00:00.000Z" &&
+      amsterdamDagGrens("2026-10-24", 1) === "2026-10-24T22:00:00.000Z",
+  );
+  // Zelf-uitsluitingsmatrix en de 409-vertaling van de org-DELETE: bewuste
+  // keuzes uit de fixronde van 29-07 die stil kunnen wegregresseren.
+  check(
+    "zelf-guard: ban/delete/platformrol geblokkeerd, ontkoppelen van jezelf toegestaan",
+    adminUsersSource.includes("ban: ") &&
+      adminUsersSource.includes("delete_user: ") &&
+      adminUsersSource.includes("revoke_platform_admin: ") &&
+      !/remove_membership: "/.test(adminUsersSource) &&
+      adminUsersSource.includes('action === "set_role" && userId === auth.session.userId && rol === "member"'),
+  );
+  // Autonomieronde 30-07: guards en grenzen die stil kunnen wegregresseren.
+  check(
+    "platformbeheerders zijn beschermd tegen blokkeren én verwijderen",
+    /action === "ban" \|\| action === "delete_user"/.test(adminUsersSource),
+  );
+  check(
+    "naamwijziging schrijft account én profiel",
+    adminUsersSource.includes("user_metadata: { full_name: naam }") &&
+      /profiles\?id=eq\.\$\{userId\}/.test(adminUsersSource),
+  );
+  check(
+    "e-mailwijziging weigert het gereserveerde demodomein",
+    adminUsersSource.includes("CAREON_HOSTED_DEMO_EMAIL_DOMAIN") &&
+      adminUsersSource.includes("Dit e-maildomein is gereserveerd."),
+  );
+  check(
+    "sessie leest uitsluitend het eigen lidmaatschap",
+    /organization_members[\s\S]{0,200}?\.eq\("user_id", user\.id\)/.test(
+      fs.readFileSync(path.resolve(process.cwd(), "src/lib/supabase/session.server.ts"), "utf8"),
+    ),
+  );
+  check(
+    "revisieherstel valideert de teruggezette stand",
+    adminServerSource.includes("if (!bron.geldig(bron_rij.state)) return { ok: false, status: 422 }"),
+  );
+  const middelenData = fs.readFileSync(path.resolve(process.cwd(), "src/data/careon/careon-middelen.ts"), "utf8");
+  check(
+    "lege middelenstand draagt geen teamstructuur van een andere klant",
+    /EMPTY_MIDDELEN_STATE[\s\S]{0,200}?teams: \[\]/.test(middelenData),
+  );
+
+  const adminOrgsSource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/app/api/admin/organizations/route.ts"),
+    "utf8",
+  );
+  check(
+    "org-DELETE vertaalt een sleutelconflict naar een blokkademelding",
+    adminOrgsSource.includes("response?.status === 409") &&
+      adminOrgsSource.includes("Er hangt nog data aan deze organisatie"),
   );
 
   const loginRequestA = new Request("http://careon.test/api/auth/login", {

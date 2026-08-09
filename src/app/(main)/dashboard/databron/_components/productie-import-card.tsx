@@ -68,6 +68,13 @@ export function ProductieImportCard() {
         },
       });
     };
+    // Zonder deze tak doet de kaart bij een onleesbaar bestand zichtbaar niets.
+    reader.onerror = () => {
+      setActivation(null);
+      setPreview(null);
+      setErrorWarnings([]);
+      setError(`${file.name} kon niet worden gelezen — probeer het bestand opnieuw.`);
+    };
     reader.readAsText(file);
   }
 

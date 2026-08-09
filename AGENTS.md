@@ -43,12 +43,36 @@ Available commands:
 npm run build
 npm run lint
 npm run format
-npm run check
+npm run check          # Biome lint + format (read-only)
 npm run check:fix
+npm run typecheck      # tsc via tsconfig.typecheck.json
 npm run generate:presets
 ```
 
-There is currently no automated test command. Run build, lint, check, or other validation commands only when the user explicitly requests that validation.
+Validation suites (all read-only except `test:e2e`, which builds an isolated artifact):
+
+```bash
+npm run verify:careon        # geauditeerde waarden, schaalregel, CSV-parser, routing
+npm run verify:production    # EPD-snapshot, aggregaten, redactie
+npm run verify:assistant     # AI-assistent-regime
+npm run verify:runtime       # runtime-hardening incl. SQL↔TS-redactiepariteit
+npm run verify:data-hygiene  # geen echte exports of secrets in de tracked tree
+npm run verify:ci            # alle bovenstaande + audit:production, in één keer
+npm run test:e2e             # Playwright: functionele flows + axe WCAG-AA
+```
+
+Release-gate status staat in `RELEASE_GATES.md`. Draai `verify:ci` vóór je werk afrondt; `test:e2e` duurt ~12 minuten en is de laatste poort.
+
+## Migraties toepassen op careon-zsg
+
+**De service-role-sleutel kan géén DDL.** PostgREST voert alleen queries uit tegen tabellen en functies; `create view`, `create policy` en `alter table` zijn er niet mee te bereiken. Daarvoor is het **Supabase Management API-token** nodig: `SUPABASE_ACCESS_TOKEN` (begint met `sbp_`) staat in `.env.local` en is beschreven in `.env.example`. Het is account-breed geldig — het opent élk Supabase-project van de eigenaar, dus gebruik het uitsluitend tegen de project-ref hieronder.
+
+- Project-ref careon-zsg: `jdxvrczwelxlgtzyisea` (eu-west-1)
+- Endpoint: `POST https://api.supabase.com/v1/projects/<ref>/database/query` met `Authorization: Bearer $SUPABASE_ACCESS_TOKEN` en body `{"query": "<sql>"}`
+
+Hetzelfde token maakt de dingen zichtbaar die PostgREST principieel niet toont: `pg_policies`, `pg_class.relrowsecurity`, `pg_indexes`, `pg_constraint`. Zonder token is een driftcontrole per definitie onvolledig — zie `docs/SQL_DRIFT_2026-07-29.md`.
+
+Er is **geen migratieregister**: niets legt vast wat is toegepast. Controleer de stand dus altijd tegen de database zelf in plaats van tegen de bestandenlijst, en let op twee migraties die niet meer letterlijk herhaalbaar zijn: `0010` (zoekt `slug = 'zsg'`, door `0014` hernoemd naar `tgc`) en `0008` (zijn scope-CHECK kent `login` niet, terwijl die rijen bestaan).
 
 ## Co-location-based structure
 

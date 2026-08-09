@@ -12,6 +12,21 @@ const LOGIN_ROUTE = "/auth/v1/login";
 const HOME_ROUTE = "/modules";
 const ADMIN_ROUTE = "/admin";
 
+/**
+ * Letterlijke kopie van `isGeblokkeerd` uit src/lib/supabase/session.server.ts:
+ * die module importeren zou hier de op next/headers gebouwde serverclient en
+ * next/navigation meetrekken, wat in de proxy niet draait. Beide plekken moeten
+ * dezelfde uitkomst geven — pas ze samen aan. De waarde komt uit het
+ * getUser()-antwoord dat hieronder toch al wordt opgehaald, dus dit kost geen
+ * extra database-aanroep per verzoek. Onleesbaar telt als geblokkeerd (fail
+ * closed).
+ */
+function isGeblokkeerd(bannedUntil: string | null | undefined): boolean {
+  if (!bannedUntil) return false;
+  const tijdstip = Date.parse(bannedUntil);
+  return Number.isNaN(tijdstip) || tijdstip > Date.now();
+}
+
 export async function proxy(request: NextRequest) {
   // ── Authenticatie (alleen in Supabase-modus; Playwright draait zonder) ────
   // Valideert én ververst de sessie-cookies; niet-ingelogde bezoekers gaan
@@ -19,7 +34,13 @@ export async function proxy(request: NextRequest) {
   // bewaken zichzelf (requireCareonSession) en vallen buiten de matcher.
   const pendingCookies: { name: string; value: string; options?: CookieOptions }[] = [];
   const path = request.nextUrl.pathname;
-  const needsAuth = path.startsWith("/dashboard") || path.startsWith("/admin") || path.startsWith("/modules");
+  // /oauth = het toestemmingsscherm van de OAuth 2.1-server (blueprint §4);
+  // zonder sessie eerst inloggen, daarna herstart de module de flow zelf.
+  const needsAuth =
+    path.startsWith("/dashboard") ||
+    path.startsWith("/admin") ||
+    path.startsWith("/modules") ||
+    path.startsWith("/oauth");
   if (!isCareonDemoMode() && !isSupabaseAuthConfigured() && needsAuth) {
     const url = request.nextUrl.clone();
     url.pathname = LOGIN_ROUTE;
@@ -53,8 +74,13 @@ export async function proxy(request: NextRequest) {
       },
     });
     const {
-      data: { user },
+      data: { user: ingelogdeGebruiker },
     } = await supabase.auth.getUser();
+    // Een geblokkeerd account telt hier als niet-ingelogd, net als in de
+    // sessielaag: anders rendert de shell van /dashboard nog volledig en moet
+    // de clientguard hem alsnog wegsturen. Als "niet-ingelogd" mag het account
+    // ook de loginpagina weer bereiken (geen redirectlus).
+    const user = ingelogdeGebruiker && !isGeblokkeerd(ingelogdeGebruiker.banned_until) ? ingelogdeGebruiker : null;
 
     const redirectTo = (pathname: string): NextResponse => {
       const url = request.nextUrl.clone();

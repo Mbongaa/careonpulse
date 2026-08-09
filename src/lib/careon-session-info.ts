@@ -10,6 +10,13 @@ export interface CareonSessionInfo {
   demo: boolean;
   email: string;
   fullName: string;
+  /** Eigenaar van alle browsercaches: zonder org-id kan de client niet zien
+      dat een lokale kopie van een andere organisatie is. */
+  orgId: string | null;
+  /** Naam uit `organizations`; null zonder lidmaatschap of in demo-modus. De
+      weergave loopt altijd via careonOrgNaam(), dat dan terugvalt op de
+      geauditeerde demo-constante. */
+  orgName: string | null;
   orgRole: "org_admin" | "member" | null;
   isSuperadmin: boolean;
   /** Afgeleid via magFinancieelZien — de enige bron voor financiële zichtbaarheid. */
@@ -22,6 +29,8 @@ export const DEMO_SESSION_INFO: CareonSessionInfo = {
   demo: true,
   email: "",
   fullName: "",
+  orgId: null,
+  orgName: null,
   orgRole: null,
   isSuperadmin: false,
   financieelZichtbaar: true,
@@ -30,6 +39,8 @@ export const DEMO_SESSION_INFO: CareonSessionInfo = {
 export function sessionInfoVan(session: {
   email: string;
   fullName: string;
+  orgId: string | null;
+  orgName?: string | null;
   orgRole: "org_admin" | "member" | null;
   isSuperadmin: boolean;
 }): CareonSessionInfo {
@@ -38,6 +49,8 @@ export function sessionInfoVan(session: {
     demo: false,
     email: session.email,
     fullName: session.fullName,
+    orgId: session.orgId,
+    orgName: session.orgName ?? null,
     orgRole: session.orgRole,
     isSuperadmin: session.isSuperadmin,
     financieelZichtbaar: magFinancieelZien(session),

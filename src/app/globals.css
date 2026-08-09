@@ -214,6 +214,19 @@ html[data-theme-mode="careon"] [data-slot="sidebar-inset"] > div:last-of-type {
   padding-bottom: 5.5rem;
 }
 
+/* De tagline staat op 7px en telt dus als normale tekst: WCAG-AA eist 4,5:1.
+   Zonder eigen kleur erfde hij de muted-token, die op een donkere achtergrond
+   op 3,55:1 uitkwam (axe, /modules in donkere modus). Expliciet per thema, zodat
+   de contrastgrens niet afhangt van welke tokenset op dat moment geldt. Het
+   careon-thema hieronder is specifieker en houdt zijn eigen merkkleur. */
+.careon-tagline {
+  color: #5f5f5f;
+}
+
+.dark .careon-tagline {
+  color: #a1a1a1;
+}
+
 html[data-theme-mode="careon"] .careon-brand {
   color: #ffffff;
 }

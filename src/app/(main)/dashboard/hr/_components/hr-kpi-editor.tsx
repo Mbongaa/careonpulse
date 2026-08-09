@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import { useCareonHr } from "@/app/(main)/dashboard/_components/careon/careon-hr-provider";
 import { CareonHandmatigBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,16 +29,30 @@ function WaardeInput({
   label,
 }: Readonly<{ id: HrKpiId; veld: "value" | "prev"; waarde: number; f: CareonKpiFormat; label: string }>) {
   const { setKpi } = useCareonHr();
+  // Tussenstanden tijdens het typen ("", "6,", "6.") zijn geen geldig getal.
+  // Zonder eigen tekststaat werd zo'n toetsaanslag als 0 vastgelegd én centraal
+  // gepusht, waardoor "6.2" eindigde als 2. De ruwe tekst blijft daarom lokaal
+  // staan tot er een geldige waarde uit komt; bij verlaten van het veld valt de
+  // invoer terug op de laatst opgeslagen waarde.
+  const [ruw, setRuw] = useState<string | null>(null);
+
   return (
     <Input
       type="number"
       min={0}
       max={HR_KPI_RULES[id].max}
       step={stap(f)}
-      value={waarde}
+      value={ruw ?? String(waarde)}
       aria-label={`${label} — ${veld === "value" ? "huidige waarde" : "vorige maand"}`}
       className="h-8 w-28 text-right text-xs tabular-nums"
-      onChange={(event) => setKpi(id, veld, event.target.valueAsNumber)}
+      onChange={(event) => {
+        setRuw(event.target.value);
+        const getal = event.target.valueAsNumber;
+        if (Number.isFinite(getal)) {
+          setKpi(id, veld, getal);
+        }
+      }}
+      onBlur={() => setRuw(null)}
     />
   );
 }

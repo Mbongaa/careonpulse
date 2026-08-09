@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CareonBarList } from "@/app/(main)/dashboard/_components/careon/careon-bar-list";
 import { CareonChartCard } from "@/app/(main)/dashboard/_components/careon/careon-chart-card";
 import { useCareonMiddelen } from "@/app/(main)/dashboard/_components/careon/careon-middelen-provider";
+import { useCareonOrgNaam } from "@/app/(main)/dashboard/_components/careon/careon-session-provider";
 import { CareonHandmatigBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import { CAREON_ROUTES } from "@/data/careon/careon-pages";
 
@@ -74,6 +75,7 @@ export function FunctiemixPanel({ className }: Readonly<{ className?: string }>)
 
 export function TeamBezettingPanel({ className }: Readonly<{ className?: string }>) {
   const { state } = useCareonMiddelen();
+  const orgNaam = useCareonOrgNaam();
   const items = telling(state.medewerkers.flatMap((rij) => rij.teams ?? []));
   const structuur = new Set((state.teams ?? []).map((team) => team.naam));
   // Teams uit de structuur zonder getagde medewerkers tellen mee als 0 —
@@ -88,7 +90,7 @@ export function TeamBezettingPanel({ className }: Readonly<{ className?: string 
   return (
     <CareonChartCard
       title="Bezetting per team"
-      sub="Getagde medewerkers per team · structuur TGC Groep"
+      sub={`Getagde medewerkers per team · structuur ${orgNaam}`}
       className={className}
       titleBadge={<CareonHandmatigBadge />}
       footer="Teamstructuur en tags beheer je op Medewerkers & middelen."

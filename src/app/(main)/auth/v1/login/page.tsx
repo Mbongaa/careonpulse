@@ -6,9 +6,11 @@ import { isCareonDemoMode } from "@/lib/supabase/config";
 
 import { CareonLoginForm } from "../../_components/careon-login-form";
 
+// De loginpagina is zonder sessie bereikbaar; titel en omschrijving belanden in
+// elke link-preview. Klantnaam blijft daarom achter de login.
 export const metadata: Metadata = {
   title: "Inloggen",
-  description: "Log in op het zorgdashboard van TGC Groep.",
+  description: "Log in op uw beveiligde Careon Pulse-omgeving.",
 };
 
 export default async function LoginV1({ searchParams }: { searchParams: Promise<{ error?: string | string[] }> }) {
@@ -26,7 +28,7 @@ export default async function LoginV1({ searchParams }: { searchParams: Promise<
           <div className="space-y-2">
             <p className="text-[10px] text-muted-foreground uppercase tracking-[0.36em]">{CAREON_ORG.tagline}</p>
             <h1 className="font-semibold text-4xl tracking-tight">Welkom terug</h1>
-            <p className="mx-auto max-w-xs text-muted-foreground">Log in op het zorgdashboard van TGC Groep.</p>
+            <p className="mx-auto max-w-xs text-muted-foreground">Log in op uw beveiligde zorgdashboard.</p>
           </div>
         </div>
         <div className="space-y-4 text-left">
