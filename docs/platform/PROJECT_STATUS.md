@@ -1,6 +1,6 @@
 # Careon Pulse — Project Status & Timeline
 
-**Last updated:** 31 July 2026 · **Companion to:** `docs/platform/PLATFORM_BLUEPRINT.md` (v2.0, authoritative)
+**Last updated:** 9 August 2026 · **Companion to:** `docs/platform/PLATFORM_BLUEPRINT.md` (v2.0, authoritative)
 
 This file tracks where the platform stands: what exists, what is in progress, and what comes next. Agents and developers update it when a milestone changes state. Section references (§) point into the blueprint.
 
@@ -34,7 +34,7 @@ Legend: ✅ done · 🔵 current focus · ⬜ not started
 |---|---|
 | Supabase project (EU) — identity + dashboard data | ✅ live; OAuth 2.1 server enabled, ES256 signing active, HumHub confidential client verified locally |
 | Vercel — dashboard hosting | ✅ live |
-| Hetzner VPS + Coolify Cloud — comms plane | ⬜ not provisioned |
+| Hetzner VPS — comms plane | ✅ provisioned 9 Aug 2026: CPX22 `yaaz-comms-1` (nbg1, Ubuntu 24.04, firewall 22/80/443, Hetzner backups on), YAAZ live at `https://157-90-231-67.sslip.io` (temp host until the platform domain lands). **Coolify deferred — deviation from D11**: deploys run over SSH + `compose.yml`+`compose.tls.yml` (image's own Caddy terminates TLS); revisit Coolify when staging + operator self-service are needed |
 | JaaS (8x8), Cloudflare R2, Vertex AI (Gemini) | ⬜ accounts not created |
 | Apple / Google developer accounts (client-owned) | ⬜ blocked on legal-entity decision (§25 Q2) |
 
@@ -59,6 +59,8 @@ On the platform side, design is closed and **Phase 0 — Audit & Foundations (§
 
 **31 Jul 2026 — YAAZ demo-ready:** (1) role mapping live (see Spike A below); (2) the organisation network "TGC Groep" exists — created by the org admin through the real space-create UI (space creation is Administrators-only, verified 200/403 per role) — with `auto_add_new_members` on and a seeded Dutch demo timeline (11 posts, 9 comments, 22 likes, 5 fictional practitioner accounts named after the dashboard's behandelaren, initials avatars; seeder = `careon-demo` console module in `platform-deploy/humhub/modules-custom/`); (3) **full CareonPulse rebrand 1:1 with the dashboard's careon theme**: navy-glass look as the single theme mode (CE 1.18 has no runtime dark-mode switch, and the dashboard's careon mode is fixed-dark anyway), Geist self-hosted, gradient logo lockup + favicon + login background generated from the exact handoff SVG/tokens (`platform-deploy/humhub/branding/`, installed by `scripts/sync-humhub-assets.sh`, which now also flushes the `theme.var.*` settings that would otherwise override `variables.scss`), default language `nl`, timezone Europe/Amsterdam. "Powered by HumHub" remains (removal = PE whitelabel module, quote needed).
 
+**9 Aug 2026 — YAAZ public preview live** at `https://157-90-231-67.sslip.io` (Hetzner CPX22 `yaaz-comms-1`, nbg1). The verified local instance was migrated wholesale (DB dump + uploads), so the TGC Groep network, all accounts, the CareonTheme rebrand and NL settings are byte-identical to the 31 Jul demo state. SSO chain verified end-to-end against production: HumHub → Supabase authorize (PKCE, new redirect URI registered on the `careon` client) → consent on `https://careonpulse.vercel.app` (Supabase `site_url` fixed from its dev value; `/oauth/consent` confirmed deployed). Mercure hairpin passes, queue workers + scheduler run, Messenger pinned at 3.4.3 (marketplace served 3.3.12 — replaced to match the imported migrations). Ops gotcha recorded in `platform-deploy/docs/coolify-deploy.md`: `/data/config/common.php` (authclient class-swap + secrets) is NOT in the repo and must be copied per environment. Remaining for the tile: set `NEXT_PUBLIC_YAAZ_URL` in Vercel; later: real domain, R2 backups + restore drill before real rollout.
+
 Phase-0 research produced **five corrections to blueprint §4/§13/§19 — each proposed, none applied to the blueprint yet** (full findings + revised spike checklist in `platform-deploy/docs/identity-spike.md`; topology also in `platform-deploy/VERSIONS.md`):
 
 1. The **Supabase OAuth 2.1 server's GA status is ambiguous** (re-checked live 30 Jul 2026): the docs guide no longer carries beta wording, but Supabase's feature-status page still labels it "Public Beta" (beta opened Nov 2025; §4's "left beta late 2025" remains unconfirmed either way). Confirm GA/SLA/pricing directly during Spike A.
@@ -70,6 +72,8 @@ Phase-0 research produced **five corrections to blueprint §4/§13/§19 — each
 Nothing exists yet for the shell or the meeting modules. The one decision currently blocking an external clock: which legal entity owns the developer accounts (§25 Q2) — enrollment is the longest lead time in the plan.
 
 Known residual, deliberately deferred to the second organisation's onboarding: the app's customer identity ("TGC Groep") is still hardcoded in audited page copy and demo constants. Public/unauthenticated surfaces (meta, OpenGraph, login page) no longer leak it, but making branding session-driven changes audited copy and must be done together with an update of the audit documents.
+
+**9 Aug 2026 — new client request: facturatie module (inventory done, awaiting approval).** The client asked for an invoicing tool as a separate admin-only module: PDF invoices built from form input with a live PDF preview, a contacts register in which organisation employees appear as a category, an admin-only tile on `/modules`, and (later phase) e-mail dispatch of invoices. The full inventory + design proposal is `agent-handoff/15-facturatie.md` (route section inside Module 1, four-layer admin gating, `@react-pdf/renderer`, migration `0020`, private Storage bucket, art. 35a/GGZ-btw-vrijstelling compliance, phase A/B split; draft decision D19 for the blueprint included). **Not started:** waiting on the client's answers to the 21 open questions in that document (company identity, recipients incl. the UBL/municipality question, numbering, VAT position, e-mail provider, AVG consent for storing contact e-mail addresses) and on an explicit owner decision on sequencing vs. the Phase-0 "gates before feature code" rule (proposal: allow in parallel, since Module 1 is live and the work does not touch the spikes).
 
 ### ⬜ Next — Phase 0: Audit & Foundations (gates before any feature code)
 
