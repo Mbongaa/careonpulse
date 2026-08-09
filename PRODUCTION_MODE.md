@@ -235,6 +235,14 @@ gebruikers dezelfde data.
      EPD-import-runs (functionele audit 29-07-2026). **Toepassen vóór de
      bijbehorende code uitrolt**: beheer én de productie-GET sorteren op
      `created_at` en geven zonder deze kolom een PostgREST-400.
+   - `0018_org_display_name.sql` — weergavenaam per organisatie;
+   - `0019_careon_access_token_hook.sql` — `careon`-claim in access tokens
+     (GoTrue custom-access-token-hook, Spike A / YAAZ-SSO);
+   - `0020_careon_facturatie.sql` — facturatiemodule (handoff 15): vier
+     tabellen + RLS met `app.mag_facturatie_zien`, de atomaire
+     definitief-maak-RPC, de concept-prune-RPC en de private Storage-bucket
+     `facturen`. **Toepassen vóór de bijbehorende code uitrolt** (de
+     facturatieroutes geven anders PostgREST-404's).
 
    Het oude sync-token is vervallen: toegang loopt via Supabase Auth-sessies.
 
@@ -346,3 +354,20 @@ die op gedeelde werkplekken.
 - `npm run verify:runtime` — foutinjectie voor mislukte/onvolledige/misvormde
   providerstreams, fail-closed moderation, proxy-inferentie en bodylimieten.
 - `npm run test:e2e` — functionele, responsive, PWA-, logout-cache- en WCAG-AA-tests.
+
+## Facturatie (handoff 15)
+
+- **Bewaartermijn**: uitgereikte facturen en hun pdf's vallen onder de fiscale
+  bewaarplicht van **7 jaar** (10 jaar bij onroerende zaken/OSS). Ze zijn
+  daarom uitgesloten van élke opschoonroutine; de DB weigert wijzigen en
+  verwijderen via triggers. Alleen **verlaten concepten** worden opgeruimd
+  (aparte RPC `careon_prune_facturatie_concepten`, default 180 dagen,
+  instelbaar via `CAREON_FACTURATIE_CONCEPT_RETENTION_DAYS`).
+- **AVG — nieuwe verwerking (klantbesluit 09-08-2026)**: de contactenlijst
+  bewaart namen, adressen én e-mailadressen van factuurontvangers — een
+  bewuste uitzondering op de dataminimalisatie elders (verwijzer-e-mails
+  worden niet bewaard; particuliere debiteuren zijn gereduceerd tot een
+  label). Opnemen in de verwerkingsinventaris (blueprint §18). De
+  AI-assistent heeft geen lees- of schrijftools op facturatiedata.
+- **Storage**: de private bucket `facturen` valt búíten de Supabase-DB-back-ups
+  (die dekken geen Storage-objecten) — zie `DISASTER_RECOVERY.md`.

@@ -4,7 +4,7 @@ import { useMemo } from "react";
 
 import Link from "next/link";
 
-import { CircleHelp, ClipboardList, Database, File, Search, Settings, UserPlus } from "lucide-react";
+import { CircleHelp, ClipboardList, Database, File, ReceiptEuro, Search, Settings, UserPlus } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 
 import {
@@ -79,7 +79,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   // organisatiebeheerders, en Financieel verdwijnt voor gewone leden
   // (klantbesluit 28-07-2026). In demo-modus blijft de sidebar het
   // geauditeerde origineel.
-  const { orgRole, isSuperadmin, financieelZichtbaar } = useCareonSessionInfo();
+  const { orgRole, isSuperadmin, financieelZichtbaar, facturatieZichtbaar } = useCareonSessionInfo();
   // Klantregel uit de sessie: klant 2 hoort hier niet de naam van klant 1 te lezen.
   const klantChip = useCareonKlantChip();
   const beheerZichtbaar = orgRole === "org_admin" || isSuperadmin;
@@ -90,6 +90,22 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         ...group,
         items: group.items.filter((item) => item.id !== "financieel"),
       }));
+    }
+    // Facturatie (handoff 15): beheerdersmodule, runtime-gefilterd zoals
+    // Gebruikersbeheer hieronder. Label en route staan daarmee — aanvaard —
+    // in de clientbundel; de afscherming zit in paginagate, API en RLS.
+    if (facturatieZichtbaar) {
+      groups = groups.map((group) =>
+        group.label === "Organisatie"
+          ? {
+              ...group,
+              items: [
+                ...group.items,
+                { id: "facturatie", title: "Facturatie", url: "/dashboard/facturatie", icon: ReceiptEuro },
+              ],
+            }
+          : group,
+      );
     }
     if (!beheerZichtbaar) return groups;
     return groups.map((group) =>
@@ -103,7 +119,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
           }
         : group,
     );
-  }, [beheerZichtbaar, financieelZichtbaar]);
+  }, [beheerZichtbaar, financieelZichtbaar, facturatieZichtbaar]);
 
   return (
     <Sidebar {...props} variant={variant} collapsible={collapsible}>

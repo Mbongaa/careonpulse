@@ -61,6 +61,8 @@ npm run verify:ci            # alle bovenstaande + audit:production, in één ke
 npm run test:e2e             # Playwright: functionele flows + axe WCAG-AA
 ```
 
+WSL-kanttekening: de repo-config zet `core.worktree` op een Windows-pad (git draait normaal vanuit PowerShell). Suites die git aanroepen (`verify:data-hygiene`, dus ook `verify:ci`) hebben onder WSL `GIT_WORK_TREE="$PWD"` in de omgeving nodig; anders faalt `git ls-files` met "cannot chdir to C:/…".
+
 Release-gate status staat in `RELEASE_GATES.md`. Draai `verify:ci` vóór je werk afrondt; `test:e2e` duurt ~12 minuten en is de laatste poort.
 
 ## Migraties toepassen op careon-zsg
@@ -73,6 +75,17 @@ Release-gate status staat in `RELEASE_GATES.md`. Draai `verify:ci` vóór je wer
 Hetzelfde token maakt de dingen zichtbaar die PostgREST principieel niet toont: `pg_policies`, `pg_class.relrowsecurity`, `pg_indexes`, `pg_constraint`. Zonder token is een driftcontrole per definitie onvolledig — zie `docs/SQL_DRIFT_2026-07-29.md`.
 
 Er is **geen migratieregister**: niets legt vast wat is toegepast. Controleer de stand dus altijd tegen de database zelf in plaats van tegen de bestandenlijst, en let op twee migraties die niet meer letterlijk herhaalbaar zijn: `0010` (zoekt `slug = 'zsg'`, door `0014` hernoemd naar `tgc`) en `0008` (zijn scope-CHECK kent `login` niet, terwijl die rijen bestaan).
+
+## Facturatiemodule (handoff 15)
+
+Nieuwe lokale conventies sinds 09-08-2026:
+
+- **Rolpredicaat-paar**: elke laag leidt facturatie-toegang af van `magFacturatieZien()` (`src/lib/careon-facturatie-rol.ts`) resp. `app.mag_facturatie_zien()` (SQL, 0020) — nooit een eigen rolvergelijking. Superadmins zonder org-lidmaatschap vallen buiten de module.
+- **Concept-only clients**: caller-JWT-writes op `careon_facturatie_facturen` kunnen uitsluitend concepten raken (RLS `status='concept' and nummer is null`); nummer + statusovergang lopen via de RPC `careon_factuur_definitief_maken`, administratieve vervolgstappen via de service-role ná `requireOrgAdmin()`.
+- **Storage**: bucket `facturen` is privaat zonder client-policies; alle toegang via route handlers met de service-role. Nooit publieke of signed Storage-URL's in de UI. DB-back-ups dekken Storage niet — zie `DISASTER_RECOVERY.md`.
+- **CSP**: `frame-src 'self' blob:` en `'wasm-unsafe-eval'` zijn bewuste facturatie-wijzigingen (zie `RELEASE_GATES.md`); verder blijft de policy dicht.
+- **Demo-pad (B12)**: de e2e-suite draait demo-only, dus facturatie heeft een volwaardige localStorage-implementatie (`storage.client.ts`, sleutel `careon-facturatie-v1`, onvoorwaardelijk in `wisCareonCaches()`), inclusief de client-side nummerteller — de enige, gedocumenteerde uitzondering op "nummering is DB-werk".
+
 
 ## Co-location-based structure
 

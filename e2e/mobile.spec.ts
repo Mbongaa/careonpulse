@@ -18,6 +18,12 @@ const ROUTES = [
   "/dashboard/financieel",
   "/dashboard/hr",
   "/dashboard/middelen",
+  // Facturatie (handoff 15): pagina's blijven mobile-first; alleen het
+  // pdf-voorbeeld is desktop-first (klant-goedgekeurde uitzondering V21).
+  "/dashboard/facturatie",
+  "/dashboard/facturatie/contacten",
+  "/dashboard/facturatie/instellingen",
+  "/dashboard/facturatie/demo-factuur-3",
   "/dashboard/databron",
   "/dashboard/assistent",
   // KPI-drilldown (handoff 08): breedste detailtabel als mobile-gate.

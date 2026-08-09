@@ -1,6 +1,7 @@
 import { clearCareonAssistantSession } from "./careon-assistant/session.client";
 import { clearCareonAssistantHistory } from "./careon-assistant/storage.client";
 import { CAREON_HOSTED_DEMO_USERNAME } from "./careon-demo-account";
+import { clearFacturatieState } from "./careon-facturatie/storage.client";
 import { clearHrState } from "./careon-hr/storage.client";
 import { clearMiddelenState } from "./careon-middelen/storage.client";
 import { clearAuxFacts, clearProductionState } from "./careon-production/storage.client";
@@ -154,6 +155,9 @@ export async function careonLogoutMetSignaal(): Promise<CareonLogoutResultaat> {
   clearCareonAssistantSession();
   clearProductionState();
   clearAuxFacts();
+  // Facturatie: centraal werk staat al via autosave in Supabase; de lokale
+  // sleutel draagt alleen demo-staat en verdwijnt — zelfde lijn als productie.
+  clearFacturatieState();
   // HR en middelen zijn handmatige registraties zonder tweede bron: een cache
   // die nog niet centraal staat wissen betekent definitief verlies. Die blijft
   // staan tot dezelfde eigenaar hem alsnog kan wegschrijven; een ándere

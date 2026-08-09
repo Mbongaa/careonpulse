@@ -338,5 +338,19 @@ Evidence (2026-07-29, na beide fixgolven): `npm run check` clean (300 bestanden,
 
 Tussentijdse vondst tijdens deze ronde: de eerste e2e-run gaf één flaky a11y-fout (`/modules`, donkere modus) — de tagline op 7px haalde 3,55:1 doordat hij geen eigen kleur had en de muted-token erfde. Expliciete kleuren per thema toegevoegd; de suite draait sindsdien 107/107 zonder flakes.
 
+## Superseding feature — Facturatiemodule (2026-08-09)
+
+Client-approved beheerdersmodule (handoff 15, `agent-handoff/15-facturatie.md`; blueprint-beslisregel D19): pdf-facturen met live voorbeeld, contactenregister (medewerkers als categorie via een read-only unie), eigen Supabase-schema (migratie `0020`) en de eerste private Storage-bucket (`facturen`). Toegang uitsluitend org_admins + superadmins mét org-lidmaatschap, op vier lagen (server-side launcher-filter, `requireFacturatiePage()`, `requireOrgAdmin()` per route, RLS `app.mag_facturatie_zien`). Nummertoekenning is atomair met de statusovergang (DB-RPC); uitgereikte facturen zijn onwijzigbaar en onverwijderbaar (triggers) en vallen buiten elke opschoning (bewaarplicht 7 jaar; alleen verlaten concepten worden na 180 dagen opgeruimd).
+
+**Bewuste CSP-wijzigingen** (`src/proxy.ts`, bewaakt door `verify:runtime` + de e2e-CSP-assertie): `frame-src 'none'` → `frame-src 'self' blob:` (het pdf-voorbeeld is een same-origin blob-iframe; `frame-ancestors`/`object-src` blijven dicht) en `'wasm-unsafe-eval'` in `script-src` (de pdf-layoutengine yoga-layout is WebAssembly; JavaScript-eval blijft verboden).
+
+**Mobile-first-uitzondering (klant-akkoord V21, 09-08-2026)**: de facturatiepagina's blijven mobile-first (gates in `e2e/mobile.spec.ts`), alleen het ingebedde pdf-voorbeeld is desktop-first — mobiel opent de blob in een nieuw tabblad.
+
+**A11y-bevinding met bredere geldigheid**: in het careon-thema faalt élke *ingeschakelde* knop in de default-primary-variant op WCAG-AA-contrast (wit op `#19a7ff` = 2,6:1); geauditeerde pagina's tonen die variant uitsluitend disabled (axe slaat disabled controls over). Facturatie gebruikt daarom `variant="outline"` voor zijn hoofdacties. Wie ooit een ingeschakelde primary-knop op een careon-pagina zet, loopt tegen dezelfde poort aan — het thema wijzigen is geen optie (handoff-fideliteit).
+
+**Naamsverwarring, expliciet onderscheiden**: *facturatiemodule = zelf uitgereikte facturen*; de omzetdriedeling op Financieel (klantformaat FACTURATIE.xlsx) blijft een losstaande, alleen-lezen analyse van door het EPD uitgereikte facturen.
+
+Gates: `verify:careon` (registry-invarianten, rolpredicaat-waarheidstabel incl. pariteit met de financiële rolregel, totalen-/nummer-/art. 35a-fixtures, seed-consistentie, pdf-render), `verify:runtime` (RLS-policies, triggers, atomaire RPC, bucket privaat, CSP, launcher-import, herstel-guard) en `e2e/careon.spec.ts` (demo-pad: tegel, editor, blob-voorbeeld, definitief maken, contacten-CRUD, medewerker-overname, cache-clear incl. `careon-facturatie-v1`).
+
 ## Definition of done
 All gates 🟢, then final full pass: check → tsc → build → server smoke → gates table re-verified in one go, loop stops.

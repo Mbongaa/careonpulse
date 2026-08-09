@@ -12,7 +12,7 @@ import { CareonLogo } from "@/app/(main)/dashboard/_components/careon/careon-log
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { CAREON_MODULES, type CareonModule } from "@/data/careon/careon-modules";
+import type { CareonModule } from "@/data/careon/careon-modules";
 import { CAREON_LOGIN_ROUTE, careonLogoutMetSignaal } from "@/lib/careon-auth";
 import { meldOnbewaardeRegistraties } from "@/lib/careon-uitlog-melding.client";
 
@@ -62,19 +62,23 @@ function ModuleTile({ mod }: Readonly<{ mod: CareonModule }>) {
 }
 
 export function ModuleLauncher({
+  // Server-side gefilterd register (modules/page.tsx): rolgebonden tegels van
+  // andere rollen bereiken deze client-component — en dus de bundel-data van
+  // de pagina — nooit.
+  modules,
   financieelZichtbaar = true,
   // Naam van de organisatie van de ingelogde gebruiker; de launcher staat
   // buiten de dashboard-provider, dus de server-pagina geeft hem door. Zonder
   // sessie (demo) valt careonOrgNaam terug op de geauditeerde demo-klant.
   orgNaam,
-}: Readonly<{ financieelZichtbaar?: boolean; orgNaam: string }>) {
+}: Readonly<{ modules: readonly CareonModule[]; financieelZichtbaar?: boolean; orgNaam: string }>) {
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
 
   // Financiële rolregel: de modulekaart adverteert leden geen "financieel".
-  const modules = financieelZichtbaar
-    ? CAREON_MODULES
-    : CAREON_MODULES.map((mod) =>
+  const zichtbareModules = financieelZichtbaar
+    ? modules
+    : modules.map((mod) =>
         mod.id === "careon-pulse-directie"
           ? { ...mod, description: "Zorgdashboard met KPI's, signaleringen en de AI-assistent." }
           : mod,
@@ -103,7 +107,7 @@ export function ModuleLauncher({
         </Button>
       </header>
       <main className="flex flex-1 items-center justify-center p-5 pb-16 md:p-8">
-        <div className="w-full max-w-2xl space-y-8">
+        <div className="w-full max-w-4xl space-y-8">
           <div className="space-y-2 text-center">
             <p className="text-[10px] text-muted-foreground uppercase tracking-[0.36em]">{orgNaam}</p>
             <h1 className="font-semibold text-3xl tracking-tight">Kies een module</h1>
@@ -111,8 +115,8 @@ export function ModuleLauncher({
               U bent ingelogd bij {orgNaam}. Open een module om verder te gaan.
             </p>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {modules.map((mod) => (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {zichtbareModules.map((mod) => (
               <ModuleTile key={mod.id} mod={mod} />
             ))}
           </div>

@@ -5,6 +5,7 @@
 - Application rollback objective: 15 minutes by promoting the previous immutable deployment.
 - Database recovery-time objective (RTO): 4 hours.
 - Database recovery-point objective (RPO): 24 hours, or the lower point-in-time window provided by the active Supabase plan.
+- Storage bucket `facturen` (invoice PDFs + org logo, handoff 15): Supabase DB backups/PITR do **not** cover Storage objects, while these PDFs carry a 7-year statutory retention. Interim regime: PDFs are regenerable from the frozen row snapshots (`POST /api/careon/facturatie/facturen/<id>/pdf`, integrity via `pdf_sha256` on the row); a periodic server-side copy to a second bucket/R2 is the planned durable backup and must be in place before invoice volume becomes material.
 - AI provider failure does not block the dashboard: set `CAREON_ASSISTANT_LIVE=0` and use deterministic answers.
 
 ## Required recovery assets
@@ -26,7 +27,8 @@
 6. Verify the latest complete import contains `total_rows` records and that the latest means/HR revisions are readable.
 7. Start the matching immutable application build against the restored database.
 8. Require 200 from `/api/health/live` and `/api/health/ready`, then run `npm run verify:assistant:live` in the isolated environment.
-9. Record actual RTO, achieved RPO, release/database versions, row counts and every deviation.
+9. Facturatie: verify the `facturen` bucket exists and is private, and regenerate one invoice PDF via the herstel-route; compare `pdf_sha256` before/after.
+10. Record actual RTO, achieved RPO, release/database versions, row counts and every deviation.
 10. Destroy the isolated restore environment after evidence has been retained.
 
 ## Production incident sequence

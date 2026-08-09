@@ -31,6 +31,12 @@ import {
   WACHTLIJST_PER_LOCATIE,
   WACHTLIJST_SUMMARY,
 } from "../data/careon/careon-dossiers-productie";
+import {
+  DEMO_CONTACTEN,
+  DEMO_FACTURATIE_INSTELLINGEN,
+  DEMO_FACTUREN,
+  EMPTY_FACTURATIE_INSTELLINGEN,
+} from "../data/careon/careon-facturatie";
 import { CAREON_LOCATION_SCALE, CAREON_LOCATIONS } from "../data/careon/careon-filters";
 import { FINANCIEEL_METRICS } from "../data/careon/careon-financieel";
 import { BIG_REGISTRATIES, HR_METRICS, HR_SEED_STATE } from "../data/careon/careon-hr";
@@ -38,6 +44,7 @@ import { careonDetailHref, KPI_DETAIL_BY_ID, KPI_DETAILS } from "../data/careon/
 import { COCKPIT_KPIS } from "../data/careon/careon-kpis";
 import { complianceTone, KWALITEIT_COUNTERS } from "../data/careon/careon-kwaliteit";
 import { DEMO_MIDDELEN_STATE, FUNCTIE_OPTIES, TAAL_OPTIES, TEAM_SEED } from "../data/careon/careon-middelen";
+import { CAREON_MODULES } from "../data/careon/careon-modules";
 import { CAREON_ROUTES } from "../data/careon/careon-pages";
 import { PATIENTEN_METRICS } from "../data/careon/careon-patienten";
 import { PLANNING_METRICS } from "../data/careon/careon-planning";
@@ -53,6 +60,22 @@ import {
   verwijderFinancieleContext,
 } from "../lib/careon-assistant/financieel-gate";
 import { redigeerFinancieleAssistentResponse } from "../lib/careon-assistant/financieel-redactie";
+import {
+  berekenVervaldatum,
+  formatFactuurnummer,
+  isTeLaat,
+  uitreikingstermijnOverschreden,
+} from "../lib/careon-facturatie/nummer";
+import { renderFactuurPdf } from "../lib/careon-facturatie/pdf/render.server";
+import { berekenTotalen, isVolledigVrijgesteld } from "../lib/careon-facturatie/totalen";
+import {
+  type FactuurRegel,
+  isFacturatieContact,
+  isFacturatieInstellingen,
+  isFactuur,
+} from "../lib/careon-facturatie/types";
+import { afzenderUitInstellingen, valideerFactuurVoorUitreiking } from "../lib/careon-facturatie/validatie";
+import { magFacturatieZien } from "../lib/careon-facturatie-rol";
 import { filterFinancieleAlerts, magFinancieelZien } from "../lib/careon-financieel-rol";
 import { formatCareonDelta, formatCareonValue } from "../lib/careon-format";
 import { buildHrBigAlert, hrMetrics } from "../lib/careon-hr/insights";
@@ -1240,7 +1263,224 @@ check(
   true,
 );
 
-console.log(`\nverify-careon: ${passes} passed, ${failures} failed`);
-if (failures > 0) {
-  process.exit(1);
+// ── Facturatie (handoff 15) ─────────────────────────────────────────────────
+
+// Moduleregister: één entry per module, rolgebonden tegels expliciet.
+check("register: unieke module-ids", new Set(CAREON_MODULES.map((mod) => mod.id)).size, CAREON_MODULES.length);
+check(
+  "register: elke live module heeft een href",
+  CAREON_MODULES.every((mod) => mod.status !== "live" || typeof mod.href === "string"),
+  true,
+);
+check(
+  "register: coming-soon draagt geen href",
+  CAREON_MODULES.every((mod) => mod.status !== "coming-soon" || mod.href === undefined),
+  true,
+);
+const facturatieTegel = CAREON_MODULES.find((mod) => mod.id === "careon-facturatie");
+check("register: facturatietegel is live op /dashboard/facturatie", facturatieTegel?.href, "/dashboard/facturatie");
+check("register: facturatietegel is beheerder-only", facturatieTegel?.zichtbaarVoor, "org_admin");
+
+// Rolpredicaat: beheerdersmodule, en een superadmin zonder org kan niets.
+const orgSessie = { orgId: "org-1", email: "iemand@example.nl" };
+check("facturatierol: org_admin", magFacturatieZien({ ...orgSessie, orgRole: "org_admin", isSuperadmin: false }), true);
+check("facturatierol: member", magFacturatieZien({ ...orgSessie, orgRole: "member", isSuperadmin: false }), false);
+check(
+  "facturatierol: superadmin met org",
+  magFacturatieZien({ ...orgSessie, orgRole: null, isSuperadmin: true }),
+  true,
+);
+check(
+  "facturatierol: superadmin zonder org",
+  magFacturatieZien({ orgId: null, email: "admin@example.nl", orgRole: null, isSuperadmin: true }),
+  false,
+);
+check(
+  "facturatierol: demoaccount",
+  magFacturatieZien({ orgId: "org-demo", email: "user1@careon-demo.nl", orgRole: "member", isSuperadmin: false }),
+  true,
+);
+// Vandaag gelijk aan de financiële rolregel voor sessies mét organisatie —
+// drift wordt hiermee een bewuste wijziging in plaats van een stil verschil.
+for (const rol of ["org_admin", "member", null] as const) {
+  for (const superadmin of [true, false]) {
+    const invoer = { orgRole: rol, isSuperadmin: superadmin, email: "iemand@example.nl" };
+    check(
+      `facturatierol: pariteit met financiële rolregel (${rol ?? "geen"}, superadmin=${superadmin})`,
+      magFacturatieZien({ ...invoer, orgId: "org-1" }),
+      magFinancieelZien(invoer),
+    );
+  }
 }
+
+// Totalen: afronding per regel in hele centen, groepering per tarief.
+const regel = (patch: Partial<FactuurRegel>): FactuurRegel => ({
+  id: patch.id ?? "r",
+  omschrijving: "Test",
+  aantal: 1,
+  eenheid: "stuk",
+  stukprijsCent: 0,
+  btwTarief: "21",
+  btwCategorie: "S",
+  ...patch,
+});
+const gemengd = berekenTotalen([
+  regel({ id: "a", aantal: 2, stukprijsCent: 1_000 }),
+  regel({ id: "b", aantal: 1, stukprijsCent: 250, btwTarief: "9" }),
+]);
+check("totalen: gemengde tarieven — subtotaal", gemengd.subtotaalCent, 2_250);
+check("totalen: gemengde tarieven — btw (per regel afgerond)", gemengd.btwCent, 420 + 23);
+check("totalen: gemengde tarieven — totaal", gemengd.totaalCent, 2_693);
+check(
+  "totalen: groepering per tarief",
+  gemengd.btwTotalen.map((totaal) => `${totaal.tarief}:${totaal.grondslagCent}:${totaal.btwCent}`),
+  ["9:250:23", "21:2000:420"],
+);
+const korting = berekenTotalen([regel({ aantal: 3, stukprijsCent: 333, kortingPct: 10 })]);
+check("totalen: korting rondt op hele centen", korting.subtotaalCent, 899);
+check("totalen: btw over de kortingsgrondslag", korting.btwCent, 189);
+const creditTotalen = berekenTotalen([regel({ aantal: -2, stukprijsCent: 1_000 })]);
+check("totalen: creditregels zijn negatief", creditTotalen.totaalCent, -2_420);
+const vrijgesteldTotalen = berekenTotalen([
+  regel({ btwTarief: "vrijgesteld", btwCategorie: "E", stukprijsCent: 5_000 }),
+]);
+check("totalen: vrijgesteld draagt geen btw", vrijgesteldTotalen.btwCent, 0);
+check(
+  "totalen: volledig vrijgesteld herkend",
+  isVolledigVrijgesteld([regel({ btwTarief: "vrijgesteld", btwCategorie: "E" })]),
+  true,
+);
+
+// Nummering: F2026-0001-formaat, jaarwissel, en bewust géén EPD-patroon.
+check("nummer: default formaat", formatFactuurnummer("{reeks}{jaar}-{nummer:4}", "F", 2026, 1), "F2026-0001");
+check("nummer: creditreeks", formatFactuurnummer("{reeks}{jaar}-{nummer:4}", "C", 2026, 12), "C2026-0012");
+check("nummer: jaarwissel", formatFactuurnummer("{reeks}{jaar}-{nummer:4}", "F", 2027, 1), "F2027-0001");
+check(
+  "nummer: wijkt af van het 8-cijferige EPD-patroon (26000160)",
+  /^\d{8}$/.test(formatFactuurnummer("{reeks}{jaar}-{nummer:4}", "F", 2026, 160)),
+  false,
+);
+check("vervaldatum: 30 dagen", berekenVervaldatum("2026-06-05", 30), "2026-07-05");
+check("vervaldatum: over de jaargrens", berekenVervaldatum("2026-12-15", 30), "2027-01-14");
+check(
+  "te laat: open factuur na vervaldatum",
+  isTeLaat({ status: "verzonden", vervaldatum: "2026-07-05" }, "2026-07-06"),
+  true,
+);
+check("te laat: betaald telt niet", isTeLaat({ status: "betaald", vervaldatum: "2026-07-05" }, "2026-08-01"), false);
+check("art. 34g: binnen de termijn", uitreikingstermijnOverschreden("2026-05-31", "2026-06-14"), false);
+check("art. 34g: termijn verstreken", uitreikingstermijnOverschreden("2026-05-31", "2026-06-16"), true);
+
+// Art. 35a-validator: per ontbrekend veld precies die sleutel terug.
+const demoAfzender = afzenderUitInstellingen(DEMO_FACTURATIE_INSTELLINGEN);
+const compleetConcept = {
+  factuurdatum: "2026-06-05",
+  prestatieVan: "2026-05-01",
+  prestatieTot: "2026-05-31",
+  afnemer: DEMO_FACTUREN[0].afnemer,
+  regels: DEMO_FACTUREN[0].regels,
+  vrijstellingTekst: undefined,
+};
+check(
+  "validator: complete factuur is uitreikbaar",
+  // Belaste (21%) regels: de afzender draagt dan een btw-id (de demo-afzender
+  // is bewust volledig vrijgesteld en heeft er geen).
+  valideerFactuurVoorUitreiking(compleetConcept, { ...demoAfzender, btwId: "NL123456789B01" }).ok,
+  true,
+);
+check(
+  "validator: ontbrekende factuurdatum",
+  valideerFactuurVoorUitreiking({ ...compleetConcept, factuurdatum: null }, demoAfzender).ontbrekend.includes(
+    "factuurdatum",
+  ),
+  true,
+);
+check(
+  "validator: ontbrekende prestatieperiode",
+  valideerFactuurVoorUitreiking(
+    { ...compleetConcept, prestatieVan: null, prestatieTot: null },
+    demoAfzender,
+  ).ontbrekend.includes("prestatieperiode"),
+  true,
+);
+check(
+  "validator: vrijgestelde regel zonder vrijstellingstekst",
+  valideerFactuurVoorUitreiking(
+    { ...compleetConcept, regels: DEMO_FACTUREN[1].regels, vrijstellingTekst: undefined },
+    demoAfzender,
+  ).ontbrekend.includes("vrijstellingTekst"),
+  true,
+);
+check(
+  "validator: belaste regels eisen een btw-id van de afzender",
+  valideerFactuurVoorUitreiking(compleetConcept, { ...demoAfzender, btwId: undefined }).ontbrekend.includes(
+    "afzender.btwId",
+  ),
+  true,
+);
+check(
+  "validator: btw verlegd eist het btw-id van de afnemer",
+  valideerFactuurVoorUitreiking(
+    {
+      ...compleetConcept,
+      regels: [regel({ btwCategorie: "AE", btwTarief: "21" })],
+      afnemer: { naam: "Test", adresRegel1: "Straat 1", postcode: "1234 AB", plaats: "Stad", land: "NL" },
+    },
+    { ...demoAfzender, btwId: "NL123456789B01" },
+  ).ontbrekend.includes("afnemer.btwId"),
+  true,
+);
+check(
+  "validator: lege afzender blokkeert uitreiken",
+  valideerFactuurVoorUitreiking(compleetConcept, afzenderUitInstellingen(EMPTY_FACTURATIE_INSTELLINGEN)).ok,
+  false,
+);
+
+// Seeds: demo valideert tegen de guards en rekent kloppend; EMPTY draagt
+// geen klantgegevens (een tweede organisatie erft nooit de eerste).
+check("seeds: demo-facturen valideren tegen isFactuur", DEMO_FACTUREN.every(isFactuur), true);
+check("seeds: demo-contacten valideren", DEMO_CONTACTEN.every(isFacturatieContact), true);
+check("seeds: demo-instellingen valideren", isFacturatieInstellingen(DEMO_FACTURATIE_INSTELLINGEN), true);
+check("seeds: lege instellingen valideren", isFacturatieInstellingen(EMPTY_FACTURATIE_INSTELLINGEN), true);
+for (const factuur of DEMO_FACTUREN) {
+  const herberekend = berekenTotalen(factuur.regels);
+  check(`seeds: totalen van ${factuur.id} kloppen met berekenTotalen`, herberekend, {
+    subtotaalCent: factuur.subtotaalCent,
+    btwCent: factuur.btwCent,
+    totaalCent: factuur.totaalCent,
+    btwTotalen: factuur.btwTotalen,
+  });
+}
+check(
+  "seeds: EMPTY-instellingen zonder bedrijfsgegevens",
+  [
+    EMPTY_FACTURATIE_INSTELLINGEN.afzender.statutaireNaam,
+    EMPTY_FACTURATIE_INSTELLINGEN.afzender.kvkNummer,
+    EMPTY_FACTURATIE_INSTELLINGEN.bank.iban,
+  ],
+  ["", "", ""],
+);
+
+// Pdf-pijplijn: dezelfde renderer als de definitief-route. Tekststromen in de
+// pdf zijn gecomprimeerd/subset-gecodeerd, dus inhoud wordt op het niveau van
+// de documentmetadata (/Title draagt het factuurnummer) en de structuur
+// geverifieerd — de veldwaarden zelf zijn hierboven al data-gedreven getoetst.
+void (async () => {
+  try {
+    const verzonden = await renderFactuurPdf(DEMO_FACTUREN[0]);
+    check("pdf: bytes beginnen met %PDF-", verzonden.buffer.subarray(0, 5).toString("latin1"), "%PDF-");
+    check("pdf: document heeft substantie", verzonden.buffer.byteLength > 2_000, true);
+    check("pdf: factuurnummer in de documenttitel", verzonden.buffer.includes("F2026-0001"), true);
+    check("pdf: sha256 aanwezig", verzonden.sha256.length, 64);
+    const vrijgesteldPdf = await renderFactuurPdf(DEMO_FACTUREN[1]);
+    check("pdf: vrijgestelde factuur rendert", vrijgesteldPdf.buffer.subarray(0, 5).toString("latin1"), "%PDF-");
+  } catch (error) {
+    failures += 1;
+    console.error("FAIL pdf: renderFactuurPdf faalde", error);
+  }
+
+  console.log(`\nverify-careon: ${passes} passed, ${failures} failed`);
+  if (failures > 0) {
+    process.exit(1);
+  }
+})();

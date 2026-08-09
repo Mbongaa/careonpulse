@@ -16,6 +16,13 @@ const EVENT_RETENTION_DAYS = Math.min(
 const CHAT_RETENTION_DAYS = Math.min(365, Math.max(1, Number(process.env.CAREON_ASSISTANT_CHAT_RETENTION_DAYS) || 30));
 // Audit-logboek: 12 maanden (besluit 5, handoff 13).
 const AUDIT_RETENTION_DAYS = Math.min(1_095, Math.max(30, Number(process.env.CAREON_AUDIT_RETENTION_DAYS) || 365));
+// Facturatie (handoff 15 §3.5): uitgereikte facturen vallen BUITEN elke
+// opschoning (bewaarplicht 7 jaar); alleen verlaten CONCEPTEN — met
+// afnemer-persoonsgegevens in de snapshot — worden opgeruimd.
+const FACTURATIE_CONCEPT_RETENTION_DAYS = Math.min(
+  1_095,
+  Math.max(30, Number(process.env.CAREON_FACTURATIE_CONCEPT_RETENTION_DAYS) || 180),
+);
 
 function authorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET;
@@ -61,6 +68,30 @@ export async function GET(request: Request) {
       return Response.json({ status: "failed" }, { status: 502 });
     }
     const result = await response.json();
+    // Aparte RPC (0020) — bewust niet in careon_prune_runtime_data gevlochten,
+    // zodat de facturatietabellen nooit per ongeluk in de algemene opschoning
+    // belanden. Best effort: een fout hier laat de hoofdprune geldig.
+    let conceptenOpgeruimd: number | null = null;
+    try {
+      const conceptResponse = await fetch(`${SUPABASE_URL}/rest/v1/rpc/careon_prune_facturatie_concepten`, {
+        method: "POST",
+        headers: {
+          apikey: SERVICE_KEY,
+          Authorization: `Bearer ${SERVICE_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ p_days: FACTURATIE_CONCEPT_RETENTION_DAYS }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (conceptResponse.ok) {
+        conceptenOpgeruimd = (await conceptResponse.json()) as number;
+      } else {
+        console.error("Facturatie concept-prune failed", { status: conceptResponse.status });
+      }
+    } catch (error) {
+      console.error("Facturatie concept-prune unavailable", error);
+    }
     scheduleAuditEvent({
       action: "maintenance.prune",
       resource: "careon_prune_runtime_data",
@@ -68,6 +99,7 @@ export async function GET(request: Request) {
         events: String(EVENT_RETENTION_DAYS),
         chats: String(CHAT_RETENTION_DAYS),
         audit: String(AUDIT_RETENTION_DAYS),
+        facturatieConcepten: conceptenOpgeruimd === null ? "failed" : String(conceptenOpgeruimd),
       },
     });
     return Response.json(

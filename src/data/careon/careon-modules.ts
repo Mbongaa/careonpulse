@@ -4,6 +4,11 @@
 // module toevoegen is één entry hier.
 export type CareonModuleStatus = "live" | "coming-soon";
 
+/** Wie de tegel te zien krijgt — webvoorloper van de entitlements uit
+    blueprint §5/D13. Filtering gebeurt SERVER-SIDE in /modules (page.tsx);
+    de launcher-client krijgt alleen de al gefilterde lijst als prop. */
+export type CareonModuleZichtbaarheid = "iedereen" | "org_admin";
+
 export type CareonModule = {
   id: string;
   name: string;
@@ -15,6 +20,8 @@ export type CareonModule = {
    * een externe module (bijv. YAAZ/HumHub op de comms-plane).
    */
   href?: string;
+  /** Default "iedereen". */
+  zichtbaarVoor?: CareonModuleZichtbaarheid;
 };
 
 // YAAZ (Module 2 — communicatie, HumHub op de comms-plane) gaat live zodra de
@@ -45,4 +52,14 @@ export const CAREON_MODULES: readonly CareonModule[] = [
         description: "Nieuwe module binnen Careon Pulse.",
         status: "coming-soon",
       },
+  // Facturatie (handoff 15): beheerdersmodule — alleen zichtbaar voor
+  // org_admins/superadmins mét organisatie (en het demo-account, B12).
+  {
+    id: "careon-facturatie",
+    name: "Facturatie",
+    description: "Facturen opstellen met live pdf-voorbeeld, contacten beheren en facturen archiveren.",
+    status: "live",
+    href: "/dashboard/facturatie",
+    zichtbaarVoor: "org_admin",
+  },
 ];

@@ -22,6 +22,9 @@ test.describe("auth", () => {
     const csp = response?.headers()["content-security-policy"] ?? "";
     expect(csp).toContain("script-src 'self' 'nonce-");
     expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
+    // Facturatie (handoff 15 §5.3): het pdf-voorbeeld is een same-origin blob;
+    // elke andere frame-herkomst blijft verboden.
+    expect(csp).toContain("frame-src 'self' blob:");
     await page.waitForURL(`**${LOGIN_URL}`);
     await expect(page.getByPlaceholder("Gebruikersnaam")).toBeVisible();
   });
@@ -78,8 +81,14 @@ test.describe("auth", () => {
     if ((await yaazLink.count()) > 0) {
       await expect(yaazLink).toHaveAttribute("href", /^https?:\/\//);
     } else {
-      await expect(page.getByText("Binnenkort beschikbaar")).toBeVisible();
+      // Gescoped op de YAAZ-kaart: een pagina-brede tekstassertie breekt in
+      // strict mode zodra er ooit een tweede coming-soon-tegel bijkomt.
+      const yaazKaart = page.locator('[aria-disabled="true"]').filter({ hasText: "YAAZ" });
+      await expect(yaazKaart.getByText("Binnenkort beschikbaar")).toBeVisible();
     }
+
+    // Facturatie-tegel (handoff 15): zichtbaar in demo (B12).
+    await expect(page.getByRole("link", { name: /Facturatie/ })).toBeVisible();
 
     await page.getByRole("link", { name: /Careon Pulse Directie/ }).click();
     await page.waitForURL("**/dashboard/directiecockpit");
@@ -89,6 +98,7 @@ test.describe("auth", () => {
       window.localStorage.setItem("careon-production-v1", '{"sensitive":true}');
       window.localStorage.setItem("careon-middelen-v2", '{"sensitive":true}');
       window.localStorage.setItem("careon-hr-v2", '{"sensitive":true}');
+      window.localStorage.setItem("careon-facturatie-v1", '{"sensitive":true}');
       window.sessionStorage.setItem("careon-assistant-session-v1", "session-test");
       const cache = await window.caches.open("careon-sensitive-test");
       await cache.put("/dashboard/sensitive", new Response("sensitive"));
@@ -102,6 +112,7 @@ test.describe("auth", () => {
       production: window.localStorage.getItem("careon-production-v1"),
       middelen: window.localStorage.getItem("careon-middelen-v2"),
       hr: window.localStorage.getItem("careon-hr-v2"),
+      facturatie: window.localStorage.getItem("careon-facturatie-v1"),
       sensitiveCache: (await window.caches.keys()).includes("careon-sensitive-test"),
     }));
     expect(cleared).toEqual({
@@ -110,6 +121,7 @@ test.describe("auth", () => {
       production: null,
       middelen: null,
       hr: null,
+      facturatie: null,
       sensitiveCache: false,
     });
   });
@@ -622,5 +634,79 @@ test.describe("chrome & theming", () => {
     await expect(page.getByRole("heading", { name: "Patiënten" })).toBeVisible();
     await page.getByRole("button", { name: "Toggle Sidebar" }).click();
     await expect(page.getByRole("link", { name: "Signaleringen", exact: true })).toBeVisible();
+  });
+});
+
+test.describe("facturatie (demo-pad, handoff 15)", () => {
+  test.beforeEach(async ({ page }) => {
+    await loginViaSession(page);
+  });
+
+  test("lijst toont de demo-facturen met statusbadges", async ({ page }) => {
+    await page.goto("/dashboard/facturatie");
+    await expect(page.getByRole("heading", { name: "Facturatie" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "F2026-0001" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "F2026-0002" })).toBeVisible();
+    await expect(page.getByText("Lokale demo-opslag", { exact: false }).first()).toBeVisible();
+  });
+
+  test("concept bewerken: regel toevoegen, totalen en blob-pdf-voorbeeld", async ({ page }) => {
+    await page.goto("/dashboard/facturatie/demo-factuur-3");
+    await expect(page.getByRole("heading", { name: "Nieuwe factuur" })).toBeVisible();
+
+    await page.getByLabel("Omschrijving nieuwe factuurregel").fill("Extra reiskosten");
+    await page.getByRole("button", { name: "Regel toevoegen" }).click();
+    // demo-factuur-3 heeft twee seedregels; de toevoeging wordt regel 3.
+    await expect(page.getByLabel("Omschrijving — regel 3")).toHaveValue("Extra reiskosten");
+    await expect(page.getByText("Subtotaal excl. btw")).toBeVisible();
+
+    // Het live voorbeeld ís de pdf: een same-origin blob in een iframe.
+    await expect(page.locator('iframe[title="Voorbeeld van de factuur"]')).toHaveAttribute("src", /^blob:/, {
+      timeout: 15_000,
+    });
+  });
+
+  test("definitief maken kent het volgende demo-nummer toe en wordt read-only", async ({ page }) => {
+    await page.goto("/dashboard/facturatie");
+    await page.getByRole("button", { name: "Nieuwe factuur" }).click();
+    await page.waitForURL("**/dashboard/facturatie/lokaal-*");
+
+    await page.getByLabel("Afnemer (contact)").selectOption({ label: "Zorggroep De Linde B.V." });
+    await page.getByLabel("Prestatie van").fill("2026-06-01");
+    await page.getByLabel("Prestatie t/m").fill("2026-06-30");
+    await page.getByLabel("Omschrijving nieuwe factuurregel").fill("Consult op locatie");
+    await page.getByRole("button", { name: "Regel toevoegen" }).click();
+    await page.getByLabel("Stukprijs — Consult op locatie").fill("120");
+
+    await page.getByRole("button", { name: "Definitief maken" }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Definitief maken" }).click();
+
+    // Demo-teller staat op 2 (twee uitgereikte seeds) → volgende is 0003.
+    await expect(page.getByRole("heading", { name: "F2026-0003" })).toBeVisible();
+    await expect(page.getByText("Deze factuur is uitgereikt", { exact: false })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Verzonden markeren" })).toBeVisible();
+    // Download loopt in demo via de client-blob van het voorbeeld.
+    await expect(page.getByRole("link", { name: "Pdf downloaden" })).toHaveAttribute("href", /^blob:/, {
+      timeout: 15_000,
+    });
+  });
+
+  test("contacten: toevoegen, bewerken, verwijderen en medewerker overnemen", async ({ page }) => {
+    await page.goto("/dashboard/facturatie/contacten");
+    await expect(page.getByRole("heading", { name: "Contacten" })).toBeVisible();
+
+    await page.getByLabel("Naam nieuw contact").fill("Testcontact E2E");
+    await page.getByRole("button", { name: "Contact toevoegen" }).click();
+    await expect(page.getByLabel("Naam — Testcontact E2E")).toBeVisible();
+
+    await page.getByLabel("Plaats — Testcontact E2E").fill("Tilburg");
+    await page.getByLabel("Plaats — Testcontact E2E").blur();
+
+    await page.getByLabel("Verwijder Testcontact E2E uit de contacten").click();
+    await expect(page.getByLabel("Naam — Testcontact E2E")).toHaveCount(0);
+
+    // Medewerkers-unie (B11): overnemen maakt een los contact aan.
+    await page.getByRole("button", { name: "Overnemen als contact" }).first().click();
+    await expect(page.getByText("al contact").first()).toBeVisible();
   });
 });

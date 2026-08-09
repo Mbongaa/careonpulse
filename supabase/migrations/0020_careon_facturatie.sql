@@ -505,3 +505,37 @@ on conflict (id) do nothing;
 
 -- PostgREST kent de nieuwe tabellen en functies pas na een schema-reload.
 notify pgrst, 'reload schema';
+
+-- ── Opschonen van verlaten concepten ────────────────────────────────────────
+-- Uitgereikte facturen, contacten en instellingen vallen BUITEN
+-- careon_prune_runtime_data (bewaarplicht 7 jaar, handoff 15 §6.3). Verlaten
+-- CONCEPTEN dragen afnemer-persoonsgegevens in hun snapshot en horen niet
+-- eeuwig te blijven staan: deze aparte RPC (aangeroepen door de bestaande
+-- maintenance-cron) verwijdert concepten zonder wijziging ouder dan p_days.
+-- Bewust een eigen functie naast careon_prune_runtime_data, zodat de
+-- facturatietabellen nooit per ongeluk in de algemene opschoning belanden.
+
+create or replace function public.careon_prune_facturatie_concepten(p_days integer default 180)
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_verwijderd integer;
+begin
+  if coalesce(p_days, 0) < 30 then
+    raise exception 'facturatie: bewaartermijn voor concepten is minimaal 30 dagen';
+  end if;
+  delete from public.careon_facturatie_facturen
+  where status = 'concept'
+    and updated_at < now() - make_interval(days => p_days);
+  get diagnostics v_verwijderd = row_count;
+  return v_verwijderd;
+end;
+$$;
+
+revoke all on function public.careon_prune_facturatie_concepten(integer) from public, anon, authenticated;
+grant execute on function public.careon_prune_facturatie_concepten(integer) to service_role;
+
+notify pgrst, 'reload schema';

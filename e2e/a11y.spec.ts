@@ -17,6 +17,12 @@ const ROUTES = [
   "/dashboard/hr",
   "/dashboard/middelen",
   "/dashboard/databron",
+  // Facturatie (handoff 15): drie statische pagina's + de editor via een
+  // vast demo-factuur-id (demo-pad B12).
+  "/dashboard/facturatie",
+  "/dashboard/facturatie/contacten",
+  "/dashboard/facturatie/instellingen",
+  "/dashboard/facturatie/demo-factuur-3",
   // KPI-drilldowns (handoff 08): één cliëntrecord-variant en één event-variant.
   "/dashboard/details/actief",
   "/dashboard/details/noshow",
@@ -43,9 +49,19 @@ async function auditRoute(page: Page, route: string, theme: "light" | "dark" | "
     .toBe(true);
   await expect(page.locator("h1").first()).toBeVisible();
 
-  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+  // Het pdf-voorbeeld is een blob-iframe met de native pdf-viewer — geen DOM
+  // die axe kan of hoeft te injecteren.
+  const results = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag2aa"])
+    .exclude('iframe[title="Voorbeeld van de factuur"]')
+    .analyze();
   const serious = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
-  const summary = serious.map((v) => `${v.id}: ${v.help} (${v.nodes.length} nodes)`).join("\n");
+  const summary = serious
+    .map(
+      (v) =>
+        `${v.id}: ${v.help}\n${v.nodes.map((n) => `  ${n.target.join(" ")}\n  ${n.failureSummary ?? ""}`).join("\n")}`,
+    )
+    .join("\n");
   expect(serious, `${theme} ${route}\n${summary}`).toEqual([]);
 }
 

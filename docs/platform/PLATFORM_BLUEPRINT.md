@@ -1,6 +1,6 @@
 # Careon Pulse — Platform Blueprint
 
-**Version:** 2.0 · **Date:** 27 July 2026 · **Status:** Approved for implementation · **Supersedes:** v1.0 (single-app HumHub blueprint)
+**Version:** 2.1 · **Date:** 9 August 2026 · **Status:** Approved for implementation · **Supersedes:** v2.0 (adds D19, facturatie module) · v1.0 (single-app HumHub blueprint)
 **Prepared by:** Bayaan Hub · **Product:** Careon Pulse · **Current organization:** TGC Groep (multi-org-ready)
 
 This document is the implementation source of truth for **Careon Pulse**: a multi-module employee platform in which users sign in once and open the modules their account is entitled to — the healthcare KPI dashboard (live today), the communication platform, and audio/video meetings with optional recording and AI meeting documentation. It is the **umbrella guide for AI agents and developers across all Careon Pulse repositories**; repository-local AGENTS.md files govern local conventions and defer to this document for platform-level decisions. Decisions marked **Confirmed** must not be changed silently; propose alternatives explicitly with consequences (Section 2).
@@ -19,7 +19,7 @@ Delivery keeps the contracted phase structure — Phase 1 base platform, Phase 2
 
 ## 2. Confirmed Decisions (Decision Log)
 
-Any change to a Confirmed decision must be proposed as an explicit alternative with consequences (cost, scope, timeline) — never applied silently. D1–D12 originate in v1.0 (D4 revised); D13–D18 were added in v2.0.
+Any change to a Confirmed decision must be proposed as an explicit alternative with consequences (cost, scope, timeline) — never applied silently. D1–D12 originate in v1.0 (D4 revised); D13–D18 were added in v2.0; D19 was added in v2.1 (facturatie module).
 
 | # | Decision | Choice (Confirmed) | Rationale | Rejected alternatives |
 |---|---|---|---|---|
@@ -41,6 +41,7 @@ Any change to a Confirmed decision must be proposed as an explicit alternative w
 | D16 | Organizations | Multi-org from the start: TGC Groep now, more organizations onboardable later | The tenancy model already exists in production | Hard-coding a single org |
 | D17 | AI vendors per module | OpenAI (pinned snapshot) stays dashboard-only; Gemini/Vertex is used only for meeting transcription & reports | Each module keeps its proven, audited AI regime | Consolidating on one vendor |
 | D18 | Repositories | `careonpulse` stays a single-app repo and hosts the umbrella docs; shell, HumHub modules, and deploy live in sibling repos | The dashboard's CI gates are tuned to one Next.js app; Flutter + PHP would fight them | One physical monorepo |
+| D19 | Facturatie module (v2.1) | Invoicing is a route section (`/dashboard/facturatie`) with its own Supabase schema **inside Module 1**, not a fifth repo or OIDC client. Access limited to `org_admin` + superadmins **with** org membership, enforced on four layers (launcher filter, server page gate, `requireOrgAdmin()` per API route, RLS `app.mag_facturatie_zien`); tile visibility is a precursor of D13 entitlements, not a replacement. No AI tools on invoice data in phase A (privacy grounds; D17 unchanged). Final PDFs live immutably in the platform's **first Supabase Storage bucket** (`facturen`, private, EU) with its own backup regime — D8 (R2) stays recordings/HumHub-backups only. E-mail dispatch is phase B; the transactional mail provider will be **one platform-wide choice** (dashboard + HumHub `SMTP_*` in `platform-deploy`, same sender domain/DKIM/SPF), settled with a DPA before the first real send. Full spec: `agent-handoff/15-facturatie.md`. | The CI gates are tuned to one Next.js app (D18) and hosting/auth stay unchanged (D15); D14 stays intact because invoice data lives under the dashboard plane's first-party sessions and RLS | Separate first-party Supabase app (allowed by D14 §4 but fights D18) |
 
 ## 3. System Architecture
 
@@ -79,7 +80,7 @@ flowchart LR
 
 | Plane | What runs there | Deployed via | From phase |
 |---|---|---|---|
-| Supabase (EU) | Supabase Auth + OAuth 2.1/OIDC server; organizations, members, roles, tile entitlements; Pulse dashboard schema (RLS); audit + rate-limit tables | SQL migrations in `careonpulse/supabase` | live |
+| Supabase (EU) | Supabase Auth + OAuth 2.1/OIDC server; organizations, members, roles, tile entitlements; Pulse dashboard schema (RLS) incl. facturatie (D19); audit + rate-limit tables; Storage bucket `facturen` (private — final invoice PDFs + org logo, own backup regime) | SQL migrations in `careonpulse/supabase` | live |
 | Vercel | Pulse dashboard (Next.js 16), maintenance cron | Git push (Vercel) | live |
 | Hetzner VPS | Nginx, HumHub (PHP-FPM) + meeting modules, MariaDB, Redis, queue worker, cron | Coolify Cloud, GitHub push-to-deploy | 1 |
 | Client devices | Careon Pulse shell app (Flutter), browsers/PWA | App Store / Play (client accounts) | 1 |
@@ -88,7 +89,7 @@ flowchart LR
 
 | Service | Purpose | Data exchanged | From phase | Pricing basis |
 |---|---|---|---|---|
-| Supabase | Identity hub + dashboard datastore | OIDC tokens, identity claims; dashboard data (RLS) | live | Plan-based, EU project |
+| Supabase | Identity hub + dashboard datastore + facturatie (D19: schema + private Storage bucket) | OIDC tokens, identity claims; dashboard data (RLS); invoice PDFs | live | Plan-based, EU project |
 | Vercel | Dashboard hosting | HTTPS app traffic | live | Plan-based |
 | JaaS (8x8) | Meeting UI, WebRTC media, recording | JWTs out; signed webhooks in; temporary MP4 downloads | 2 | MAU tiers + $0.01/recorded minute |
 | Cloudflare R2 | Recording archive; HumHub DB backups | MP4 files, SQL dumps | 1 (backups), 3 (media) | ~$0.015/GB-month; no egress fee |
@@ -139,7 +140,7 @@ flowchart TD
 
 **Entitlements (Confirmed, D13).** Module access is governed per account: organization role provides defaults, explicit per-account grants override. The launcher renders only entitled tiles, and **every module enforces the same entitlement server-side** — the launcher is convenience, not security. Entitlements are managed by administrators in the identity hub.
 
-**WebView contract for modules.** Session handoff instead of login screens (Section 4); responsive mobile-first layouts with safe-area support; no auth flows that require popups or new tabs; file upload/download routed through shell handlers; the Pulse dashboard already satisfies all of this (mobile-first PWA, gated by its own e2e suite).
+**WebView contract for modules.** Session handoff instead of login screens (Section 4); responsive mobile-first layouts with safe-area support; no auth flows that require popups or new tabs; file upload/download routed through shell handlers; the Pulse dashboard already satisfies all of this (mobile-first PWA, gated by its own e2e suite). **Documented exception (D19, client-approved):** the facturatie editor's embedded PDF preview is desktop-first — on small screens it opens the blob in a new tab, and once Module 1 runs as a shell tile, preview-open and PDF download must route through the shell handlers.
 
 **Store posture.** Client-owned developer accounts (D12); the Phase-1 build ships without microphone/camera permissions, making Phase 2 a routine update. Apple's minimum-functionality rule (4.2) is satisfied by native login, launcher, push, deep links, and later the native meeting screen — the shell is an app with web content inside, not a wrapped website.
 
@@ -152,6 +153,7 @@ One row per capability: where it comes from and what we must do.
 | One login for everything (SSO), org roles, account lifecycle | Supabase (existing) + OAuth 2.1 server | Enable server mode; claims; spike | 1 |
 | Tile launcher, per-account entitlements, push, deep links | — | **Build: shell app + registry + entitlements** | 1 |
 | Healthcare KPI dashboard incl. AI-assistent | Careon Pulse dashboard (live) | Embed as tile (session handoff) | 1 |
+| Invoicing (facturatie): PDF invoices with live preview, contacts, admin-only | Built inside Module 1 (D19, live) | E-mail dispatch (phase B, platform-wide mail provider) | 1 |
 | Feed, announcements, comments, reactions, mentions | HumHub core | Configure | 1 |
 | Private/group messaging + attachments | HumHub Mail module | Enable + configure | 1 |
 | Profiles, directory, groups, Spaces, files, search, notifications | HumHub core | Configure; OIDC auto-provisioning | 1 |
@@ -443,7 +445,7 @@ A meeting administration area provides: enabling/disabling the meeting modules g
 
 **Keys & webhooks.** The RS256 private key exists only server-side; JWTs are short-lived; webhooks are signature-verified and idempotent (Section 14). External OIDC clients receive identity-scoped tokens only — no data-API scopes against the Supabase project — and the service-role key never leaves the dashboard's server plane.
 
-**Data locations.** Supabase project in an EU region; Vercel for the stateless dashboard runtime; Hetzner (Germany/Finland); R2 with the EU jurisdiction option; Vertex AI in an EU region. 8x8/JaaS processing regions must be confirmed and recorded (Open Questions).
+**Data locations.** Supabase project in an EU region; Vercel for the stateless dashboard runtime; Hetzner (Germany/Finland); R2 with the EU jurisdiction option; Vertex AI in an EU region. 8x8/JaaS processing regions must be confirmed and recorded (Open Questions). Facturatie (D19): invoice rows and PDFs live in the same EU Supabase project (schema + private Storage bucket `facturen`); statutory retention is 7 years (10 for immovable property), enforced by excluding issued invoices from every prune routine.
 
 **GDPR.**
 
@@ -452,6 +454,7 @@ A meeting administration area provides: enabling/disabling the meeting modules g
 - Data minimization: push payloads carry no content; Gemini receives extracted audio, not raw video, by default.
 - Right to erasure: administrator deletion of recordings/reports plus automated retention deletion; deletions are audited.
 - Employees are informed through the client's internal policy; the platform is an internal tool, not public.
+- Facturatie (D19): storing invoice contacts **including e-mail addresses** is a new processing activity (client-approved 9 Aug 2026) — a deliberate exception to the dashboard's data-minimization line (referrer e-mails are not stored; private debtors are reduced to a label). Abandoned invoice drafts are pruned after 180 days; issued invoices are retention-locked. The AI assistant gets no read or write tools on invoice data.
 - Healthcare context (TGC Groep): recordings, transcripts, and AI reports are treated as potentially special-category data — access defaults to organizer + administrators, the consent notice precedes every recorded meeting, and retention is explicitly confirmed with the client.
 
 **Server & secrets.** SSH keys only, firewall (Hetzner Cloud firewall + host), unattended security updates, least-privilege R2 token scoped to a single bucket, database not exposed publicly, secrets via the deployment environment store. Backups are stored in R2 and the restore procedure is rehearsed as part of acceptance.
@@ -460,7 +463,7 @@ A meeting administration area provides: enabling/disabling the meeting modules g
 
 **Three planes, deliberately heterogeneous (D10, D14, D15).**
 
-**Vercel — dashboard.** Deploys on git push from `careonpulse`; environment per the repo's `.env.example` (Supabase keys, OpenAI, cron secret); Vercel Cron drives the maintenance route; stateless — nothing to back up beyond Supabase.
+**Vercel — dashboard.** Deploys on git push from `careonpulse`; environment per the repo's `.env.example` (Supabase keys, OpenAI, cron secret); Vercel Cron drives the maintenance route; stateless — nothing to back up beyond Supabase. **Exception (D19):** Supabase DB backups/PITR do **not** cover Storage objects — the `facturen` bucket carries a 7-year statutory obligation and needs its own backup routine (periodic server-side copy, plus PDF regeneration from the frozen row snapshots with `pdf_sha256` recheck as documented fallback); see `DISASTER_RECOVERY.md`.
 
 **Supabase — identity + dashboard data.** EU-region project; schema managed exclusively through `careonpulse/supabase/migrations` (applied in file order); OAuth server configuration (registered clients: shell, HumHub, future modules) treated as infrastructure config and documented in the umbrella docs; backups per Supabase plan (point-in-time recovery recommended once meetings go live).
 
@@ -533,6 +536,8 @@ Overage on paid plans: €0.99 per additional MAU. Fixed recurring total: €500
 | 50 hours | €120 |
 | 100 hours | €240 |
 
+**Scope addition (v2.1).** The facturatie module (D19) is additional, client-requested scope inside Module 1; if it is later sold as a separate module, its tile/entitlement shape (D13) already supports that split.
+
 **Scope addition (v2.0).** The shell app, identity integration, and dashboard-tile work are additional scope relative to this contracted structure and are quoted separately (TBD). The figures below are unchanged for the originally contracted scope.
 
 **Internal cost basis (not client-facing).** Infrastructure ≈ €11–17/month (Hetzner CX ~€5.49–10 + 20% backup add-on + Coolify ~$5) against the €500/year fee. Per processed hour: JaaS recording $0.60 (at $0.01/min) + Gemini Flash audio-first (low single-digit cents) + R2 storage (~$0.015/GB-month) against €2.40 charged. Reference point: 8x8's own transcription add-on lists at **$0.06/minute for a transcript alone** — our €0.04/minute includes the full AI report. Each additional resold installation adds roughly €9–14/month of infrastructure (one more Hetzner server + $3 Coolify).
@@ -546,6 +551,7 @@ No calendar dates (Confirmed): phases are sequenced at Bayaan Hub's discretion, 
 - **Objective:** eliminate the two integration risks and stand up the delivery pipeline before feature code.
 - **Tasks:** compatibility matrix in `VERSIONS.md`; create `careonpulse-shell`, `humhub-meeting-modules`, `platform-deploy`; provision Hetzner + Coolify; deploy a skeleton HumHub to staging; **Spike A — identity:** Supabase OAuth server end-to-end (shell PKCE login, HumHub OIDC login, auto-provisioning, role claim, deactivation, logout; Keycloak fallback decision); **Spike B — meetings:** shell WebView ↔ native Jitsi bridge; start the client's Apple/Google developer-account enrollment immediately (legal entity per Open Questions).
 - **Acceptance:** both spikes pass or the fallback is invoked; pinned versions install cleanly; push-to-deploy works on both planes.
+- **Recorded exception (9 Aug 2026):** the facturatie module (D19) was built in parallel with Phase 0 on explicit owner instruction — Module 1 is live and the work touches neither spike; "gates before feature code" continues to apply to the shell/comms planes.
 
 ### Phase 1 — Shell + Base Platform
 

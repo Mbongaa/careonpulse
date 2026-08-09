@@ -163,6 +163,23 @@ export async function requireSuperadminPage(): Promise<CareonSession> {
 }
 
 /**
+ * Facturatiepagina's (server components): het rolpredicaat afdwingen op de
+ * databoundary zelf — layout en pagina renderen parallel, dus alleen een
+ * layout-gate volstaat niet. Demo/misconfigured vallen door naar de client
+ * (die draait dan op het lokale demo-pad, handoff 15 B12). Een superadmin
+ * zónder org-lidmaatschap kan de module niet gebruiken (elke dataroute eist
+ * een organisatie) en hoort op /admin.
+ */
+export async function requireFacturatiePage(): Promise<CareonSessionResult> {
+  const { magFacturatieZien } = await import("@/lib/careon-facturatie-rol");
+  const result = await getCareonSession();
+  if (result.status === "ok" && !magFacturatieZien(result.session)) {
+    redirect(result.session.isSuperadmin && !result.session.orgId ? "/admin" : "/dashboard/directiecockpit");
+  }
+  return result;
+}
+
+/**
  * Organisatiebeheer-routes: org_admin binnen de eigen organisatie (een
  * superadmin mét org-lidmaatschap telt ook). Gewone leden krijgen 403 —
  * beheer is een rol, geen lidmaatschapsrecht. Cross-org beheer blijft

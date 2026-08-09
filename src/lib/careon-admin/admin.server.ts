@@ -1,3 +1,4 @@
+import { isFacturatieInstellingen } from "@/lib/careon-facturatie/types";
 import { isHrState } from "@/lib/careon-hr/types";
 import { isMiddelenState } from "@/lib/careon-middelen/types";
 
@@ -433,8 +434,9 @@ export interface AdminRegistratie {
 }
 
 /**
- * De zes registraties uit spec §8. `revision` bestaat alléén op middelen
- * (migratie 0006) en HR (0007) — het onvoorwaardelijk meeselecteren gaf
+ * De zes registraties uit spec §8 plus de facturatie-instellingen (handoff
+ * 15). `revision` bestaat alléén op middelen (migratie 0006), HR (0007) en
+ * facturatie-instellingen (0020) — het onvoorwaardelijk meeselecteren gaf
  * PostgREST-400 en dus permanent "—" voor agenda/toeslagen/declaraties/
  * verwijzers.
  */
@@ -445,6 +447,12 @@ export const ADMIN_REGISTRATIES: readonly AdminRegistratie[] = [
   { table: "careon_toeslagen_state", label: "Toeslagen", tijdKolom: "saved_at", heeftRevisie: false },
   { table: "careon_declaraties_state", label: "Declaraties", tijdKolom: "saved_at", heeftRevisie: false },
   { table: "careon_verwijzers_state", label: "Verwijzers", tijdKolom: "saved_at", heeftRevisie: false },
+  {
+    table: "careon_facturatie_instellingen",
+    label: "Facturatie-instellingen",
+    tijdKolom: "saved_at",
+    heeftRevisie: true,
+  },
 ];
 
 /**
@@ -567,6 +575,12 @@ const ORG_AFHANKELIJKHEDEN: readonly { table: string; label: string }[] = [
   { table: "assistant_messages", label: "AI-berichten" },
   { table: "careon_assistant_events", label: "assistent-telemetrie" },
   { table: ADMIN_IMPORT_RUNS.table, label: ADMIN_IMPORT_RUNS.label },
+  // Facturatie (handoff 15): de instellingen komen al mee via
+  // ADMIN_REGISTRATIES hieronder; deze drie tabellen verwijzen zonder cascade
+  // naar organizations, dus een organisatie met facturen kan niet weg.
+  { table: "careon_facturatie_contacten", label: "facturatie-contacten" },
+  { table: "careon_facturatie_facturen", label: "facturen" },
+  { table: "careon_facturatie_nummers", label: "factuurnummers" },
   ...ADMIN_REGISTRATIES.map((bron) => ({ table: bron.table, label: bron.label })),
 ];
 
@@ -598,10 +612,18 @@ export interface AdminRevisie {
  * terugzetten die niet meer aan het huidige schema voldoet; de dataroute
  * verwerpt hem dan bij het lezen en de organisatie valt terug op de demoset.
  */
+const HERSTEL_GUARDS: Record<string, (state: unknown) => boolean> = {
+  careon_hr_state: isHrState,
+  careon_middelen_state: isMiddelenState,
+  // Handoff 15: zonder eigen guard zou herstel hier met isMiddelenState
+  // valideren en elke echte facturatie-revisie met 422 weigeren.
+  careon_facturatie_instellingen: isFacturatieInstellingen,
+};
+
 export const ADMIN_HERSTELBAAR: readonly (AdminRegistratie & { geldig: (state: unknown) => boolean })[] =
   ADMIN_REGISTRATIES.filter((bron) => bron.heeftRevisie).map((bron) => ({
     ...bron,
-    geldig: bron.table === "careon_hr_state" ? isHrState : isMiddelenState,
+    geldig: HERSTEL_GUARDS[bron.table] ?? isMiddelenState,
   }));
 
 /**

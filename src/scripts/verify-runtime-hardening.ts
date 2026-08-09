@@ -210,6 +210,88 @@ async function main() {
     /EMPTY_MIDDELEN_STATE[\s\S]{0,200}?teams: \[\]/.test(middelenData),
   );
 
+  // ── Facturatie (handoff 15): vier lagen afscherming + CSP-wijziging ──────
+  check(
+    "CSP: frame-src laat uitsluitend self + blob toe (pdf-voorbeeld)",
+    proxySource.includes(`"frame-src 'self' blob:"`) && !/frame-src[^"]*https?:/.test(proxySource),
+  );
+  check(
+    "CSP: object-src en frame-ancestors blijven dicht",
+    proxySource.includes(`"object-src 'none'"`) && proxySource.includes(`"frame-ancestors 'none'"`),
+  );
+  const launcherSource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/app/(main)/modules/_components/module-launcher.tsx"),
+    "utf8",
+  );
+  check(
+    "launcher importeert het register niet meer zelf (server-side gefilterde props)",
+    !launcherSource.includes("CAREON_MODULES } from") && launcherSource.includes("modules: readonly CareonModule[]"),
+  );
+  const modulesPageSource = fs.readFileSync(path.resolve(process.cwd(), "src/app/(main)/modules/page.tsx"), "utf8");
+  check(
+    "modulespagina filtert rolgebonden tegels server-side",
+    modulesPageSource.includes('mod.zichtbaarVoor !== "org_admin" || facturatieZichtbaar'),
+  );
+  const facturatieMigration = fs.readFileSync(
+    path.resolve(process.cwd(), "supabase/migrations/0020_careon_facturatie.sql"),
+    "utf8",
+  );
+  check(
+    "facturatie-RLS: elke policy eist het rolpredicaat (geen kale is_org_member-select)",
+    (facturatieMigration.match(/app\.mag_facturatie_zien\(org_id\)/g) ?? []).length >= 10 &&
+      !/for select to authenticated\s+using \(app\.is_org_member\(org_id\)\)/.test(facturatieMigration),
+  );
+  check(
+    "facturatie-RLS: clients schrijven uitsluitend concepten zonder nummer",
+    (facturatieMigration.match(/status = 'concept' and nummer is null/g) ?? []).length >= 2,
+  );
+  check(
+    "facturatie: instellingen blijven append-only voor clients",
+    facturatieMigration.includes(
+      "revoke update, delete, truncate on table public.careon_facturatie_instellingen from authenticated",
+    ),
+  );
+  check(
+    "facturatie: bevries- en verwijdertriggers bestaan",
+    facturatieMigration.includes("create trigger careon_facturatie_facturen_bevries") &&
+      facturatieMigration.includes("create trigger careon_facturatie_facturen_geen_delete"),
+  );
+  check(
+    "facturatie: nummer + statusovergang zijn één transactie (RPC met rijvergrendeling)",
+    facturatieMigration.includes("careon_factuur_definitief_maken") &&
+      facturatieMigration.includes("for update") &&
+      facturatieMigration.includes("on conflict (org_id, reeks, jaar)"),
+  );
+  check(
+    "facturatie: teller is niet door clients beschrijfbaar",
+    facturatieMigration.includes(
+      "revoke insert, update, delete, truncate on table public.careon_facturatie_nummers from authenticated",
+    ),
+  );
+  check(
+    "facturatie: Storage-bucket is privaat en zonder client-policies",
+    facturatieMigration.includes("values ('facturen', 'facturen', false)") &&
+      !/create policy[^;]*on storage\.objects/i.test(facturatieMigration),
+  );
+  check(
+    "SQL-rolpredicaat spiegelt magFacturatieZien (org_admin, platformbeheer, demoaccount)",
+    facturatieMigration.includes("app.mag_facturatie_zien(check_org uuid)") &&
+      facturatieMigration.includes("m.role = 'org_admin'") &&
+      facturatieMigration.includes(`lower(btrim(u.email)) = '${CAREON_HOSTED_DEMO_EMAIL}'`),
+  );
+  check(
+    "facturatie: concept-prune bestaat en is service-role-only",
+    facturatieMigration.includes("careon_prune_facturatie_concepten") &&
+      facturatieMigration.includes(
+        "revoke all on function public.careon_prune_facturatie_concepten(integer) from public, anon, authenticated",
+      ),
+  );
+  const herstelSource = adminServerSource;
+  check(
+    "revisieherstel valideert facturatie-instellingen met de eigen guard",
+    herstelSource.includes("careon_facturatie_instellingen: isFacturatieInstellingen"),
+  );
+
   const adminOrgsSource = fs.readFileSync(
     path.resolve(process.cwd(), "src/app/api/admin/organizations/route.ts"),
     "utf8",

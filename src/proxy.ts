@@ -132,9 +132,15 @@ export async function proxy(request: NextRequest) {
     "base-uri 'self'",
     "form-action 'self'",
     "frame-ancestors 'none'",
-    "frame-src 'none'",
+    // Facturatie (handoff 15 §5.3): het live pdf-voorbeeld is een same-origin
+    // blob die door onze eigen code is gegenereerd. 'self' + blob: laat geen
+    // enkele externe herkomst toe; frame-ancestors en object-src blijven dicht.
+    "frame-src 'self' blob:",
     "object-src 'none'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDevelopment ? " 'unsafe-eval'" : ""}`,
+    // 'wasm-unsafe-eval': de pdf-layoutengine van het facturatievoorbeeld
+    // (yoga-layout in @react-pdf) is WebAssembly; deze bron staat uitsluitend
+    // WASM-instantiatie toe — JavaScript-eval blijft verboden.
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'wasm-unsafe-eval'${isDevelopment ? " 'unsafe-eval'" : ""}`,
     "script-src-attr 'none'",
     // Recharts and several shadcn primitives intentionally use React style
     // props, which are governed by style-src-attr and cannot carry a nonce.
