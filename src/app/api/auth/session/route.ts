@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { magFacturatieZien } from "@/lib/careon-facturatie-rol";
 import { magFinancieelZien } from "@/lib/careon-financieel-rol";
 import { getCareonSession } from "@/lib/supabase/session.server";
 
@@ -38,6 +39,7 @@ export async function GET() {
       orgRole: session.orgRole,
       isSuperadmin: session.isSuperadmin,
       financieelZichtbaar: magFinancieelZien(session),
+      facturatieZichtbaar: magFacturatieZien(session),
     },
     { headers: { "Cache-Control": "no-store" } },
   );

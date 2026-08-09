@@ -31,6 +31,13 @@ const nextConfig = {
     root: path.dirname(fileURLToPath(import.meta.url)),
   },
   reactCompiler: true,
+  // Facturatie-pdf: react-pdf server-side buiten de bundel houden (Turbopack
+  // bundelt de CJS/fontkit-boom anders stuk) en de server-TTF's meenemen in
+  // de Vercel-trace, anders faalt renderToBuffer op een ontbrekend font.
+  serverExternalPackages: ["@react-pdf/renderer"],
+  outputFileTracingIncludes: {
+    "/api/careon/facturatie/**/*": ["./src/lib/careon-facturatie/pdf/fonts/**/*"],
+  },
   compiler: {
     // Keep operational warnings and failures observable in production.
     removeConsole: process.env.NODE_ENV === "production" ? { exclude: ["warn", "error"] } : false,

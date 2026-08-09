@@ -1,3 +1,4 @@
+import { magFacturatieZien } from "./careon-facturatie-rol";
 import { magFinancieelZien } from "./careon-financieel-rol";
 
 // Serialiseerbare sessie-info voor de client (gezaaid door de dashboard-layout,
@@ -21,6 +22,8 @@ export interface CareonSessionInfo {
   isSuperadmin: boolean;
   /** Afgeleid via magFinancieelZien — de enige bron voor financiële zichtbaarheid. */
   financieelZichtbaar: boolean;
+  /** Afgeleid via magFacturatieZien — de enige bron voor facturatie-zichtbaarheid. */
+  facturatieZichtbaar: boolean;
 }
 
 /** Demo/fail-open-weergave: toont alles (dataroutes zelf falen gesloten). */
@@ -34,6 +37,7 @@ export const DEMO_SESSION_INFO: CareonSessionInfo = {
   orgRole: null,
   isSuperadmin: false,
   financieelZichtbaar: true,
+  facturatieZichtbaar: true,
 };
 
 export function sessionInfoVan(session: {
@@ -54,5 +58,6 @@ export function sessionInfoVan(session: {
     orgRole: session.orgRole,
     isSuperadmin: session.isSuperadmin,
     financieelZichtbaar: magFinancieelZien(session),
+    facturatieZichtbaar: magFacturatieZien(session),
   };
 }

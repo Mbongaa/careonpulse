@@ -2,6 +2,7 @@
 
 import { clearCareonAssistantSession } from "@/lib/careon-assistant/session.client";
 import { clearCareonAssistantHistory } from "@/lib/careon-assistant/storage.client";
+import { clearFacturatieState } from "@/lib/careon-facturatie/storage.client";
 import { clearHrState } from "@/lib/careon-hr/storage.client";
 import { clearMiddelenState } from "@/lib/careon-middelen/storage.client";
 import { clearAuxFacts, clearProductionState } from "@/lib/careon-production/storage.client";
@@ -67,6 +68,7 @@ export function wisCareonCaches(): void {
   clearAuxFacts();
   clearMiddelenState();
   clearHrState();
+  clearFacturatieState();
   clearCareonAssistantHistory();
   clearCareonAssistantSession();
 }
