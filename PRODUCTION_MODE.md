@@ -304,15 +304,11 @@ die op gedeelde werkplekken.
    loopt onder RLS per organisatie. Resterend vóór publieke hosting:
    wachtwoordbeleid/hygiëne bij accountuitgifte (handmatige provisioning),
    optioneel TOTP voor de superadmin, en de Supabase-DPA (punt hieronder).
-1b. **⛔ OPENSTAAND — Supabase-DPA (verwerkersovereenkomst).** Dit document
-   noemt de DPA sinds de eerste versie als harde voorwaarde, terwijl het
-   dashboard live staat met echte cliëntdata (1.267 records). Er is nergens
-   vastgelegd dat de DPA is getekend. Dit is géén codeprobleem en wordt niet
-   opgelost door een release: leg vóór oplevering vast dát de DPA getekend is
-   (met datum en bewijs), óf leg een gedateerde, door de eigenaar ondertekende
-   risicoaanvaarding vast. Zolang geen van beide er is, is "deliverable 1
-   afgerond" niet verdedigbaar. Zet in dezelfde ronde de Supabase
-   leaked-password protection aan en besluit over TOTP voor de superadmin.
+1b. **✅ GEREGELD (2026-08-09) — Supabase-DPA (verwerkersovereenkomst).** De
+   DPA is geregeld; door de eigenaar bevestigd op 9 aug 2026. Daarmee is de
+   laatste blocker voor "deliverable 1 afgerond" gesloten. Nog open uit
+   dezelfde ronde (niet-blokkerend): Supabase leaked-password protection
+   aanzetten en een besluit over TOTP voor de superadmin.
 2. **Echte exports nooit committen.** `.gitignore` bevat
    `cli_ntendata_export*.csv` en `*export*.csv`; bewaar exports buiten de
    repo en verwijder ze na import.
