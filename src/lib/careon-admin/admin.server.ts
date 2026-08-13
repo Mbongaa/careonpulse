@@ -581,6 +581,7 @@ const ORG_AFHANKELIJKHEDEN: readonly { table: string; label: string }[] = [
   { table: "careon_facturatie_contacten", label: "facturatie-contacten" },
   { table: "careon_facturatie_facturen", label: "facturen" },
   { table: "careon_facturatie_nummers", label: "factuurnummers" },
+  { table: "careon_facturatie_maillog", label: "factuur-maillog" },
   ...ADMIN_REGISTRATIES.map((bron) => ({ table: bron.table, label: bron.label })),
 ];
 

@@ -1,7 +1,7 @@
 "use client";
 
 import type { FactuurTotalen } from "@/lib/careon-facturatie/totalen";
-import { formatEuro, isVolledigVrijgesteld } from "@/lib/careon-facturatie/totalen";
+import { btwRegelLabel, formatEuro, isVolledigVrijgesteld } from "@/lib/careon-facturatie/totalen";
 import type { FactuurRegel } from "@/lib/careon-facturatie/types";
 
 // Totalenblok (handoff 15 §4.3): per tarief/vrijstelling; volledig vrijgesteld
@@ -32,7 +32,7 @@ export function FactuurTotalenBlok({ regels, totalen }: Readonly<{ regels: Factu
             key={`${totaal.tarief}-${totaal.categorie}`}
             className="flex items-center justify-between text-muted-foreground"
           >
-            <span>{totaal.categorie === "AE" ? "Btw verlegd" : `Btw ${totaal.tarief}%`}</span>
+            <span>{btwRegelLabel(totaal)}</span>
             <span className="tabular-nums">{formatEuro(totaal.btwCent)}</span>
           </div>
         ))}

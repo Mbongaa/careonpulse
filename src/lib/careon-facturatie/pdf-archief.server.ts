@@ -7,7 +7,30 @@ import {
   uploadNaarBucket,
 } from "./facturatie.server";
 import { renderFactuurPdf } from "./pdf/render.server";
-import type { Factuur } from "./types";
+import type { Factuur, FactuurAfzender } from "./types";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
+/** Server-side logobytes per bron: meegeleverd asset of sjabloon-upload. */
+export async function logoDataUrlVoor(orgId: string, afzender: FactuurAfzender): Promise<string | undefined> {
+  if (!afzender.toonLogo) return undefined;
+  if (afzender.logoBron === "careongroup") {
+    try {
+      const bytes = await readFile(
+        path.join(process.cwd(), "src", "lib", "careon-facturatie", "pdf", "assets", "careon-group-logo.png"),
+      );
+      return `data:image/png;base64,${bytes.toString("base64")}`;
+    } catch (error) {
+      console.error("Facturatie: ingebouwd logo onleesbaar", error);
+      return undefined;
+    }
+  }
+  if (afzender.logoBron === "upload" && afzender.templateId) {
+    const bytes = await downloadUitBucket(logoPadVoor(orgId, afzender.templateId));
+    if (bytes) return `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`;
+  }
+  return undefined;
+}
 
 // Pdf renderen + onveranderlijk archiveren (handoff 15 §5.5 stap 3), gedeeld
 // door de definitief-route en de herstelroute (…/pdf). Mislukken is geen
@@ -16,11 +39,7 @@ import type { Factuur } from "./types";
 export async function genereerEnArchiveerPdf(orgId: string, factuur: Factuur): Promise<{ ok: boolean; pad?: string }> {
   if (!storageBeschikbaar() || !factuur.nummer) return { ok: false };
   const pad = pdfPadVoor(orgId, factuur.jaar, factuur.nummer);
-  let logoDataUrl: string | undefined;
-  if (factuur.afzender?.toonLogo) {
-    const logoBytes = await downloadUitBucket(logoPadVoor(orgId));
-    if (logoBytes) logoDataUrl = `data:image/png;base64,${Buffer.from(logoBytes).toString("base64")}`;
-  }
+  const logoDataUrl = factuur.afzender ? await logoDataUrlVoor(orgId, factuur.afzender) : undefined;
   try {
     const { buffer, sha256 } = await renderFactuurPdf(factuur, logoDataUrl);
     // x-upsert false: een uitgereikte factuur kan nooit worden overschreven.

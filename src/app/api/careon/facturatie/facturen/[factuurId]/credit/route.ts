@@ -14,7 +14,8 @@ import { berekenVervaldatum } from "@/lib/careon-facturatie/nummer";
 import { genereerEnArchiveerPdf } from "@/lib/careon-facturatie/pdf-archief.server";
 import { berekenTotalen } from "@/lib/careon-facturatie/totalen";
 import type { FactuurRegel } from "@/lib/careon-facturatie/types";
-import { afzenderUitInstellingen } from "@/lib/careon-facturatie/validatie";
+import { vindTemplate } from "@/lib/careon-facturatie/types";
+import { afzenderUitTemplate, valideerFactuurVoorUitreiking } from "@/lib/careon-facturatie/validatie";
 import { POSTGREST_URL, userRestHeaders } from "@/lib/supabase/postgrest.server";
 import { requireOrgAdmin } from "@/lib/supabase/session.server";
 
@@ -49,7 +50,9 @@ export async function POST(_request: Request, context: { params: Promise<{ factu
     }
     const origineel = factuurVanRij(origineelRij);
     const { instellingen } = await haalInstellingen(session);
-    const afzender = afzenderUitInstellingen(instellingen);
+    // Creditfactuur volgt het sjabloon van het origineel (zelfde huisstijl).
+    const template = vindTemplate(instellingen, origineel.afzender?.templateId);
+    const afzender = afzenderUitTemplate(template);
 
     const creditRegels: FactuurRegel[] = origineel.regels.map((regel) => ({
       ...regel,
@@ -58,9 +61,31 @@ export async function POST(_request: Request, context: { params: Promise<{ factu
     }));
     const totalen = berekenTotalen(creditRegels);
     const factuurdatum = new Date().toISOString().slice(0, 10);
-    const betaaltermijn = origineel.betaaltermijnDagen ?? instellingen.betaling.standaardTermijnDagen;
+    const betaaltermijn = origineel.betaaltermijnDagen ?? template.betaling.standaardTermijnDagen;
     const vervaldatum = berekenVervaldatum(factuurdatum, betaaltermijn);
     const jaar = Number.parseInt(factuurdatum.slice(0, 4), 10);
+
+    // Ook een creditfactuur is een uitreiking (art. 35a): dezelfde
+    // volledigheidsvalidatie als de definitief-route, vóór er iets wordt
+    // geschreven — een sindsdien uitgekleed sjabloon mag geen onwijzigbare,
+    // onvolledige creditfactuur opleveren.
+    const validatie = valideerFactuurVoorUitreiking(
+      {
+        factuurdatum,
+        prestatieVan: origineel.prestatieVan,
+        prestatieTot: origineel.prestatieTot,
+        afnemer: origineel.afnemer,
+        regels: creditRegels,
+        vrijstellingTekst: origineel.vrijstellingTekst,
+      },
+      afzender,
+    );
+    if (!validatie.ok) {
+      return NextResponse.json(
+        { error: "Vul eerst alle wettelijk verplichte factuurgegevens in.", ontbrekend: validatie.ontbrekend },
+        { status: 400 },
+      );
+    }
 
     // Creditrij aanmaken als concept (caller-JWT — de insert-policy staat
     // alleen concepten toe) met bevroren snapshots van het origineel.
@@ -71,12 +96,16 @@ export async function POST(_request: Request, context: { params: Promise<{ factu
         org_id: session.orgId,
         status: "concept",
         soort: "creditfactuur",
-        reeks: instellingen.nummering.reeksCredit,
+        reeks: template.nummering.reeksCredit,
         jaar,
         gecrediteerde_factuur_id: factuurId,
         contact_id: origineel.contactId,
         afnemer: origineel.afnemer,
         afzender,
+        // Prestatieperiode van het origineel (art. 35a sub g) — een credit
+        // zonder periode zou onherstelbaar "Periode —" op de pdf zetten.
+        prestatie_van: origineel.prestatieVan ?? null,
+        prestatie_tot: origineel.prestatieTot ?? null,
         uw_kenmerk: origineel.uwKenmerk ?? null,
         order_referentie: origineel.orderReferentie ?? null,
         regels: creditRegels,
@@ -102,10 +131,10 @@ export async function POST(_request: Request, context: { params: Promise<{ factu
       body: JSON.stringify({
         p_org: session.orgId,
         p_factuur: creditId,
-        p_reeks: instellingen.nummering.reeksCredit,
+        p_reeks: template.nummering.reeksCredit,
         p_jaar: jaar,
-        p_start: instellingen.nummering.startVolgnummer,
-        p_formaat: instellingen.nummering.formaat,
+        p_start: template.nummering.startVolgnummer,
+        p_formaat: template.nummering.formaat,
         p_factuurdatum: factuurdatum,
         p_vervaldatum: vervaldatum,
       }),

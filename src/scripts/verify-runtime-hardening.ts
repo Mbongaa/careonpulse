@@ -219,6 +219,15 @@ async function main() {
     "CSP: object-src en frame-ancestors blijven dicht",
     proxySource.includes(`"object-src 'none'"`) && proxySource.includes(`"frame-ancestors 'none'"`),
   );
+  // 'wasm-unsafe-eval' (§0.1-delta) expliciet gepind: verwijderen brak de
+  // pdf-preview eerder stil, en verbreden ('unsafe-eval' buiten de
+  // dev-ternary) mag nooit ongemerkt passeren.
+  check(
+    "CSP: wasm-unsafe-eval aanwezig; unsafe-eval alleen in de dev-ternary",
+    proxySource.includes("'wasm-unsafe-eval'") &&
+      (proxySource.match(/'unsafe-eval'/g) ?? []).length === 1 &&
+      proxySource.includes(`isDevelopment ? " 'unsafe-eval'" : ""`),
+  );
   const launcherSource = fs.readFileSync(
     path.resolve(process.cwd(), "src/app/(main)/modules/_components/module-launcher.tsx"),
     "utf8",
@@ -241,6 +250,26 @@ async function main() {
     (facturatieMigration.match(/app\.mag_facturatie_zien\(org_id\)/g) ?? []).length >= 10 &&
       !/for select to authenticated\s+using \(app\.is_org_member\(org_id\)\)/.test(facturatieMigration),
   );
+  // Per tabel en verb benoemd — een globale telling liet het schrappen van
+  // een losse policy (bijv. contacten_update) stil passeren.
+  for (const policy of [
+    "instellingen_select",
+    "instellingen_insert",
+    "contacten_select",
+    "contacten_insert",
+    "contacten_update",
+    "contacten_delete",
+    "facturen_select",
+    "facturen_insert",
+    "facturen_update",
+    "facturen_delete",
+    "nummers_select",
+  ]) {
+    check(
+      `facturatie-RLS: policy careon_facturatie_${policy} bestaat`,
+      facturatieMigration.includes(`create policy careon_facturatie_${policy} on`),
+    );
+  }
   check(
     "facturatie-RLS: clients schrijven uitsluitend concepten zonder nummer",
     (facturatieMigration.match(/status = 'concept' and nummer is null/g) ?? []).length >= 2,
@@ -277,6 +306,7 @@ async function main() {
     "SQL-rolpredicaat spiegelt magFacturatieZien (org_admin, platformbeheer, demoaccount)",
     facturatieMigration.includes("app.mag_facturatie_zien(check_org uuid)") &&
       facturatieMigration.includes("m.role = 'org_admin'") &&
+      facturatieMigration.includes("app.is_superadmin()") &&
       facturatieMigration.includes(`lower(btrim(u.email)) = '${CAREON_HOSTED_DEMO_EMAIL}'`),
   );
   check(
@@ -290,6 +320,66 @@ async function main() {
   check(
     "revisieherstel valideert facturatie-instellingen met de eigen guard",
     herstelSource.includes("careon_facturatie_instellingen: isFacturatieInstellingen"),
+  );
+
+  // ── Facturatie fase B (0021): maillog + quota-scope 'mail' + fail-closed ──
+  const mailMigration = fs.readFileSync(
+    path.resolve(process.cwd(), "supabase/migrations/0021_careon_facturatie_mail.sql"),
+    "utf8",
+  );
+  check(
+    "maillog: alleen een select-policy — schrijven is service-role-only",
+    mailMigration.includes("create policy careon_facturatie_maillog_select on") &&
+      !/create policy careon_facturatie_maillog_(insert|update|delete)/.test(mailMigration) &&
+      mailMigration.includes(
+        "revoke insert, update, delete, truncate on table public.careon_facturatie_maillog from authenticated",
+      ) &&
+      mailMigration.includes("revoke all on table public.careon_facturatie_maillog from anon"),
+  );
+  check(
+    "maillog: select-policy eist het facturatie-rolpredicaat",
+    /careon_facturatie_maillog_select[\s\S]{0,120}app\.mag_facturatie_zien\(org_id\)/.test(mailMigration),
+  );
+  check(
+    "maillog: logregels overleven zolang de factuur bestaat (on delete restrict)",
+    mailMigration.includes("references public.careon_facturatie_facturen (id) on delete restrict"),
+  );
+  check(
+    "quota-scope 'mail' in constraint ÉN functie (0016-valkuil)",
+    (mailMigration.match(/'mail'/g) ?? []).length >= 2 &&
+      /check \(scope in \('assistant', 'audit', 'login', 'login_account', 'mail'\)\)/.test(mailMigration) &&
+      /p_scope not in \('assistant', 'audit', 'login', 'login_account', 'mail'\)/.test(mailMigration),
+  );
+  const mailRouteSource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/app/api/careon/facturatie/facturen/[factuurId]/mail/route.ts"),
+    "utf8",
+  );
+  check(
+    "mailroute: fail-closed zolang de provider niet is geconfigureerd (DPA-poort)",
+    /if \(!mailBeschikbaar\(\)\) \{[\s\S]{0,250}E-mailverzending is nog niet geconfigureerd[\s\S]{0,120}status: 503/.test(
+      mailRouteSource,
+    ),
+  );
+  check(
+    "mailroute: audit-event draagt geen e-mailadres (AVG)",
+    /scheduleAuditEvent\(\{[\s\S]{0,400}facturatie\.factuur\.send[\s\S]{0,400}\}\)/.test(mailRouteSource) &&
+      !/detail: \{[^}]*ontvanger/.test(mailRouteSource),
+  );
+  const mailServerSource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/lib/careon-facturatie/mail.server.ts"),
+    "utf8",
+  );
+  const envExample = fs.readFileSync(path.resolve(process.cwd(), ".env.example"), "utf8");
+  check(
+    "mailconfiguratie is server-side-only (nooit NEXT_PUBLIC_)",
+    mailServerSource.includes("CAREON_MAIL_RESEND_API_KEY") &&
+      !mailServerSource.includes("NEXT_PUBLIC_CAREON_MAIL") &&
+      envExample.includes("CAREON_MAIL_RESEND_API_KEY") &&
+      !envExample.includes("NEXT_PUBLIC_CAREON_MAIL"),
+  );
+  check(
+    "org-verwijdering telt ook het maillog mee",
+    adminServerSource.includes('{ table: "careon_facturatie_maillog"'),
   );
 
   const adminOrgsSource = fs.readFileSync(

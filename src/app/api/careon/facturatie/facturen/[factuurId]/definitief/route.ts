@@ -10,7 +10,8 @@ import {
 import { berekenVervaldatum } from "@/lib/careon-facturatie/nummer";
 import { genereerEnArchiveerPdf } from "@/lib/careon-facturatie/pdf-archief.server";
 import { berekenTotalen } from "@/lib/careon-facturatie/totalen";
-import { afzenderUitInstellingen, valideerFactuurVoorUitreiking } from "@/lib/careon-facturatie/validatie";
+import { vindTemplate } from "@/lib/careon-facturatie/types";
+import { afzenderUitTemplate, valideerFactuurVoorUitreiking } from "@/lib/careon-facturatie/validatie";
 import { InvalidJsonBodyError, RequestPayloadTooLargeError, readJsonBodyLimited } from "@/lib/http/read-json.server";
 import { POSTGREST_URL, userRestHeaders } from "@/lib/supabase/postgrest.server";
 import { requireOrgAdmin } from "@/lib/supabase/session.server";
@@ -60,16 +61,20 @@ export async function POST(request: Request, context: { params: Promise<{ factuu
     }
     const concept = factuurVanRij(rij);
     const { instellingen } = await haalInstellingen(session);
-    if (instellingen.afzender.statutaireNaam.trim().length === 0) {
+    // Sjabloonkeuze van het concept (afzender-snapshot draagt het id); de
+    // snapshot zelf wordt hier opnieuw uit het sjabloon herleid — nooit uit
+    // client-inhoud.
+    const template = vindTemplate(instellingen, concept.afzender?.templateId);
+    if (template.afzender.statutaireNaam.trim().length === 0) {
       return NextResponse.json(
         { error: "Vul eerst uw bedrijfsgegevens in bij Facturatie-instellingen." },
         { status: 400 },
       );
     }
 
-    const afzender = afzenderUitInstellingen(instellingen);
+    const afzender = afzenderUitTemplate(template);
     const factuurdatum = gewensteDatum ?? new Date().toISOString().slice(0, 10);
-    const betaaltermijn = concept.betaaltermijnDagen ?? instellingen.betaling.standaardTermijnDagen;
+    const betaaltermijn = concept.betaaltermijnDagen ?? template.betaling.standaardTermijnDagen;
     const vervaldatum = berekenVervaldatum(factuurdatum, betaaltermijn);
     const totalen = berekenTotalen(concept.regels);
 
@@ -108,8 +113,7 @@ export async function POST(request: Request, context: { params: Promise<{ factuu
     }
 
     // Stap 2: atomaire RPC — teller + nummer + status in één transactie.
-    const reeks =
-      concept.soort === "creditfactuur" ? instellingen.nummering.reeksCredit : instellingen.nummering.reeksFactuur;
+    const reeks = concept.soort === "creditfactuur" ? template.nummering.reeksCredit : template.nummering.reeksFactuur;
     const jaar = Number.parseInt(factuurdatum.slice(0, 4), 10);
     const rpcResponse = await fetch(`${POSTGREST_URL}/rpc/careon_factuur_definitief_maken`, {
       method: "POST",
@@ -119,8 +123,8 @@ export async function POST(request: Request, context: { params: Promise<{ factuu
         p_factuur: factuurId,
         p_reeks: reeks,
         p_jaar: jaar,
-        p_start: instellingen.nummering.startVolgnummer,
-        p_formaat: instellingen.nummering.formaat,
+        p_start: template.nummering.startVolgnummer,
+        p_formaat: template.nummering.formaat,
         p_factuurdatum: factuurdatum,
         p_vervaldatum: vervaldatum,
       }),

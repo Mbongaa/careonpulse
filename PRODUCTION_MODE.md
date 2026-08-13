@@ -243,6 +243,13 @@ gebruikers dezelfde data.
      definitief-maak-RPC, de concept-prune-RPC en de private Storage-bucket
      `facturen`. **Toepassen vóór de bijbehorende code uitrolt** (de
      facturatieroutes geven anders PostgREST-404's).
+   - `0021_careon_facturatie_mail.sql` — facturatie fase B (handoff 15 §0.5):
+     de tabel `careon_facturatie_maillog` (één rij per verzendpoging, RLS
+     select-only via `app.mag_facturatie_zien`, schrijven alleen met de
+     service-role) + de quota-scope `mail` in
+     `careon_consume_assistant_quota` (CHECK-constraint én functie-allowlist).
+     **Toepassen vóór de bijbehorende code uitrolt**; zonder de scope
+     `mail` faalt de verzendroute met `invalid quota parameters`.
 
    Het oude sync-token is vervallen: toegang loopt via Supabase Auth-sessies.
 
@@ -343,7 +350,7 @@ die op gedeelde werkplekken.
   verwachtingen (oude export: 959 rijen/767 actief; nieuwe exports:
   1.267 cliënten/975 actief, 15.830 sessies, 120 no-shows,
   € 3.607.109 gefactureerd, enz.).
-- `npm run verify:careon` — 492 geauditeerde demo-/actie-assertions blijven
+- `npm run verify:careon` — de geauditeerde demo-/actie-assertions (995 per 13-08-2026) blijven
   ongewijzigd van kracht; demo-modus is pixel- en gedrags-identiek gebleven.
 - `npm run verify:assistant` — deterministische controles op strict
   schemas, tool-routing, privacyredactie en intent-specifieke productiefacts.
@@ -367,7 +374,40 @@ die op gedeelde werkplekken.
   bewaart namen, adressen én e-mailadressen van factuurontvangers — een
   bewuste uitzondering op de dataminimalisatie elders (verwijzer-e-mails
   worden niet bewaard; particuliere debiteuren zijn gereduceerd tot een
-  label). Opnemen in de verwerkingsinventaris (blueprint §18). De
-  AI-assistent heeft geen lees- of schrijftools op facturatiedata.
+  label). Deze verwerking **staat in de verwerkingsinventaris** (blueprint
+  §18, AVG-punt "Facturatie (D19)") — niet opnieuw toevoegen. Het
+  ontvanger-e-mailadres dat fase B in `careon_facturatie_maillog` vastlegt
+  valt onder diezelfde bestaande facturatie-verwerking (contactgegevens
+  inclusief e-mail, klantakkoord V18) — geen nieuwe regel in het
+  verwerkingsregister nodig. De AI-assistent heeft geen lees- of schrijftools
+  op facturatiedata.
 - **Storage**: de private bucket `facturen` valt búíten de Supabase-DB-back-ups
   (die dekken geen Storage-objecten) — zie `DISASTER_RECOVERY.md`.
+
+### Facturatie fase B — e-mailverzending (go-live-checklist)
+
+De verzendfunctie is gebouwd (13-08-2026, handoff 15 §0.5) maar staat
+**fail-closed**: zolang de drie `CAREON_MAIL_`-sleutels leeg zijn geeft de
+verzendroute 503 en kan er niets verstuurd worden. Vóór activering:
+
+1. **Sub-verwerker Resend (VS) — verwerkersovereenkomst incl. SCC's VEREIST.** Eigenaarskeuze 13-08-2026, in afwijking van het EU-soevereine voorstel (consequenties in blueprint D19: VS-jurisdictie, DPF/SCC-afhankelijkheid — de factuur-pdf impliceert bij particulieren GGZ-zorg). De DPA wordt
+   door de **eigenaar** gesloten; zonder getekende DPA blijft de verzending
+   uit. Resend is per D19 (amendement) de platformbrede transactionele mailprovider
+   (dashboard nu, HumHubs `SMTP_*` in `platform-deploy` later).
+2. **Afzenderdomein kiezen en DKIM/SPF bij Resend verifiëren.** Hangt aan de nog
+   openstaande platformdomein-beslissing (`docs/platform/PROJECT_STATUS.md`
+   §3) — hetzelfde afzenderdomein geldt straks ook voor HumHub.
+3. **De drie sleutels in de Vercel-secret-store zetten**:
+   `CAREON_MAIL_RESEND_API_KEY`, `CAREON_MAIL_AFZENDER_EMAIL` en
+   `CAREON_MAIL_AFZENDER_NAAM` — server-side, **nooit** met een
+   `NEXT_PUBLIC_`-voorvoegsel. Optioneel:
+   `CAREON_MAIL_RATE_LIMIT_PER_MINUTE` (5) en `_PER_DAY` (100).
+4. **Daarna één testverzending naar een eigen adres** vanaf een uitgereikte
+   testfactuur, en controleer het maillog (verzendhistorie op de factuur) plus
+   het audit-event `facturatie.factuur.send` — dat event bevat bewust géén
+   e-mailadres; het adres staat alleen in `careon_facturatie_maillog`, onder
+   RLS.
+5. Bounce-afhandeling is **niet** gebouwd (de status `gebounced` is
+   gereserveerd) en er is bewust **geen automatische herverzending**: een
+   hangende poging wordt door de onderhoudscron als mislukt gemarkeerd en de
+   beheerder gebruikt "Opnieuw versturen" (dubbel-verzendrisico).

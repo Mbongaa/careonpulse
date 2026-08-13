@@ -21,13 +21,24 @@ export const runtime = "nodejs";
 const MAX_LOGO_BYTES = 2_000_000;
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47];
 
-export async function GET() {
+const TEMPLATE_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
+
+function templateIdUit(request: Request): string | null {
+  const kandidaat = new URL(request.url).searchParams.get("template") ?? "";
+  return TEMPLATE_ID.test(kandidaat) ? kandidaat : null;
+}
+
+export async function GET(request: Request) {
   const auth = await requireOrgAdmin();
   if ("denied" in auth) return auth.denied;
   if (!storageBeschikbaar()) {
     return NextResponse.json({ error: "Authenticatie is niet geconfigureerd." }, { status: 503 });
   }
-  const bytes = await downloadUitBucket(logoPadVoor(auth.session.orgId as string));
+  const templateId = templateIdUit(request);
+  if (!templateId) {
+    return NextResponse.json({ error: "Ongeldig sjabloon." }, { status: 400 });
+  }
+  const bytes = await downloadUitBucket(logoPadVoor(auth.session.orgId as string, templateId));
   if (!bytes) {
     return NextResponse.json({ error: "Er is nog geen logo geüpload." }, { status: 404 });
   }
@@ -44,6 +55,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Authenticatie is niet geconfigureerd." }, { status: 503 });
   }
 
+  const templateId = templateIdUit(request);
+  if (!templateId) {
+    return NextResponse.json({ error: "Ongeldig sjabloon." }, { status: 400 });
+  }
+  // Content-Length-voorcheck vóór het bufferen (zelfde discipline als
+  // readJsonBodyLimited): anders leest de route een willekeurig grote upload
+  // volledig in het geheugen voordat de maatcontrole afgaat.
+  const aangekondigd = Number.parseInt(request.headers.get("content-length") ?? "", 10);
+  if (Number.isFinite(aangekondigd) && aangekondigd > MAX_LOGO_BYTES) {
+    return NextResponse.json({ error: "Het logo moet een PNG van maximaal 2 MB zijn." }, { status: 413 });
+  }
   const bytes = new Uint8Array(await request.arrayBuffer());
   if (bytes.byteLength === 0 || bytes.byteLength > MAX_LOGO_BYTES) {
     return NextResponse.json({ error: "Het logo moet een PNG van maximaal 2 MB zijn." }, { status: 400 });
@@ -52,7 +74,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Het logo moet een PNG van maximaal 2 MB zijn." }, { status: 400 });
   }
 
-  const pad = logoPadVoor(session.orgId as string);
+  const pad = logoPadVoor(session.orgId as string, templateId);
   // Het logo is — anders dan factuur-pdf's — vervangbaar: x-upsert true.
   const geupload = await uploadNaarBucket(pad, bytes, "image/png", true);
   if (!geupload) {
@@ -65,7 +87,7 @@ export async function POST(request: Request) {
     resource: "careon_facturatie_instellingen",
     orgId: session.orgId,
     userId: session.userId,
-    detail: { bytes: bytes.byteLength },
+    detail: { bytes: bytes.byteLength, template: templateId },
   });
   return NextResponse.json({ configured: true, pad, hash });
 }

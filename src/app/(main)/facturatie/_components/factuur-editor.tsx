@@ -25,13 +25,22 @@ import {
   haalContacten,
   haalFacturatieInstellingen,
   haalFactuur,
+  haalMaillog,
   herstelPdf,
   maakDefinitief,
+  verstuurMail,
+  verwijderConcept,
   wijzigStatus,
 } from "@/lib/careon-facturatie/remote.client";
 import { berekenTotalen, heeftVrijgesteldeRegels } from "@/lib/careon-facturatie/totalen";
-import type { FacturatieContact, FacturatieInstellingen, Factuur } from "@/lib/careon-facturatie/types";
-import { afzenderUitInstellingen, ONTBREKEND_LABELS, type OntbrekendVeld } from "@/lib/careon-facturatie/validatie";
+import type {
+  FacturatieContact,
+  FacturatieInstellingen,
+  Factuur,
+  FactuurMaillogRegel,
+} from "@/lib/careon-facturatie/types";
+import { vindTemplate } from "@/lib/careon-facturatie/types";
+import { afzenderUitTemplate, ONTBREKEND_LABELS, type OntbrekendVeld } from "@/lib/careon-facturatie/validatie";
 
 import { StatusBadge } from "./facturatie-lijst";
 import { FactuurRegelsEditor } from "./factuur-regels-editor";
@@ -48,6 +57,13 @@ const FactuurPdfPreview = dynamic(() => import("./factuur-pdf-preview"), {
   ssr: false,
   loading: () => <Skeleton className="h-full min-h-[480px] w-full rounded-lg" />,
 });
+
+const MAILLOG_STATUS_TEKST: Record<FactuurMaillogRegel["status"], string> = {
+  in_wachtrij: "onderweg",
+  verzonden: "verzonden",
+  mislukt: "mislukt",
+  gebounced: "gebounced",
+};
 
 type SyncStatus = "laden" | "opgeslagen" | "bezig" | "lokaal" | "conflict" | "fout";
 
@@ -76,6 +92,7 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
   const [conflictVersie, setConflictVersie] = useState<Factuur | null>(null);
   const [bezig, setBezig] = useState(false);
   const [afwijkendAdres, setAfwijkendAdres] = useState(false);
+  const [maillog, setMaillog] = useState<FactuurMaillogRegel[]>([]);
 
   // Versiebeheer voor autosave: server-updatedAt van de laatst bevestigde staat.
   const baseUpdatedAt = useRef<string>("");
@@ -109,15 +126,33 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
 
   const totalen = useMemo(() => berekenTotalen(factuur?.regels ?? []), [factuur?.regels]);
 
-  // Voorbeeld: concepten tonen de afzender uit de instellingen en de afgeleide
-  // vervaldatum, zodat wat u ziet exact de uit te reiken pdf is.
+  // Verzendhistorie (fase B): geladen zodra de factuur is uitgereikt, en na
+  // elke verzendpoging ververst — het maillog is het operationele bewijs.
+  const laadMaillog = useCallback(async (voorFactuurId: string) => {
+    const resultaat = await haalMaillog(voorFactuurId);
+    if (resultaat.ok) setMaillog(resultaat.maillog);
+  }, []);
+
+  useEffect(() => {
+    if (factuur && factuur.status !== "concept") void laadMaillog(factuur.id);
+  }, [factuur, laadMaillog]);
+
+  // Sjabloonkeuze (multi-template): het concept draagt zijn sjabloon-id in de
+  // afzender-snapshot; zonder keuze geldt het standaardsjabloon.
+  const huidigTemplate = useMemo(
+    () => (instellingen ? vindTemplate(instellingen, factuur?.afzender?.templateId) : null),
+    [instellingen, factuur?.afzender?.templateId],
+  );
+
+  // Voorbeeld: concepten tonen de afzender uit het gekozen sjabloon en de
+  // afgeleide vervaldatum, zodat wat u ziet exact de uit te reiken pdf is.
   const previewFactuur = useMemo(() => {
     if (!factuur) return null;
-    const betaaltermijn = factuur.betaaltermijnDagen ?? instellingen?.betaling.standaardTermijnDagen ?? 30;
+    const betaaltermijn = factuur.betaaltermijnDagen ?? huidigTemplate?.betaling.standaardTermijnDagen ?? 30;
     const datum = factuur.factuurdatum ?? vandaagIso();
     return {
       ...factuur,
-      afzender: factuur.afzender ?? (instellingen ? afzenderUitInstellingen(instellingen) : null),
+      afzender: factuur.afzender ?? (huidigTemplate ? afzenderUitTemplate(huidigTemplate) : null),
       factuurdatum: factuur.status === "concept" ? datum : factuur.factuurdatum,
       vervaldatum: factuur.status === "concept" ? berekenVervaldatum(datum, betaaltermijn) : factuur.vervaldatum,
       subtotaalCent: totalen.subtotaalCent,
@@ -125,7 +160,7 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
       totaalCent: totalen.totaalCent,
       btwTotalen: totalen.btwTotalen,
     } satisfies Factuur;
-  }, [factuur, instellingen, totalen]);
+  }, [factuur, huidigTemplate, totalen]);
 
   // Debounced autosave voor concepten (800 ms na de laatste wijziging).
   useEffect(() => {
@@ -199,10 +234,17 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
   const crediteerActie = async () => {
     if (!factuur) return;
     setBezig(true);
+    setOntbrekend([]);
     const resultaat = await crediteer(factuur.id);
     setBezig(false);
-    if (resultaat.ok) router.push(`/dashboard/facturatie/${resultaat.factuur.id}`);
-    else setFout(resultaat.fout);
+    if (resultaat.ok) {
+      router.push(`/facturatie/${resultaat.factuur.id}`);
+    } else {
+      setFout(resultaat.fout);
+      // Ook crediteren valideert art. 35a — toon dezelfde veldenlijst als
+      // bij definitief maken, anders is de 400 een doodlopende melding.
+      if (resultaat.ontbrekend) setOntbrekend(resultaat.ontbrekend as OntbrekendVeld[]);
+    }
   };
 
   const pdfHerstel = async () => {
@@ -211,6 +253,44 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
     const resultaat = await herstelPdf(factuur.id);
     setBezig(false);
     if (resultaat.ok) void herlaad();
+    else setFout(resultaat.fout);
+  };
+
+  // Fase B: per e-mail versturen (centraal via Resend, demo gesimuleerd).
+  const mailActie = async (ontvanger: string) => {
+    if (!factuur) return;
+    setBezig(true);
+    setFout(null);
+    const resultaat = await verstuurMail(factuur.id, ontvanger);
+    setBezig(false);
+    if (resultaat.ok) {
+      if (resultaat.factuur) {
+        baseUpdatedAt.current = resultaat.factuur.updatedAt;
+        setFactuur(resultaat.factuur);
+      } else {
+        // Verzonden, maar de administratie-write faalde: status herladen en
+        // de waarschuwing tonen — vooral niet uitnodigen tot nogmaals sturen.
+        void herlaad();
+      }
+      if (resultaat.melding) setFout(resultaat.melding);
+      void laadMaillog(factuur.id);
+    } else {
+      // Ook een mislukte poging levert een bijgewerkte factuur (mailStatus
+      // "mislukt") — overnemen, anders blijft de knop "Versturen" heten.
+      if (resultaat.factuur) setFactuur(resultaat.factuur);
+      setFout(resultaat.fout);
+      void laadMaillog(factuur.id);
+    }
+  };
+
+  // "Concept verwijderen" ook ín de editor (§4.3) — de geen_delete-trigger
+  // dekt de veiligheid al; na verwijderen terug naar de lijst.
+  const verwijderActie = async () => {
+    if (factuur?.status !== "concept") return;
+    setBezig(true);
+    const resultaat = await verwijderConcept(factuur.id);
+    setBezig(false);
+    if (resultaat.ok) router.push("/facturatie");
     else setFout(resultaat.fout);
   };
 
@@ -230,7 +310,28 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
   }
 
   const isConcept = factuur.status === "concept";
-  const instellingenLeeg = instellingen !== null && instellingen.afzender.statutaireNaam.trim().length === 0;
+  // Onvolledig sjabloon ⇒ banner, gelijkgetrokken met wat de art. 35a-
+  // validator écht eist van de afzender (naam, volledig adres, KvK, IBAN) —
+  // anders verdwijnt de banner terwijl uitreiken alsnog met 400 blokkeert.
+  const instellingenLeeg =
+    huidigTemplate !== null &&
+    [
+      huidigTemplate.afzender.statutaireNaam,
+      huidigTemplate.afzender.adresRegel1,
+      huidigTemplate.afzender.postcode,
+      huidigTemplate.afzender.plaats,
+      huidigTemplate.afzender.kvkNummer ?? "",
+      huidigTemplate.bank.iban,
+    ].some((veld) => veld.trim().length === 0);
+  // Logo van het voorbeeld: meegeleverd asset of same-origin sjabloon-upload
+  // (nooit een rechtstreekse Storage-URL — connect-src 'self').
+  const previewAfzender = previewFactuur?.afzender;
+  let logoSrc: string | undefined;
+  if (previewAfzender?.toonLogo && previewAfzender.logoBron === "careongroup") {
+    logoSrc = "/branding/careon-group-logo.png";
+  } else if (previewAfzender?.toonLogo && previewAfzender.logoBron === "upload" && previewAfzender.templateId) {
+    logoSrc = `/api/careon/facturatie/instellingen/logo?template=${encodeURIComponent(previewAfzender.templateId)}`;
+  }
   const gekozenContact = contacten.find((contact) => contact.id === factuur.contactId) ?? null;
   const vrijgesteld = heeftVrijgesteldeRegels(factuur.regels);
   const artikel34g =
@@ -273,7 +374,7 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
             </span>
             <StatusBadge factuur={factuur} />
             <Button asChild variant="outline" size="sm">
-              <Link href="/dashboard/facturatie">
+              <Link href="/facturatie">
                 <ArrowLeft className="size-3.5" />
                 Facturen
               </Link>
@@ -288,7 +389,7 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
           className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-amber-800 text-xs dark:text-amber-300"
         >
           Vul eerst uw bedrijfsgegevens in bij{" "}
-          <Link href="/dashboard/facturatie/instellingen" className="underline">
+          <Link href="/facturatie/instellingen" className="underline">
             Facturatie-instellingen
           </Link>
           ; zonder afzendergegevens kan de factuur niet worden uitgereikt.
@@ -341,8 +442,45 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
         </p>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,540px)]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,540px)]">
         <div className="space-y-4">
+          {instellingen && instellingen.templates.length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">Sjabloon</CardTitle>
+                <CardDescription>
+                  Bepaalt afzender, huisstijl en nummerreeks van deze factuur — beheer sjablonen bij Instellingen.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <NativeSelect
+                  value={huidigTemplate?.id ?? instellingen.standaardTemplateId}
+                  aria-label="Factuursjabloon"
+                  className="h-8 max-w-72 text-xs"
+                  disabled={!isConcept}
+                  onChange={(event) => {
+                    const template = instellingen.templates.find((rij) => rij.id === event.target.value);
+                    if (!template) return;
+                    // Nieuwe snapshot + sjabloon-defaults; regels blijven staan.
+                    wijzig({
+                      afzender: afzenderUitTemplate(template),
+                      betaaltermijnDagen: template.betaling.standaardTermijnDagen,
+                      vrijstellingTekst:
+                        factuur.vrijstellingTekst ??
+                        (template.btw.standaardTarief === "vrijgesteld" ? template.btw.vrijstellingTekst : undefined),
+                    });
+                  }}
+                >
+                  {instellingen.templates.map((template) => (
+                    <NativeSelectOption key={template.id} value={template.id}>
+                      {template.naam}
+                    </NativeSelectOption>
+                  ))}
+                </NativeSelect>
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Card>
             <CardHeader>
               <CardTitle className="text-sm">Afnemer</CardTitle>
@@ -367,7 +505,7 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
                     ))}
                 </NativeSelect>
                 <Button asChild variant="outline" size="sm">
-                  <Link href="/dashboard/facturatie/contacten">Nieuw contact</Link>
+                  <Link href="/facturatie/contacten">Nieuw contact</Link>
                 </Button>
                 {isConcept ? (
                   <label className="flex items-center gap-1.5 text-muted-foreground text-xs">
@@ -527,7 +665,7 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
               {isConcept ? (
                 <FactuurRegelsEditor
                   regels={factuur.regels}
-                  standaardTarief={instellingen?.btw.standaardTarief ?? "vrijgesteld"}
+                  standaardTarief={huidigTemplate?.btw.standaardTarief ?? "vrijgesteld"}
                   onWijzig={(regels) => wijzig({ regels })}
                 />
               ) : (
@@ -614,12 +752,30 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
               onStatus={(naarStatus, betaaldOp) => void statusActie(naarStatus, betaaldOp)}
               onCrediteer={() => void crediteerActie()}
               onPdfHerstel={() => void pdfHerstel()}
+              onVerwijder={() => void verwijderActie()}
+              onMail={(ontvanger) => void mailActie(ontvanger)}
             />
+            {!isConcept && maillog.length > 0 ? (
+              <div className="mt-2 border-t pt-2">
+                <p className="font-medium text-muted-foreground text-xs">Verzendhistorie</p>
+                <ul className="mt-1 space-y-0.5 text-muted-foreground text-xs">
+                  {maillog.slice(0, 3).map((regel) => (
+                    <li key={regel.id}>
+                      {new Intl.DateTimeFormat("nl-NL", { dateStyle: "medium", timeStyle: "short" }).format(
+                        new Date(regel.createdAt),
+                      )}{" "}
+                      · {regel.ontvanger} · {MAILLOG_STATUS_TEKST[regel.status]}
+                      {regel.foutTekst ? ` — ${regel.foutTekst}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
         </div>
 
         <div className="lg:sticky lg:top-4 lg:h-[calc(100vh-6rem)]">
-          {previewFactuur ? <FactuurPdfPreview factuur={previewFactuur} /> : null}
+          {previewFactuur ? <FactuurPdfPreview factuur={previewFactuur} logoSrc={logoSrc} /> : null}
         </div>
       </div>
     </div>

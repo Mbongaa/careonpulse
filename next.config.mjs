@@ -36,7 +36,8 @@ const nextConfig = {
   // de Vercel-trace, anders faalt renderToBuffer op een ontbrekend font.
   serverExternalPackages: ["@react-pdf/renderer"],
   outputFileTracingIncludes: {
-    "/api/careon/facturatie/**/*": ["./src/lib/careon-facturatie/pdf/fonts/**/*"],
+    // fonts/ (server-TTF's) én assets/ (ingebouwd Careon Group-logo).
+    "/api/careon/facturatie/**/*": ["./src/lib/careon-facturatie/pdf/**/*"],
   },
   compiler: {
     // Keep operational warnings and failures observable in production.

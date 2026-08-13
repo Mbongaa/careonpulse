@@ -5,6 +5,7 @@ import type {
   FacturatieInstellingen,
   Factuur,
   FactuurStatus,
+  FactuurTemplate,
 } from "@/lib/careon-facturatie/types";
 
 // Facturatie — client-requested beheerdersmodule (handoff 15). Deze pagina's
@@ -14,7 +15,7 @@ import type {
 // localStorage-demo-pad (B12).
 
 export const FACTURATIE_PAGE_META = {
-  overzicht: { title: "Facturatie", sub: "Facturen opstellen, uitreiken en archiveren." },
+  overzicht: { title: "Facturen", sub: "Facturen opstellen, uitreiken en archiveren." },
   factuur: { title: "Factuur", sub: "Stel de factuur samen; het voorbeeld rechts is de definitieve pdf." },
   contacten: { title: "Contacten", sub: "Klanten, verzekeraars, gemeenten en medewerkers." },
   instellingen: { title: "Facturatie-instellingen", sub: "Bedrijfsgegevens, nummerreeks, btw en betaaltermijn." },
@@ -73,34 +74,73 @@ export const VRIJSTELLING_PRESETS = [
 export const DEFAULT_VRIJSTELLING_TEKST = VRIJSTELLING_PRESETS[0].tekst;
 
 /**
- * Startstand voor een organisatie zónder eigen instellingen (productie).
- * Bewust volledig leeg: een tweede organisatie mag nooit de bedrijfsgegevens
- * van klant 1 erven (zelfde les als EMPTY_MIDDELEN_STATE). De editor blokkeert
- * uitreiken zolang deze gegevens leeg zijn ("Vul eerst uw bedrijfsgegevens
- * in bij Facturatie-instellingen.").
+ * Ingebouwd sjabloon "Careon Group" — 1:1 naar het geïmporteerde ontwerp
+ * "Factuur Careon Group.dc.html" (claude.ai/design-project 8c721b90):
+ * merkgradient, tagline "Technology · Growth · Care", meegeleverd logo
+ * (public/branding/careon-group-logo.png + pdf/assets), btw 21%. KvK/btw-id/
+ * IBAN zijn de plaatshouders uit het ontwerp — de klant vult de echte
+ * gegevens in op de sjabloon-instellingen.
  */
-export const EMPTY_FACTURATIE_INSTELLINGEN: FacturatieInstellingen = {
+export const CAREONGROUP_TEMPLATE: FactuurTemplate = {
+  id: "careongroup",
+  naam: "Careon Group",
+  tagline: "Technology · Growth · Care",
   afzender: {
-    statutaireNaam: "",
+    statutaireNaam: "Careon Group B.V.",
     adresRegel1: "",
     postcode: "",
     plaats: "",
     land: "NL",
-    kvkNummer: "",
+    kvkNummer: "12345678",
+    btwId: "NL001234567B01",
+    email: "info@careongroup.nl",
   },
-  bank: { iban: "", tenaamstelling: "" },
+  bank: { iban: "NL00 BANK 0123 4567 89", tenaamstelling: "Careon Group B.V." },
   nummering: { reeksFactuur: "F", reeksCredit: "C", formaat: "{reeks}{jaar}-{nummer:4}", startVolgnummer: 1 },
-  betaling: { standaardTermijnDagen: 30 },
-  btw: { standaardTarief: "vrijgesteld", vrijstellingTekst: DEFAULT_VRIJSTELLING_TEKST },
-  presentatie: { toonLogo: false },
+  betaling: {
+    standaardTermijnDagen: 30,
+    betaalinstructie: "Gelieve het totaalbedrag binnen 30 dagen over te maken, onder vermelding van het factuurnummer.",
+  },
+  btw: { standaardTarief: "21", vrijstellingTekst: DEFAULT_VRIJSTELLING_TEKST },
+  presentatie: { toonLogo: true, logoBron: "careongroup" },
+};
+
+/**
+ * Startstand voor een organisatie zónder eigen instellingen (productie):
+ * één neutraal startsjabloon met VOLLEDIG lege identiteit — geen naam, KvK,
+ * btw-id, IBAN, logo of tagline. De ontwerp-plaatshouders van
+ * CAREONGROUP_TEMPLATE ("Careon Group B.V.", KvK 12345678, IBAN NL00 …)
+ * mogen hier nooit in: de art. 35a-validator toetst alleen op aanwezigheid,
+ * dus elk vooringevuld identiteitsveld zou een verse organisatie een
+ * onwijzigbare factuur onder andermans identiteit laten uitreiken
+ * (auditbevinding 13-08). Het ontwerp-sjabloon mét plaatshouders bestaat
+ * alleen in de demo. Btw start vrijgesteld (§3.1 + klantantwoord V12);
+ * het id blijft "careongroup" zodat sjabloonverwijzingen stabiel zijn.
+ */
+export const EMPTY_FACTURATIE_INSTELLINGEN: FacturatieInstellingen = {
+  templates: [
+    {
+      id: "careongroup",
+      naam: "Standaardsjabloon",
+      afzender: { statutaireNaam: "", adresRegel1: "", postcode: "", plaats: "", land: "NL", kvkNummer: "" },
+      bank: { iban: "", tenaamstelling: "" },
+      nummering: { ...CAREONGROUP_TEMPLATE.nummering },
+      betaling: { ...CAREONGROUP_TEMPLATE.betaling },
+      btw: { standaardTarief: "vrijgesteld", vrijstellingTekst: DEFAULT_VRIJSTELLING_TEKST },
+      presentatie: { toonLogo: false },
+    },
+  ],
+  standaardTemplateId: "careongroup",
   updatedAt: "1970-01-01T00:00:00.000Z",
 };
 
 // Vaste seed-datum: demo blijft deterministisch (ook voor e2e-assertions).
 const SEED_UPDATED_AT = "2026-07-01T09:00:00.000Z";
 
-/** Fictieve demo-afzender (geen echte KvK/IBAN — etalagedata). */
-export const DEMO_FACTURATIE_INSTELLINGEN: FacturatieInstellingen = {
+/** Fictieve demo-afzender van de tweede demo-template (geen echte KvK/IBAN). */
+const TGC_TEMPLATE: FactuurTemplate = {
+  id: "tgc-groep",
+  naam: "TGC Groep",
   afzender: {
     statutaireNaam: "TGC Groep B.V.",
     adresRegel1: "Voorbeeldstraat 12",
@@ -120,6 +160,27 @@ export const DEMO_FACTURATIE_INSTELLINGEN: FacturatieInstellingen = {
   },
   btw: { standaardTarief: "vrijgesteld", vrijstellingTekst: DEFAULT_VRIJSTELLING_TEKST },
   presentatie: { voettekst: "KvK 12345678 · IBAN NL02ABNA0123456789", toonLogo: false },
+};
+
+/**
+ * Demo: het ingebouwde Careon Group-sjabloon (mét ingevulde plaatshouder-
+ * adresgegevens zodat de demo daadwerkelijk kan uitreiken) plus het
+ * TGC-sjabloon — zo demonstreert de sjabloonlijst direct meerdere profielen.
+ */
+export const DEMO_FACTURATIE_INSTELLINGEN: FacturatieInstellingen = {
+  templates: [
+    {
+      ...CAREONGROUP_TEMPLATE,
+      afzender: {
+        ...CAREONGROUP_TEMPLATE.afzender,
+        adresRegel1: "Stationsplein 1",
+        postcode: "5038 CB",
+        plaats: "Tilburg",
+      },
+    },
+    TGC_TEMPLATE,
+  ],
+  standaardTemplateId: "careongroup",
   updatedAt: SEED_UPDATED_AT,
 };
 
@@ -187,6 +248,8 @@ export const DEMO_CONTACTEN: FacturatieContact[] = [
 ];
 
 const DEMO_AFZENDER_SNAPSHOT = {
+  templateId: "tgc-groep",
+  templateNaam: "TGC Groep",
   statutaireNaam: "TGC Groep B.V.",
   adresRegel1: "Voorbeeldstraat 12",
   postcode: "5038 AA",

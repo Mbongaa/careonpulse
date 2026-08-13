@@ -59,7 +59,7 @@ export const CAREON_MODULES: readonly CareonModule[] = [
     name: "Facturatie",
     description: "Facturen opstellen met live pdf-voorbeeld, contacten beheren en facturen archiveren.",
     status: "live",
-    href: "/dashboard/facturatie",
+    href: "/facturatie",
     zichtbaarVoor: "org_admin",
   },
 ];

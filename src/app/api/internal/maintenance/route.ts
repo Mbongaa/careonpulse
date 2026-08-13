@@ -92,6 +92,56 @@ export async function GET(request: Request) {
     } catch (error) {
       console.error("Facturatie concept-prune unavailable", error);
     }
+    // Fase B (handoff 15 §7): maillogregels die in "in_wachtrij" blijven
+    // hangen (functie stierf tussen insert en providerantwoord) worden als
+    // "mislukt" gemarkeerd zodat de beheerder een zichtbare "Opnieuw
+    // versturen"-ingang heeft. Bewust GEEN automatische herverzending: als de
+    // provider de mail wél accepteerde vóór de crash, zou een automatische
+    // retry dubbel verzenden — een mens beoordeelt dat veiliger.
+    let mailwachtrijOpgeruimd: number | null = null;
+    try {
+      const grens = new Date(Date.now() - 15 * 60_000).toISOString();
+      const sweepParams = new URLSearchParams({ status: "eq.in_wachtrij", created_at: `lt.${grens}` });
+      const sweepResponse = await fetch(`${SUPABASE_URL}/rest/v1/careon_facturatie_maillog?${sweepParams}`, {
+        method: "PATCH",
+        headers: {
+          apikey: SERVICE_KEY,
+          Authorization: `Bearer ${SERVICE_KEY}`,
+          "Content-Type": "application/json",
+          Prefer: "return=representation",
+        },
+        body: JSON.stringify({
+          status: "mislukt",
+          fout_code: "timeout",
+          fout_tekst: "Verzending afgebroken (geen providerantwoord geregistreerd) — handmatig opnieuw versturen.",
+          updated_at: new Date().toISOString(),
+        }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (sweepResponse.ok) {
+        mailwachtrijOpgeruimd = ((await sweepResponse.json()) as unknown[]).length;
+      } else {
+        console.error("Facturatie maillog-sweep failed", { status: sweepResponse.status });
+      }
+      // Zelfde sweep voor de in-flight-markering op de factuur zelf: zonder
+      // deze reset zou "verzending onderweg" na een crash eeuwig blijven staan.
+      const factuurSweepParams = new URLSearchParams({ mail_status: "eq.in_wachtrij", updated_at: `lt.${grens}` });
+      const factuurSweep = await fetch(`${SUPABASE_URL}/rest/v1/careon_facturatie_facturen?${factuurSweepParams}`, {
+        method: "PATCH",
+        headers: {
+          apikey: SERVICE_KEY,
+          Authorization: `Bearer ${SERVICE_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ mail_status: "mislukt", updated_at: new Date().toISOString() }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!factuurSweep.ok) console.error("Facturatie mail_status-sweep failed", { status: factuurSweep.status });
+    } catch (error) {
+      console.error("Facturatie maillog-sweep unavailable", error);
+    }
     scheduleAuditEvent({
       action: "maintenance.prune",
       resource: "careon_prune_runtime_data",
@@ -100,6 +150,7 @@ export async function GET(request: Request) {
         chats: String(CHAT_RETENTION_DAYS),
         audit: String(AUDIT_RETENTION_DAYS),
         facturatieConcepten: conceptenOpgeruimd === null ? "failed" : String(conceptenOpgeruimd),
+        mailwachtrij: mailwachtrijOpgeruimd === null ? "failed" : String(mailwachtrijOpgeruimd),
       },
     });
     return Response.json(

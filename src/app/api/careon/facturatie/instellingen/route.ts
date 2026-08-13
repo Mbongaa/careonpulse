@@ -31,17 +31,20 @@ function isSaveBody(value: unknown): value is SaveBody {
   );
 }
 
-/** Metadata-only samenvatting: welke blokken wijzigden, nooit de inhoud. */
+/** Metadata-only samenvatting: sjabloonaantallen, nooit de inhoud. */
 function changeSummary(vorige: FacturatieInstellingen | null, volgende: FacturatieInstellingen) {
-  const blok = (naam: keyof FacturatieInstellingen) =>
-    JSON.stringify(vorige?.[naam] ?? null) !== JSON.stringify(volgende[naam]);
+  const vorigeIds = new Set((vorige?.templates ?? []).map((template) => template.id));
+  const volgendeIds = new Set(volgende.templates.map((template) => template.id));
+  const gewijzigd = volgende.templates.filter((template) => {
+    const oud = vorige?.templates.find((rij) => rij.id === template.id);
+    return oud !== undefined && JSON.stringify(oud) !== JSON.stringify(template);
+  }).length;
   return {
-    afzenderGewijzigd: blok("afzender"),
-    bankGewijzigd: blok("bank"),
-    nummeringGewijzigd: blok("nummering"),
-    betalingGewijzigd: blok("betaling"),
-    btwGewijzigd: blok("btw"),
-    presentatieGewijzigd: blok("presentatie"),
+    templates: volgende.templates.length,
+    templatesToegevoegd: [...volgendeIds].filter((id) => !vorigeIds.has(id)).length,
+    templatesVerwijderd: [...vorigeIds].filter((id) => !volgendeIds.has(id)).length,
+    templatesGewijzigd: gewijzigd,
+    standaardGewijzigd: (vorige?.standaardTemplateId ?? null) !== volgende.standaardTemplateId,
   };
 }
 
@@ -104,29 +107,38 @@ export async function POST(request: Request) {
       );
     }
 
-    // Nummerreeks-bevriezing: gewijzigde nummering + al een uitgereikte
-    // factuur in de nieuwe reeks/dit jaar ⇒ weigeren.
-    const nummeringGewijzigd = JSON.stringify(huidig.nummering) !== JSON.stringify(body.state.nummering);
-    if (nummeringGewijzigd && huidigeRevisie > 0) {
+    // Nummerreeks-bevriezing per sjabloon: gewijzigde nummering + al een
+    // uitgereikte factuur in die reeks/dit jaar ⇒ weigeren. Gepeild op de
+    // óúde reekswaarden (factuur én credit): uitgereikte facturen dragen de
+    // oude letters, dus een peiling op de nieuwe waarde zou een hernoemde of
+    // alleen-credit-reeks stil laten passeren.
+    if (huidigeRevisie > 0) {
       const jaar = new Date().getUTCFullYear();
-      const factuurParams = new URLSearchParams({
-        select: "id",
-        org_id: `eq.${session.orgId}`,
-        status: "neq.concept",
-        reeks: `eq.${body.state.nummering.reeksFactuur}`,
-        jaar: `eq.${jaar}`,
-        limit: "1",
-      });
-      const factuurResponse = await fetch(`${POSTGREST_URL}/careon_facturatie_facturen?${factuurParams}`, {
-        headers: userRestHeaders(session),
-        cache: "no-store",
-      });
-      if (!factuurResponse.ok) throw new Error("storage-unavailable");
-      if (((await factuurResponse.json()) as unknown[]).length > 0) {
-        return NextResponse.json(
-          { error: "De nummerreeks kan niet meer worden gewijzigd: er bestaan al uitgereikte facturen in deze reeks." },
-          { status: 409 },
-        );
+      for (const template of body.state.templates) {
+        const oud = huidig.templates.find((rij) => rij.id === template.id);
+        if (!oud || JSON.stringify(oud.nummering) === JSON.stringify(template.nummering)) continue;
+        const reeksen = [...new Set([oud.nummering.reeksFactuur, oud.nummering.reeksCredit])];
+        const factuurParams = new URLSearchParams({
+          select: "id",
+          org_id: `eq.${session.orgId}`,
+          status: "neq.concept",
+          reeks: `in.(${reeksen.join(",")})`,
+          jaar: `eq.${jaar}`,
+          limit: "1",
+        });
+        const factuurResponse = await fetch(`${POSTGREST_URL}/careon_facturatie_facturen?${factuurParams}`, {
+          headers: userRestHeaders(session),
+          cache: "no-store",
+        });
+        if (!factuurResponse.ok) throw new Error("storage-unavailable");
+        if (((await factuurResponse.json()) as unknown[]).length > 0) {
+          return NextResponse.json(
+            {
+              error: `De nummerreeks van sjabloon "${template.naam}" kan niet meer worden gewijzigd: er bestaan al uitgereikte facturen in deze reeks.`,
+            },
+            { status: 409 },
+          );
+        }
       }
     }
 

@@ -11,8 +11,16 @@ import {
   volgendDemoNummer,
 } from "./storage.client";
 import { berekenTotalen } from "./totalen";
-import type { FacturatieContact, FacturatieInstellingen, Factuur, FactuurStatus } from "./types";
-import { afzenderUitInstellingen, valideerFactuurVoorUitreiking } from "./validatie";
+import {
+  type FacturatieContact,
+  type FacturatieInstellingen,
+  type Factuur,
+  type FactuurMaillogRegel,
+  type FactuurStatus,
+  isEmailAdres,
+  vindTemplate,
+} from "./types";
+import { afzenderUitTemplate, valideerFactuurVoorUitreiking } from "./validatie";
 
 // Client-datatoegang met demo-terugval (handoff 15 B12): elke functie
 // probeert de API; antwoordt die 501 (expliciete demo-modus), dan draait
@@ -78,27 +86,28 @@ const NIET_BEREIKBAAR = "Supabase niet bereikbaar.";
 
 export interface OverzichtFilters {
   jaar?: number;
-  status?: FactuurStatus | "te_laat";
+  status?: FactuurStatus | "openstaand" | "te_laat";
   zoek?: string;
   pagina?: number;
 }
+
+const OPENSTAAND = new Set<FactuurStatus>(["definitief", "verzonden"]);
 
 export async function haalFacturen(
   filters: OverzichtFilters,
 ): Promise<Resultaat<{ facturen: Factuur[]; heeftMeer: boolean }>> {
   const zoekparams = new URLSearchParams();
   if (filters.jaar) zoekparams.set("jaar", String(filters.jaar));
-  if (filters.status && filters.status !== "te_laat") zoekparams.set("status", filters.status);
+  // Ook de afgeleide filters (openstaand, te_laat) gaan naar de server: alleen
+  // dáár klopt de paginering — client-side filteren van één pagina mist
+  // oudere vervallen facturen zodra een jaar meer dan één pagina telt.
+  if (filters.status) zoekparams.set("status", filters.status);
   if (filters.zoek) zoekparams.set("zoek", filters.zoek);
   if (filters.pagina) zoekparams.set("pagina", String(filters.pagina));
 
   const { status, data } = await api<{ facturen: Factuur[]; heeftMeer: boolean }>(`facturen?${zoekparams}`);
   if (status === 200 && data) {
-    let facturen = data.facturen;
-    if (filters.status === "te_laat") {
-      facturen = facturen.filter((factuur) => isTeLaat(factuur, vandaag()));
-    }
-    return { ok: true, bron: "centraal", facturen, heeftMeer: data.heeftMeer };
+    return { ok: true, bron: "centraal", facturen: data.facturen, heeftMeer: data.heeftMeer };
   }
   if (status !== 501) return { ok: false, ...foutUit(status, data, NIET_BEREIKBAAR) };
 
@@ -107,6 +116,7 @@ export async function haalFacturen(
   let facturen = [...state.facturen].sort((a, b) => ((b.factuurdatum ?? "9999") > (a.factuurdatum ?? "9999") ? 1 : -1));
   if (filters.jaar) facturen = facturen.filter((factuur) => factuur.jaar === filters.jaar);
   if (filters.status === "te_laat") facturen = facturen.filter((factuur) => isTeLaat(factuur, vandaag()));
+  else if (filters.status === "openstaand") facturen = facturen.filter((factuur) => OPENSTAAND.has(factuur.status));
   else if (filters.status) facturen = facturen.filter((factuur) => factuur.status === filters.status);
   if (filters.zoek) {
     const term = filters.zoek.toLowerCase();
@@ -138,11 +148,12 @@ export async function maakConcept(dupliceerVan?: string): Promise<Resultaat<{ fa
 
   const state = lokaleState();
   const bron = dupliceerVan ? state.facturen.find((rij) => rij.id === dupliceerVan) : undefined;
+  const template = vindTemplate(state.instellingen, bron?.afzender?.templateId);
   const factuur: Factuur = {
     id: `lokaal-${crypto.randomUUID()}`,
     status: "concept",
     soort: "factuur",
-    reeks: state.instellingen.nummering.reeksFactuur,
+    reeks: template.nummering.reeksFactuur,
     jaar: new Date().getUTCFullYear(),
     volgnummer: null,
     nummer: null,
@@ -150,17 +161,17 @@ export async function maakConcept(dupliceerVan?: string): Promise<Resultaat<{ fa
     prestatieVan: null,
     prestatieTot: null,
     vervaldatum: null,
-    betaaltermijnDagen: state.instellingen.betaling.standaardTermijnDagen,
+    betaaltermijnDagen: template.betaling.standaardTermijnDagen,
     contactId: bron?.contactId ?? null,
     afnemer: bron?.afnemer ? { ...bron.afnemer } : null,
-    afzender: null,
+    afzender: afzenderUitTemplate(template),
     uwKenmerk: bron?.uwKenmerk,
     orderReferentie: bron?.orderReferentie,
     regels: bron ? bron.regels.map((regel) => ({ ...regel, id: crypto.randomUUID() })) : [],
     btwTotalen: bron ? bron.btwTotalen.map((totaal) => ({ ...totaal })) : [],
     vrijstellingTekst:
       bron?.vrijstellingTekst ??
-      (state.instellingen.btw.standaardTarief === "vrijgesteld" ? state.instellingen.btw.vrijstellingTekst : undefined),
+      (template.btw.standaardTarief === "vrijgesteld" ? template.btw.vrijstellingTekst : undefined),
     subtotaalCent: bron?.subtotaalCent ?? 0,
     btwCent: bron?.btwCent ?? 0,
     totaalCent: bron?.totaalCent ?? 0,
@@ -256,7 +267,8 @@ export async function maakDefinitief(
   if (concept.status !== "concept") {
     return { ok: false, fout: "Deze factuur is al uitgereikt.", status: 409 };
   }
-  const afzender = afzenderUitInstellingen(state.instellingen);
+  const template = vindTemplate(state.instellingen, concept.afzender?.templateId);
+  const afzender = afzenderUitTemplate(template);
   const datum = factuurdatum ?? vandaag();
   const validatie = valideerFactuurVoorUitreiking({ ...concept, factuurdatum: datum }, afzender);
   if (!validatie.ok) {
@@ -267,14 +279,11 @@ export async function maakDefinitief(
       ontbrekend: validatie.ontbrekend,
     };
   }
-  const reeks =
-    concept.soort === "creditfactuur"
-      ? state.instellingen.nummering.reeksCredit
-      : state.instellingen.nummering.reeksFactuur;
+  const reeks = concept.soort === "creditfactuur" ? template.nummering.reeksCredit : template.nummering.reeksFactuur;
   const jaar = Number.parseInt(datum.slice(0, 4), 10);
-  const volgnummer = volgendDemoNummer(state, reeks, jaar);
-  const nummer = formatFactuurnummer(state.instellingen.nummering.formaat, reeks, jaar, volgnummer);
-  const betaaltermijn = concept.betaaltermijnDagen ?? state.instellingen.betaling.standaardTermijnDagen;
+  const volgnummer = volgendDemoNummer(state, reeks, jaar, template.nummering.startVolgnummer);
+  const nummer = formatFactuurnummer(template.nummering.formaat, reeks, jaar, volgnummer);
+  const betaaltermijn = concept.betaaltermijnDagen ?? template.betaling.standaardTermijnDagen;
   const totalen = berekenTotalen(concept.regels);
   const definitief: Factuur = {
     ...concept,
@@ -336,6 +345,81 @@ export async function wijzigStatus(
   return { ok: true, bron: "lokaal", factuur: bijgewerkt };
 }
 
+/**
+ * Fase B: factuur per e-mail versturen. Centraal loopt dit via Resend (of 503
+ * zolang de provider niet is geconfigureerd — DPA-poort); in demo wordt de
+ * verzending gesimuleerd zodat de flow demonstreerbaar en e2e-testbaar is.
+ */
+export async function verstuurMail(
+  factuurId: string,
+  ontvanger: string,
+): Promise<Resultaat<{ factuur: Factuur | null; melding?: string }>> {
+  const { status, data } = await api<{ factuur: Factuur | null; melding?: string }>(`facturen/${factuurId}/mail`, {
+    method: "POST",
+    body: JSON.stringify({ ontvanger }),
+  });
+  if (status === 200 && data) {
+    // factuur kan null zijn: verzonden, maar de administratie-write faalde —
+    // de route stuurt dan een melding mee ("niet opnieuw versturen").
+    return { ok: true, bron: "centraal", factuur: data.factuur ?? null, melding: data.melding };
+  }
+  if (status !== 501) return { ok: false, ...foutUit(status, data, NIET_BEREIKBAAR) };
+
+  const state = lokaleState();
+  const index = state.facturen.findIndex((rij) => rij.id === factuurId);
+  if (index < 0) {
+    return { ok: false, fout: "Deze factuur bestaat niet (meer) voor deze organisatie.", status: 404 };
+  }
+  const huidig = state.facturen[index];
+  if (!["definitief", "verzonden", "betaald"].includes(huidig.status) || !huidig.nummer) {
+    return { ok: false, fout: "Alleen uitgereikte facturen kunnen per e-mail worden verzonden.", status: 409 };
+  }
+  if (!isEmailAdres(ontvanger)) {
+    return { ok: false, fout: "Geen geldig e-mailadres voor de ontvanger.", status: 400 };
+  }
+  const maillog = state.maillog ?? [];
+  const poging = maillog.filter((regel) => regel.factuurId === factuurId).length + 1;
+  const logRegel: FactuurMaillogRegel = {
+    id: `lokaal-${crypto.randomUUID()}`,
+    factuurId,
+    ontvanger,
+    // Zelfde 200-tekens-cap als de DB-check: een te lang onderwerp zou de
+    // maillog-guard laten falen en daarmee de héle demo-state stil wissen.
+    onderwerp:
+      `${huidig.soort === "creditfactuur" ? "Creditfactuur" : "Factuur"} ${huidig.nummer} van ${huidig.afzender?.statutaireNaam ?? "de afzender"}`.slice(
+        0,
+        200,
+      ),
+    status: "verzonden",
+    poging,
+    createdAt: nu(),
+  };
+  state.maillog = [logRegel, ...maillog];
+  const bijgewerkt: Factuur = {
+    ...huidig,
+    status: huidig.status === "definitief" ? "verzonden" : huidig.status,
+    mailStatus: "verzonden",
+    mailVerzondenOp: nu(),
+    updatedAt: nu(),
+  };
+  state.facturen[index] = bijgewerkt;
+  bewaarLokaal(state);
+  return { ok: true, bron: "lokaal", factuur: bijgewerkt };
+}
+
+export async function haalMaillog(factuurId: string): Promise<Resultaat<{ maillog: FactuurMaillogRegel[] }>> {
+  const { status, data } = await api<{ maillog: FactuurMaillogRegel[] }>(`facturen/${factuurId}/mail`);
+  if (status === 200 && data) return { ok: true, bron: "centraal", maillog: data.maillog };
+  if (status !== 501) return { ok: false, ...foutUit(status, data, NIET_BEREIKBAAR) };
+
+  const state = lokaleState();
+  return {
+    ok: true,
+    bron: "lokaal",
+    maillog: (state.maillog ?? []).filter((regel) => regel.factuurId === factuurId),
+  };
+}
+
 export async function crediteer(factuurId: string): Promise<Resultaat<{ factuur: Factuur }>> {
   const { status, data } = await api<{ factuur: Factuur }>(`facturen/${factuurId}/credit`, { method: "POST" });
   if (status === 200 && data) return { ok: true, bron: "centraal", factuur: data.factuur };
@@ -350,14 +434,15 @@ export async function crediteer(factuurId: string): Promise<Resultaat<{ factuur:
   if (origineel.soort !== "factuur" || !["definitief", "verzonden", "betaald"].includes(origineel.status)) {
     return { ok: false, fout: "Alleen een uitgereikte factuur kan worden gecrediteerd.", status: 409 };
   }
-  const afzender = afzenderUitInstellingen(state.instellingen);
+  const template = vindTemplate(state.instellingen, origineel.afzender?.templateId);
+  const afzender = afzenderUitTemplate(template);
   const datum = vandaag();
   const jaar = Number.parseInt(datum.slice(0, 4), 10);
-  const reeks = state.instellingen.nummering.reeksCredit;
-  const volgnummer = volgendDemoNummer(state, reeks, jaar);
+  const reeks = template.nummering.reeksCredit;
+  const volgnummer = volgendDemoNummer(state, reeks, jaar, template.nummering.startVolgnummer);
   const creditRegels = origineel.regels.map((regel) => ({ ...regel, id: crypto.randomUUID(), aantal: -regel.aantal }));
   const totalen = berekenTotalen(creditRegels);
-  const betaaltermijn = origineel.betaaltermijnDagen ?? state.instellingen.betaling.standaardTermijnDagen;
+  const betaaltermijn = origineel.betaaltermijnDagen ?? template.betaling.standaardTermijnDagen;
   const credit: Factuur = {
     ...origineel,
     id: `lokaal-${crypto.randomUUID()}`,
@@ -366,7 +451,7 @@ export async function crediteer(factuurId: string): Promise<Resultaat<{ factuur:
     reeks,
     jaar,
     volgnummer,
-    nummer: formatFactuurnummer(state.instellingen.nummering.formaat, reeks, jaar, volgnummer),
+    nummer: formatFactuurnummer(template.nummering.formaat, reeks, jaar, volgnummer),
     gecrediteerdeFactuurId: origineel.id,
     factuurdatum: datum,
     vervaldatum: berekenVervaldatum(datum, betaaltermijn),

@@ -6,9 +6,11 @@ import {
   type FacturatieContact,
   type FacturatieInstellingen,
   type Factuur,
+  type FactuurMaillogRegel,
   isFacturatieContact,
   isFacturatieInstellingen,
   isFactuur,
+  isFactuurMaillogRegel,
 } from "./types";
 
 // Demo-pad van de facturatiemodule (handoff 15, B12): de e2e-suite draait
@@ -26,6 +28,9 @@ export interface FacturatieLocalState {
   instellingen: FacturatieInstellingen;
   /** Client-side teller per reeks+jaar — alleen demo (zie boven). */
   tellers: Record<string, number>;
+  /** Fase B: gesimuleerde verzendhistorie. Optioneel — oudere opgeslagen
+      demo-states (zonder dit veld) blijven geldig en worden niet gewist. */
+  maillog?: FactuurMaillogRegel[];
 }
 
 function isTellers(value: unknown): value is Record<string, number> {
@@ -44,7 +49,8 @@ function isLocalState(value: unknown): value is FacturatieLocalState {
     Array.isArray(state.contacten) &&
     state.contacten.every(isFacturatieContact) &&
     isFacturatieInstellingen(state.instellingen) &&
-    isTellers(state.tellers)
+    isTellers(state.tellers) &&
+    (state.maillog === undefined || (Array.isArray(state.maillog) && state.maillog.every(isFactuurMaillogRegel)))
   );
 }
 
@@ -88,10 +94,15 @@ export function clearFacturatieState(): void {
   }
 }
 
-/** Demo-nummertoekenning: teller per reeks+jaar, seed uit de instellingen. */
-export function volgendDemoNummer(state: FacturatieLocalState, reeks: string, jaar: number): number {
+/** Demo-nummertoekenning: teller per reeks+jaar, seed uit het sjabloon. */
+export function volgendDemoNummer(
+  state: FacturatieLocalState,
+  reeks: string,
+  jaar: number,
+  startVolgnummer: number,
+): number {
   const sleutel = `${reeks}:${jaar}`;
-  const huidig = state.tellers[sleutel] ?? state.instellingen.nummering.startVolgnummer - 1;
+  const huidig = state.tellers[sleutel] ?? startVolgnummer - 1;
   const volgend = huidig + 1;
   state.tellers[sleutel] = volgend;
   return volgend;

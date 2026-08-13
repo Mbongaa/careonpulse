@@ -2,7 +2,7 @@ import { EMPTY_FACTURATIE_INSTELLINGEN } from "@/data/careon/careon-facturatie";
 import { POSTGREST_URL, userRestHeaders } from "@/lib/supabase/postgrest.server";
 import type { CareonSession } from "@/lib/supabase/session.server";
 
-import { type FacturatieContact, type FacturatieInstellingen, type Factuur, isFacturatieInstellingen } from "./types";
+import { type FacturatieContact, type FacturatieInstellingen, type Factuur, migreerInstellingen } from "./types";
 
 // Server-side gereedschap voor de facturatieroutes (handoff 15 §2.3/§2.4):
 //   * PostgREST-calls lopen standaard onder het caller-JWT (RLS als grens) mét
@@ -61,6 +61,7 @@ export interface FactuurRij {
   betaald_op: string | null;
   pdf_pad: string | null;
   mail_status: Factuur["mailStatus"];
+  mail_verzonden_op: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -69,7 +70,7 @@ export const FACTUUR_SELECT =
   "id,status,soort,reeks,jaar,volgnummer,nummer,gecrediteerde_factuur_id,factuurdatum,prestatie_van," +
   "prestatie_tot,vervaldatum,betaaltermijn_dagen,contact_id,afnemer,afzender,uw_kenmerk,order_referentie," +
   "regels,btw_totalen,vrijstelling_tekst,subtotaal_cent,btw_cent,totaal_cent,valuta,opmerking,betaald_op," +
-  "pdf_pad,mail_status,created_at,updated_at";
+  "pdf_pad,mail_status,mail_verzonden_op,created_at,updated_at";
 
 export function factuurVanRij(rij: FactuurRij): Factuur {
   return {
@@ -102,6 +103,7 @@ export function factuurVanRij(rij: FactuurRij): Factuur {
     betaaldOp: rij.betaald_op,
     pdfPad: rij.pdf_pad,
     mailStatus: rij.mail_status,
+    mailVerzondenOp: rij.mail_verzonden_op,
     createdAt: rij.created_at,
     updatedAt: rij.updated_at,
   };
@@ -117,6 +119,10 @@ export function conceptRijVanFactuur(factuur: Factuur): Record<string, unknown> 
     betaaltermijn_dagen: factuur.betaaltermijnDagen,
     contact_id: factuur.contactId,
     afnemer: factuur.afnemer,
+    // Concepten dragen hun sjabloonkeuze in de afzender-snapshot (templateId);
+    // de definitief-route herleidt de definitieve snapshot altijd opnieuw uit
+    // dat id en vertrouwt nooit deze client-inhoud.
+    afzender: factuur.afzender,
     uw_kenmerk: factuur.uwKenmerk ?? null,
     order_referentie: factuur.orderReferentie ?? null,
     regels: factuur.regels,
@@ -236,8 +242,11 @@ export async function haalInstellingen(
   if (!response.ok) throw new Error("storage-unavailable");
   const rows = (await response.json()) as { state: unknown; revision: number }[];
   const rij = rows.at(0);
-  if (rij && isFacturatieInstellingen(rij.state)) {
-    return { instellingen: rij.state, revision: rij.revision };
+  // migreerInstellingen: snapshots van vóór de multi-template-uitbreiding
+  // (één profiel) worden bij lezen één sjabloon "standaard".
+  const gemigreerd = rij ? migreerInstellingen(rij.state) : null;
+  if (gemigreerd) {
+    return { instellingen: gemigreerd, revision: rij ? rij.revision : 0 };
   }
   return { instellingen: EMPTY_FACTURATIE_INSTELLINGEN, revision: rij?.revision ?? 0 };
 }
@@ -322,6 +331,7 @@ export function pdfPadVoor(orgId: string, jaar: number, nummer: string): string 
   return `${orgId}/${jaar}/${encodeURIComponent(nummer)}.pdf`;
 }
 
-export function logoPadVoor(orgId: string): string {
-  return `${orgId}/branding/logo.png`;
+/** Logo-pad per sjabloon (multi-template): elk sjabloon zijn eigen upload. */
+export function logoPadVoor(orgId: string, templateId: string): string {
+  return `${orgId}/branding/${encodeURIComponent(templateId)}.png`;
 }

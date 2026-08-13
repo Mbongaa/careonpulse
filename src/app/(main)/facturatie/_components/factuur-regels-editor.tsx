@@ -16,12 +16,26 @@ import { BTW_TARIEVEN, type BtwTarief, type FactuurRegel } from "@/lib/careon-fa
 // key={id:waarde} + defaultValue; numerieke velden houden de rauwe tekst
 // lokaal tot er een geldig getal uit komt (voorkomt dat "0" wordt opgeslagen
 // tijdens het typen). Btw per regel (handoff 15 B10); de EN 16931-categorie
-// volgt het tarief (E = vrijgesteld, S = 9/21, Z = 0).
+// volgt het tarief (E = vrijgesteld, S = 9/21, Z = 0), met "Verlegd" als
+// aparte keuze (AE, tarief 0) — zonder die keuze kan de sub d-validatie
+// (btw-id afnemer verplicht bij verlegging) nooit afgaan.
+
+const VERLEGD = "verlegd_ae";
 
 function categorieVoor(tarief: BtwTarief): FactuurRegel["btwCategorie"] {
   if (tarief === "vrijgesteld") return "E";
   if (tarief === "0") return "Z";
   return "S";
+}
+
+function btwKeuzeVan(regel: FactuurRegel): string {
+  return regel.btwCategorie === "AE" ? VERLEGD : regel.btwTarief;
+}
+
+function btwPatchVoor(keuze: string): Pick<FactuurRegel, "btwTarief" | "btwCategorie"> {
+  if (keuze === VERLEGD) return { btwTarief: "0", btwCategorie: "AE" };
+  const tarief = keuze as BtwTarief;
+  return { btwTarief: tarief, btwCategorie: categorieVoor(tarief) };
 }
 
 function BedragInput({
@@ -158,19 +172,17 @@ export function FactuurRegelsEditor({
                 </TableCell>
                 <TableCell>
                   <NativeSelect
-                    value={regel.btwTarief}
+                    value={btwKeuzeVan(regel)}
                     aria-label={`Btw-tarief — regel ${index + 1}`}
                     className="h-8 w-28 text-xs"
-                    onChange={(event) => {
-                      const tarief = event.target.value as BtwTarief;
-                      wijzigRegel(regel.id, { btwTarief: tarief, btwCategorie: categorieVoor(tarief) });
-                    }}
+                    onChange={(event) => wijzigRegel(regel.id, btwPatchVoor(event.target.value))}
                   >
                     {BTW_TARIEVEN.map((tarief) => (
                       <NativeSelectOption key={tarief} value={tarief}>
                         {BTW_TARIEF_LABELS[tarief]}
                       </NativeSelectOption>
                     ))}
+                    <NativeSelectOption value={VERLEGD}>Verlegd</NativeSelectOption>
                   </NativeSelect>
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{formatEuro(regelBedragCent(regel))}</TableCell>

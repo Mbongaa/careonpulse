@@ -8,10 +8,14 @@ import {
   haalFactuurRij,
   pdfPadVoor,
   serviceFactuurUpdate,
+  serviceRestHeaders,
   storageBeschikbaar,
 } from "@/lib/careon-facturatie/facturatie.server";
 import { genereerEnArchiveerPdf } from "@/lib/careon-facturatie/pdf-archief.server";
+import { POSTGREST_URL } from "@/lib/supabase/postgrest.server";
 import { requireOrgAdmin } from "@/lib/supabase/session.server";
+
+import { createHash } from "node:crypto";
 
 export const runtime = "nodejs";
 
@@ -84,13 +88,29 @@ export async function POST(_request: Request, context: { params: Promise<{ factu
     const pad = pdfPadVoor(orgId, rij.jaar, rij.nummer);
     let ok: boolean;
     if (await bestaatInBucket(pad)) {
-      // Object bestaat al: alleen de ontbrekende metadata herstellen.
+      // Object bestaat al: alleen de ontbrekende metadata herstellen. De
+      // hash wordt uitsluitend gezet als hij nog ontbreekt — een bestaande
+      // pdf_sha256 is het integriteitsanker van het gearchiveerde object en
+      // mag nooit worden overschreven met een hash van datzelfde object
+      // (dat zou de controle tautologisch maken).
       const bytes = await downloadUitBucket(pad);
       ok = bytes !== null;
-      if (ok) {
+      if (ok && bytes) {
+        const hashParams = new URLSearchParams({
+          org_id: `eq.${orgId}`,
+          id: `eq.${factuurId}`,
+          select: "pdf_sha256",
+        });
+        const hashResponse = await fetch(`${POSTGREST_URL}/careon_facturatie_facturen?${hashParams}`, {
+          headers: serviceRestHeaders(),
+          cache: "no-store",
+        });
+        if (!hashResponse.ok) throw new Error("storage-unavailable");
+        const bestaandeHash = ((await hashResponse.json()) as { pdf_sha256: string | null }[])[0]?.pdf_sha256 ?? null;
         await serviceFactuurUpdate(orgId, factuurId, {
           pdf_pad: pad,
-          pdf_bytes: bytes ? bytes.byteLength : null,
+          pdf_sha256: bestaandeHash ?? createHash("sha256").update(Buffer.from(bytes)).digest("hex"),
+          pdf_bytes: bytes.byteLength,
           pdf_gegenereerd_op: new Date().toISOString(),
         });
       }

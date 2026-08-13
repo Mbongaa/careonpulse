@@ -20,11 +20,21 @@ export interface FactuurTotalen {
   btwTotalen: BtwTotaal[];
 }
 
+/**
+ * Afronden op hele centen, halven wég van nul: Math.round rondt -262,5 naar
+ * -262 maar 262,5 naar 263, waardoor een creditfactuur (genegeerde regels)
+ * één cent van het origineel kon afwijken zodra een bedrag exact op een
+ * halve cent viel. Voor positieve bedragen identiek aan Math.round.
+ */
+function rondCent(bedrag: number): number {
+  return Math.sign(bedrag) * Math.round(Math.abs(bedrag));
+}
+
 /** Nettobedrag van één regel in centen (aantal × stukprijs, korting eraf). */
 export function regelBedragCent(regel: FactuurRegel): number {
   const bruto = regel.aantal * regel.stukprijsCent;
   const korting = regel.kortingPct ?? 0;
-  return Math.round(bruto * (1 - korting / 100));
+  return rondCent(bruto * (1 - korting / 100));
 }
 
 export function berekenTotalen(regels: FactuurRegel[]): FactuurTotalen {
@@ -34,7 +44,7 @@ export function berekenTotalen(regels: FactuurRegel[]): FactuurTotalen {
   let btwCent = 0;
   for (const regel of regels) {
     const grondslag = regelBedragCent(regel);
-    const btw = Math.round((grondslag * TARIEF_PCT[regel.btwTarief]) / 100);
+    const btw = rondCent((grondslag * TARIEF_PCT[regel.btwTarief]) / 100);
     subtotaalCent += grondslag;
     btwCent += btw;
 
@@ -75,4 +85,15 @@ const EURO_FORMAT = new Intl.NumberFormat("nl-NL", { style: "currency", currency
 
 export function formatEuro(cent: number): string {
   return EURO_FORMAT.format(cent / 100);
+}
+
+/**
+ * Btw-regel in het totalenblok, mét de grondslag van die groep — art. 35a
+ * lid 1 sub h eist de vergoeding per tarief, en bij gemengde facturen is het
+ * gecombineerde subtotaal daarvoor niet genoeg. Gedeeld door pdf en scherm
+ * (en geasserteerd in verify:careon) zodat beide weergaven nooit uiteenlopen.
+ */
+export function btwRegelLabel(totaal: BtwTotaal): string {
+  const basis = totaal.categorie === "AE" ? "Btw verlegd" : `Btw ${totaal.tarief}%`;
+  return `${basis} over ${formatEuro(totaal.grondslagCent)}`;
 }

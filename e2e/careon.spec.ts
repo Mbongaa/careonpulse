@@ -643,15 +643,30 @@ test.describe("facturatie (demo-pad, handoff 15)", () => {
   });
 
   test("lijst toont de demo-facturen met statusbadges", async ({ page }) => {
-    await page.goto("/dashboard/facturatie");
-    await expect(page.getByRole("heading", { name: "Facturatie" })).toBeVisible();
+    await page.goto("/facturatie");
+    await expect(page.getByRole("heading", { name: "Facturen" })).toBeVisible();
     await expect(page.getByRole("link", { name: "F2026-0001" })).toBeVisible();
     await expect(page.getByRole("link", { name: "F2026-0002" })).toBeVisible();
     await expect(page.getByText("Lokale demo-opslag", { exact: false }).first()).toBeVisible();
+
+    // Statusfilter "Openstaand" (§4.2): uitgereikt maar onbetaald — de
+    // verzonden seed blijft staan, de betaalde verdwijnt.
+    await page.getByRole("button", { name: "Openstaand" }).click();
+    await expect(page.getByRole("link", { name: "F2026-0001" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "F2026-0002" })).toHaveCount(0);
+  });
+
+  test("moduletegel navigeert daadwerkelijk naar /facturatie", async ({ page }) => {
+    // De launcher-tegel zelf doorklikken: een verkeerde of ontbrekende href
+    // passeerde de zichtbaarheidsassertie hierboven ongemerkt.
+    await page.goto("/modules");
+    await page.getByRole("link", { name: /Facturatie/ }).click();
+    await page.waitForURL("**/facturatie");
+    await expect(page.getByRole("heading", { name: "Facturen" })).toBeVisible();
   });
 
   test("concept bewerken: regel toevoegen, totalen en blob-pdf-voorbeeld", async ({ page }) => {
-    await page.goto("/dashboard/facturatie/demo-factuur-3");
+    await page.goto("/facturatie/demo-factuur-3");
     await expect(page.getByRole("heading", { name: "Nieuwe factuur" })).toBeVisible();
 
     await page.getByLabel("Omschrijving nieuwe factuurregel").fill("Extra reiskosten");
@@ -666,10 +681,20 @@ test.describe("facturatie (demo-pad, handoff 15)", () => {
     });
   });
 
+  test("concept verwijderen vanuit de editor keert terug naar de lijst", async ({ page }) => {
+    await page.goto("/facturatie/demo-factuur-3");
+    await expect(page.getByRole("heading", { name: "Nieuwe factuur" })).toBeVisible();
+    await page.getByRole("button", { name: "Concept verwijderen" }).click();
+    await page.waitForURL("**/facturatie");
+    // Het enige seed-concept is weg; de uitgereikte facturen blijven staan.
+    await expect(page.getByRole("link", { name: "F2026-0001" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Concept", exact: true })).toHaveCount(0);
+  });
+
   test("definitief maken kent het volgende demo-nummer toe en wordt read-only", async ({ page }) => {
-    await page.goto("/dashboard/facturatie");
+    await page.goto("/facturatie");
     await page.getByRole("button", { name: "Nieuwe factuur" }).click();
-    await page.waitForURL("**/dashboard/facturatie/lokaal-*");
+    await page.waitForURL("**/facturatie/lokaal-*");
 
     await page.getByLabel("Afnemer (contact)").selectOption({ label: "Zorggroep De Linde B.V." });
     await page.getByLabel("Prestatie van").fill("2026-06-01");
@@ -677,6 +702,11 @@ test.describe("facturatie (demo-pad, handoff 15)", () => {
     await page.getByLabel("Omschrijving nieuwe factuurregel").fill("Consult op locatie");
     await page.getByRole("button", { name: "Regel toevoegen" }).click();
     await page.getByLabel("Stukprijs — Consult op locatie").fill("120");
+
+    // Totalenwaarden, niet alleen het label: 21% (demo-standaardsjabloon)
+    // over € 120,00 ⇒ € 145,20 — de btw-regel benoemt de grondslag (sub h).
+    await expect(page.getByText(/Btw 21% over/)).toBeVisible();
+    await expect(page.getByText(/145,20/)).toBeVisible();
 
     await page.getByRole("button", { name: "Definitief maken" }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Definitief maken" }).click();
@@ -691,8 +721,53 @@ test.describe("facturatie (demo-pad, handoff 15)", () => {
     });
   });
 
+  test("factuur per e-mail versturen (fase B, demo-simulatie)", async ({ page }) => {
+    await page.goto("/facturatie/demo-factuur-1");
+    // Ontvanger vooringevuld uit de afnemer-snapshot; demo simuleert de
+    // verzending (geen provider) en werkt status + maillog lokaal bij.
+    await expect(page.getByLabel("Ontvanger (e-mailadres)")).toHaveValue("administratie@zorggroepdelinde.nl");
+    await page.getByRole("button", { name: "Versturen per e-mail" }).click();
+    await expect(page.getByText(/Per e-mail verzonden op/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Opnieuw versturen" })).toBeVisible();
+  });
+
+  test("instellingen: sjabloonbibliotheek opent detailweergave per sjabloon", async ({ page }) => {
+    await page.goto("/facturatie/instellingen");
+    // Lijstweergave eerst (multi-template): beide demo-sjablonen zichtbaar,
+    // careongroup als standaard gemarkeerd.
+    await expect(page.getByRole("heading", { name: "Facturatie-instellingen" })).toBeVisible();
+    // Gescoped op main: de moduleschil toont de organisatienaam ("TGC Groep")
+    // ook in de kopregel.
+    const inhoud = page.getByRole("main");
+    await expect(inhoud.getByText("Careon Group", { exact: true })).toBeVisible();
+    await expect(inhoud.getByText("TGC Groep", { exact: true })).toBeVisible();
+    await expect(inhoud.getByText("Standaard", { exact: true })).toBeVisible();
+
+    // Detailweergave van het ingebouwde ontwerp-sjabloon.
+    await page.getByRole("button", { name: "Openen" }).first().click();
+    await expect(page.getByRole("heading", { name: "Careon Group" })).toBeVisible();
+    await expect(page.getByLabel("KvK-nummer (8 cijfers)")).toHaveValue("12345678");
+    await expect(page.getByText("Ingebouwd Careon Group-logo")).toBeVisible();
+
+    await page.getByRole("button", { name: "Alle sjablonen" }).click();
+    await expect(inhoud.getByText("TGC Groep", { exact: true })).toBeVisible();
+  });
+
+  test("editor: factuur wisselt van sjabloon", async ({ page }) => {
+    await page.goto("/facturatie/demo-factuur-3");
+    const kiezer = page.getByLabel("Factuursjabloon");
+    // Zonder keuze geldt het standaardsjabloon (careongroup).
+    await expect(kiezer).toHaveValue("careongroup");
+    await kiezer.selectOption({ label: "TGC Groep" });
+    await expect(kiezer).toHaveValue("tgc-groep");
+    // De sjabloonkeuze overleeft de demo-autosave + herladen.
+    await page.waitForTimeout(1200);
+    await page.reload();
+    await expect(page.getByLabel("Factuursjabloon")).toHaveValue("tgc-groep");
+  });
+
   test("contacten: toevoegen, bewerken, verwijderen en medewerker overnemen", async ({ page }) => {
-    await page.goto("/dashboard/facturatie/contacten");
+    await page.goto("/facturatie/contacten");
     await expect(page.getByRole("heading", { name: "Contacten" })).toBeVisible();
 
     await page.getByLabel("Naam nieuw contact").fill("Testcontact E2E");
@@ -701,6 +776,34 @@ test.describe("facturatie (demo-pad, handoff 15)", () => {
 
     await page.getByLabel("Plaats — Testcontact E2E").fill("Tilburg");
     await page.getByLabel("Plaats — Testcontact E2E").blur();
+
+    // Aanvullende velden (Uzovi, KvK, btw-id, AGB, betaaltermijn, telefoon,
+    // tweede adresregel, notitie) zitten achter de "Details"-uitklapregel.
+    await expect(page.getByLabel("Uzovi-code — Testcontact E2E")).toHaveCount(0);
+    await page.getByLabel("Details — Testcontact E2E").click();
+
+    // Uzovi: 4 cijfers — een te korte code committeert niet en meldt inline.
+    await page.getByLabel("Uzovi-code — Testcontact E2E").fill("12");
+    await page.getByLabel("Uzovi-code — Testcontact E2E").blur();
+    await expect(page.getByText("Uzovi-code bestaat uit 4 cijfers.")).toBeVisible();
+    await page.getByLabel("Uzovi-code — Testcontact E2E").fill("7029");
+    await page.getByLabel("Uzovi-code — Testcontact E2E").blur();
+    await expect(page.getByText("Uzovi-code bestaat uit 4 cijfers.")).toHaveCount(0);
+
+    // Betaaltermijn: geheel getal 0 t/m 180.
+    await page.getByLabel("Betaaltermijn (dagen) — Testcontact E2E").fill("200");
+    await page.getByLabel("Betaaltermijn (dagen) — Testcontact E2E").blur();
+    await expect(page.getByText("Betaaltermijn is een geheel getal van 0 t/m 180 dagen.")).toBeVisible();
+    await page.getByLabel("Betaaltermijn (dagen) — Testcontact E2E").fill("45");
+    await page.getByLabel("Betaaltermijn (dagen) — Testcontact E2E").blur();
+    await expect(page.getByText("Betaaltermijn is een geheel getal van 0 t/m 180 dagen.")).toHaveCount(0);
+
+    // Dicht- en weer openklappen leest opnieuw uit de opslag.
+    await page.getByLabel("Details — Testcontact E2E").click();
+    await expect(page.getByLabel("Uzovi-code — Testcontact E2E")).toHaveCount(0);
+    await page.getByLabel("Details — Testcontact E2E").click();
+    await expect(page.getByLabel("Uzovi-code — Testcontact E2E")).toHaveValue("7029");
+    await expect(page.getByLabel("Betaaltermijn (dagen) — Testcontact E2E")).toHaveValue("45");
 
     await page.getByLabel("Verwijder Testcontact E2E uit de contacten").click();
     await expect(page.getByLabel("Naam — Testcontact E2E")).toHaveCount(0);

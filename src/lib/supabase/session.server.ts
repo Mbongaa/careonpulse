@@ -174,7 +174,7 @@ export async function requireFacturatiePage(): Promise<CareonSessionResult> {
   const { magFacturatieZien } = await import("@/lib/careon-facturatie-rol");
   const result = await getCareonSession();
   if (result.status === "ok" && !magFacturatieZien(result.session)) {
-    redirect(result.session.isSuperadmin && !result.session.orgId ? "/admin" : "/dashboard/directiecockpit");
+    redirect(result.session.isSuperadmin && !result.session.orgId ? "/admin" : "/modules");
   }
   return result;
 }

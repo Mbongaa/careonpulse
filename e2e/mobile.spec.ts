@@ -20,10 +20,10 @@ const ROUTES = [
   "/dashboard/middelen",
   // Facturatie (handoff 15): pagina's blijven mobile-first; alleen het
   // pdf-voorbeeld is desktop-first (klant-goedgekeurde uitzondering V21).
-  "/dashboard/facturatie",
-  "/dashboard/facturatie/contacten",
-  "/dashboard/facturatie/instellingen",
-  "/dashboard/facturatie/demo-factuur-3",
+  "/facturatie",
+  "/facturatie/contacten",
+  "/facturatie/instellingen",
+  "/facturatie/demo-factuur-3",
   "/dashboard/databron",
   "/dashboard/assistent",
   // KPI-drilldown (handoff 08): breedste detailtabel als mobile-gate.
@@ -55,6 +55,13 @@ for (const theme of ["careon", "light"] as const) {
         overflow.scroll,
         `${theme} ${route}: scrollWidth ${overflow.scroll} > ${overflow.inner}`,
       ).toBeLessThanOrEqual(overflow.inner + 1);
+      // Uitzoom-detectie: zonder deze check groeit de layout-viewport stil
+      // mee met te brede content (grid zonder basistemplate, visuele ronde
+      // 09-08) en vergelijkt de assertie hierboven twee uitgezoomde maten.
+      expect(
+        overflow.inner,
+        `${theme} ${route}: layout-viewport ${overflow.inner} > toestelbreedte 390 (uitgezoomd — te brede content)`,
+      ).toBeLessThanOrEqual(391);
     }
   });
 }

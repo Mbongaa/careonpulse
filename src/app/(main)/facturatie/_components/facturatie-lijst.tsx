@@ -8,7 +8,6 @@ import { useRouter } from "next/navigation";
 import { Copy, FilePlus2, Loader2, X } from "lucide-react";
 
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
-import { CareonHandmatigBadge } from "@/app/(main)/dashboard/_components/careon/careon-source-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,19 +24,18 @@ import {
 import { formatEuro } from "@/lib/careon-facturatie/totalen";
 import type { Factuur, FactuurStatus } from "@/lib/careon-facturatie/types";
 
-import { FacturatieSubnav } from "./facturatie-subnav";
-
 // Facturenlijst (handoff 15 §4.2): het dagelijkse werkscherm. Standaardfilter
 // lopend jaar, statusknoppen, zoeken op nummer/afnemer, rij-acties openen /
 // dupliceren / concept verwijderen.
 
-type StatusFilter = "alle" | FactuurStatus | "te_laat";
+type StatusFilter = "alle" | FactuurStatus | "openstaand" | "te_laat";
 
+// Statusknoppen exact §4.2: "Openstaand" bundelt definitief + verzonden —
+// uitgereikt maar nog niet betaald, de dagelijkse beheerdersvraag.
 const FILTERS: { id: StatusFilter; label: string }[] = [
   { id: "alle", label: "Alle" },
   { id: "concept", label: "Concept" },
-  { id: "definitief", label: "Definitief" },
-  { id: "verzonden", label: "Verzonden" },
+  { id: "openstaand", label: "Openstaand" },
   { id: "te_laat", label: "Te laat" },
   { id: "betaald", label: "Betaald" },
   { id: "gecrediteerd", label: "Gecrediteerd" },
@@ -115,7 +113,7 @@ export function FacturatieLijst() {
     const resultaat = await maakConcept(dupliceerVan);
     setBezig(false);
     if (resultaat.ok) {
-      router.push(`/dashboard/facturatie/${resultaat.factuur.id}`);
+      router.push(`/facturatie/${resultaat.factuur.id}`);
     } else {
       setFout(resultaat.fout);
     }
@@ -143,12 +141,9 @@ export function FacturatieLijst() {
         }
       />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <CareonHandmatigBadge />
-        {bron === "lokaal" ? (
-          <span className="text-muted-foreground text-xs">Lokale demo-opslag — geen centrale registratie.</span>
-        ) : null}
-      </div>
+      {bron === "lokaal" ? (
+        <p className="text-muted-foreground text-xs">Lokale demo-opslag — geen centrale registratie.</p>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
         {FILTERS.map((item) => (
@@ -194,9 +189,6 @@ export function FacturatieLijst() {
           aria-label="Zoek op factuurnummer of afnemernaam"
           className="h-8 max-w-56 text-xs"
         />
-        <span className="ml-auto">
-          <FacturatieSubnav />
-        </span>
       </div>
 
       {fout ? (
@@ -238,7 +230,10 @@ export function FacturatieLijst() {
                 {(facturen ?? []).map((factuur) => (
                   <TableRow key={factuur.id}>
                     <TableCell className="pl-4 font-medium">
-                      <Link href={`/dashboard/facturatie/${factuur.id}`} className="hover:underline">
+                      <Link
+                        href={`/facturatie/${factuur.id}`}
+                        className={`hover:underline ${factuur.status === "gecrediteerd" ? "text-muted-foreground line-through" : ""}`}
+                      >
                         {factuur.nummer ?? "Concept"}
                       </Link>
                     </TableCell>
@@ -288,16 +283,21 @@ export function FacturatieLijst() {
             ) : null}
             {(facturen ?? []).map((factuur) => (
               <li key={factuur.id}>
-                <Link
-                  href={`/dashboard/facturatie/${factuur.id}`}
-                  className="flex items-center justify-between gap-3 p-4"
-                >
+                <Link href={`/facturatie/${factuur.id}`} className="flex items-center justify-between gap-3 p-4">
                   <span className="min-w-0">
                     <span className="block truncate font-medium text-sm">
-                      {factuur.nummer ?? "Concept"} · {factuur.afnemer?.naam ?? "—"}
+                      <span className={factuur.status === "gecrediteerd" ? "text-muted-foreground line-through" : ""}>
+                        {factuur.nummer ?? "Concept"}
+                      </span>{" "}
+                      · {factuur.afnemer?.naam ?? "—"}
                     </span>
                     <span className="block text-muted-foreground text-xs">
-                      {formatDatum(factuur.factuurdatum)} · {FACTUUR_STATUS_LABELS[factuur.status]}
+                      {[
+                        factuur.factuurdatum ? formatDatum(factuur.factuurdatum) : null,
+                        FACTUUR_STATUS_LABELS[factuur.status],
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </span>
                   </span>
                   <span className="shrink-0 text-right">

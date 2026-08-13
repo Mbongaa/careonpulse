@@ -32,6 +32,8 @@ import {
   WACHTLIJST_SUMMARY,
 } from "../data/careon/careon-dossiers-productie";
 import {
+  CAREONGROUP_TEMPLATE,
+  DEFAULT_VRIJSTELLING_TEKST,
   DEMO_CONTACTEN,
   DEMO_FACTURATIE_INSTELLINGEN,
   DEMO_FACTUREN,
@@ -60,6 +62,7 @@ import {
   verwijderFinancieleContext,
 } from "../lib/careon-assistant/financieel-gate";
 import { redigeerFinancieleAssistentResponse } from "../lib/careon-assistant/financieel-redactie";
+import { bouwFactuurMail } from "../lib/careon-facturatie/mail.server";
 import {
   berekenVervaldatum,
   formatFactuurnummer,
@@ -67,14 +70,19 @@ import {
   uitreikingstermijnOverschreden,
 } from "../lib/careon-facturatie/nummer";
 import { renderFactuurPdf } from "../lib/careon-facturatie/pdf/render.server";
-import { berekenTotalen, isVolledigVrijgesteld } from "../lib/careon-facturatie/totalen";
+import { berekenTotalen, btwRegelLabel, formatEuro, isVolledigVrijgesteld } from "../lib/careon-facturatie/totalen";
 import {
+  type FacturatieInstellingen as FacturatieInstellingenType,
   type FactuurRegel,
+  isEmailAdres,
   isFacturatieContact,
   isFacturatieInstellingen,
   isFactuur,
+  isFactuurMaillogRegel,
+  migreerInstellingen,
+  vindTemplate,
 } from "../lib/careon-facturatie/types";
-import { afzenderUitInstellingen, valideerFactuurVoorUitreiking } from "../lib/careon-facturatie/validatie";
+import { afzenderUitTemplate, valideerFactuurVoorUitreiking } from "../lib/careon-facturatie/validatie";
 import { magFacturatieZien } from "../lib/careon-facturatie-rol";
 import { filterFinancieleAlerts, magFinancieelZien } from "../lib/careon-financieel-rol";
 import { formatCareonDelta, formatCareonValue } from "../lib/careon-format";
@@ -1278,7 +1286,7 @@ check(
   true,
 );
 const facturatieTegel = CAREON_MODULES.find((mod) => mod.id === "careon-facturatie");
-check("register: facturatietegel is live op /dashboard/facturatie", facturatieTegel?.href, "/dashboard/facturatie");
+check("register: facturatietegel is live op /facturatie", facturatieTegel?.href, "/facturatie");
 check("register: facturatietegel is beheerder-only", facturatieTegel?.zichtbaarVoor, "org_admin");
 
 // Rolpredicaat: beheerdersmodule, en een superadmin zonder org kan niets.
@@ -1350,6 +1358,51 @@ check(
   isVolledigVrijgesteld([regel({ btwTarief: "vrijgesteld", btwCategorie: "E" })]),
   true,
 );
+// Art. 35a sub h: de btw-regel draagt de grondslag van zijn groep — gedeeld
+// label voor pdf én scherm, zodat de vergoeding per tarief op de factuur staat.
+check("totalen: btw-regel benoemt de grondslag per tarief (sub h)", gemengd.btwTotalen.map(btwRegelLabel), [
+  `Btw 9% over ${formatEuro(250)}`,
+  `Btw 21% over ${formatEuro(2_000)}`,
+]);
+check(
+  "totalen: verlegd label draagt de grondslag",
+  btwRegelLabel({ tarief: "0", categorie: "AE", grondslagCent: 1_000, btwCent: 0 }),
+  `Btw verlegd over ${formatEuro(1_000)}`,
+);
+// Symmetrische afronding (halven wég van nul): een credit spiegelt het
+// origineel exact, ook als een btw-bedrag precies op een halve cent valt
+// (250 × 21% = 52,5 → 53 én -53, nooit -52).
+check(
+  "totalen: creditafronding spiegelt het origineel op de halve cent",
+  [
+    berekenTotalen([regel({ stukprijsCent: 250 })]).btwCent,
+    berekenTotalen([regel({ aantal: -1, stukprijsCent: 250 })]).btwCent,
+  ],
+  [53, -53],
+);
+// Verlegd (0:AE) is een vijfde groep naast vrijgesteld:E, 0:Z, 9:S en 21:S —
+// de factuurguard moet zo'n geldige gemengde factuur accepteren.
+check(
+  "guards: factuur met vijf btw-groepen (incl. verlegd) passeert isFactuur",
+  isFactuur({
+    ...DEMO_FACTUREN[0],
+    regels: [
+      regel({ id: "g1", btwTarief: "vrijgesteld", btwCategorie: "E" }),
+      regel({ id: "g2", btwTarief: "0", btwCategorie: "Z" }),
+      regel({ id: "g3", btwTarief: "0", btwCategorie: "AE" }),
+      regel({ id: "g4", btwTarief: "9", btwCategorie: "S" }),
+      regel({ id: "g5", btwTarief: "21", btwCategorie: "S" }),
+    ],
+    btwTotalen: berekenTotalen([
+      regel({ id: "g1", btwTarief: "vrijgesteld", btwCategorie: "E" }),
+      regel({ id: "g2", btwTarief: "0", btwCategorie: "Z" }),
+      regel({ id: "g3", btwTarief: "0", btwCategorie: "AE" }),
+      regel({ id: "g4", btwTarief: "9", btwCategorie: "S" }),
+      regel({ id: "g5", btwTarief: "21", btwCategorie: "S" }),
+    ]).btwTotalen,
+  }),
+  true,
+);
 
 // Nummering: F2026-0001-formaat, jaarwissel, en bewust géén EPD-patroon.
 check("nummer: default formaat", formatFactuurnummer("{reeks}{jaar}-{nummer:4}", "F", 2026, 1), "F2026-0001");
@@ -1372,7 +1425,7 @@ check("art. 34g: binnen de termijn", uitreikingstermijnOverschreden("2026-05-31"
 check("art. 34g: termijn verstreken", uitreikingstermijnOverschreden("2026-05-31", "2026-06-16"), true);
 
 // Art. 35a-validator: per ontbrekend veld precies die sleutel terug.
-const demoAfzender = afzenderUitInstellingen(DEMO_FACTURATIE_INSTELLINGEN);
+const demoAfzender = afzenderUitTemplate(vindTemplate(DEMO_FACTURATIE_INSTELLINGEN, "tgc-groep"));
 const compleetConcept = {
   factuurdatum: "2026-06-05",
   prestatieVan: "2026-05-01",
@@ -1432,8 +1485,69 @@ check(
 );
 check(
   "validator: lege afzender blokkeert uitreiken",
-  valideerFactuurVoorUitreiking(compleetConcept, afzenderUitInstellingen(EMPTY_FACTURATIE_INSTELLINGEN)).ok,
+  valideerFactuurVoorUitreiking(
+    compleetConcept,
+    afzenderUitTemplate(vindTemplate(EMPTY_FACTURATIE_INSTELLINGEN, "careongroup")),
+  ).ok,
   false,
+);
+// Alle overige OntbrekendVeld-takken, elk met precies zijn eigen sleutel —
+// zonder deze checks kon een verwijderde validatortak de gate groen laten.
+const afnemerBasis = { naam: "Test B.V.", adresRegel1: "Straat 1", postcode: "1234 AB", plaats: "Stad", land: "NL" };
+check(
+  "validator: lege bedrijfsnaam afzender",
+  valideerFactuurVoorUitreiking(compleetConcept, { ...demoAfzender, statutaireNaam: "" }).ontbrekend.includes(
+    "afzender.naam",
+  ),
+  true,
+);
+check(
+  "validator: onvolledig afzenderadres",
+  valideerFactuurVoorUitreiking(compleetConcept, { ...demoAfzender, adresRegel1: "" }).ontbrekend.includes(
+    "afzender.adres",
+  ),
+  true,
+);
+check(
+  "validator: ontbrekend KvK-nummer",
+  valideerFactuurVoorUitreiking(compleetConcept, { ...demoAfzender, kvkNummer: "" }).ontbrekend.includes(
+    "afzender.kvkNummer",
+  ),
+  true,
+);
+check(
+  "validator: ontbrekende IBAN",
+  valideerFactuurVoorUitreiking(compleetConcept, { ...demoAfzender, iban: "" }).ontbrekend.includes("afzender.iban"),
+  true,
+);
+check(
+  "validator: lege afnemernaam",
+  valideerFactuurVoorUitreiking(
+    { ...compleetConcept, afnemer: { ...afnemerBasis, naam: "" } },
+    demoAfzender,
+  ).ontbrekend.includes("afnemer.naam"),
+  true,
+);
+check(
+  "validator: onvolledig afnemeradres",
+  valideerFactuurVoorUitreiking(
+    { ...compleetConcept, afnemer: { ...afnemerBasis, postcode: "" } },
+    demoAfzender,
+  ).ontbrekend.includes("afnemer.adres"),
+  true,
+);
+check(
+  "validator: factuur zonder regels",
+  valideerFactuurVoorUitreiking({ ...compleetConcept, regels: [] }, demoAfzender).ontbrekend.includes("regels"),
+  true,
+);
+check(
+  "validator: regel zonder omschrijving (sub f)",
+  valideerFactuurVoorUitreiking(
+    { ...compleetConcept, regels: [regel({ omschrijving: "  " })] },
+    demoAfzender,
+  ).ontbrekend.includes("regels"),
+  true,
 );
 
 // Seeds: demo valideert tegen de guards en rekent kloppend; EMPTY draagt
@@ -1452,13 +1566,161 @@ for (const factuur of DEMO_FACTUREN) {
   });
 }
 check(
-  "seeds: EMPTY-instellingen zonder bedrijfsgegevens",
+  "seeds: EMPTY draagt één neutraal startsjabloon zonder adres",
   [
-    EMPTY_FACTURATIE_INSTELLINGEN.afzender.statutaireNaam,
-    EMPTY_FACTURATIE_INSTELLINGEN.afzender.kvkNummer,
-    EMPTY_FACTURATIE_INSTELLINGEN.bank.iban,
+    EMPTY_FACTURATIE_INSTELLINGEN.templates.length,
+    EMPTY_FACTURATIE_INSTELLINGEN.standaardTemplateId,
+    EMPTY_FACTURATIE_INSTELLINGEN.templates[0].afzender.adresRegel1,
+    EMPTY_FACTURATIE_INSTELLINGEN.templates[0].afzender.postcode,
+    EMPTY_FACTURATIE_INSTELLINGEN.templates[0].afzender.plaats,
   ],
-  ["", "", ""],
+  [1, "careongroup", "", "", ""],
+);
+// Auditbevinding 13-08: de identiteit moet ÉCHT leeg zijn — de validator
+// toetst alleen op aanwezigheid, dus elk vooringevuld veld (ontwerp-
+// plaatshouders "Careon Group B.V.", KvK 12345678, IBAN NL00 …) zou een
+// verse organisatie onder andermans identiteit laten uitreiken.
+check(
+  "seeds: EMPTY draagt geen enkele vooringevulde identiteit",
+  [
+    EMPTY_FACTURATIE_INSTELLINGEN.templates[0].afzender.statutaireNaam,
+    EMPTY_FACTURATIE_INSTELLINGEN.templates[0].afzender.kvkNummer,
+    EMPTY_FACTURATIE_INSTELLINGEN.templates[0].afzender.btwId ?? "",
+    EMPTY_FACTURATIE_INSTELLINGEN.templates[0].bank.iban,
+    EMPTY_FACTURATIE_INSTELLINGEN.templates[0].bank.tenaamstelling,
+    EMPTY_FACTURATIE_INSTELLINGEN.templates[0].presentatie.toonLogo,
+  ],
+  ["", "", "", "", "", false],
+);
+// V12/§3.1: een verse organisatie start vrijgesteld (GGZ) — het 21%-tarief
+// van het geïmporteerde ontwerp geldt alleen in de demo.
+check(
+  "seeds: EMPTY start vrijgesteld met de GGZ-vrijstellingstekst",
+  [
+    EMPTY_FACTURATIE_INSTELLINGEN.templates[0].btw.standaardTarief,
+    EMPTY_FACTURATIE_INSTELLINGEN.templates[0].btw.vrijstellingTekst,
+  ],
+  ["vrijgesteld", DEFAULT_VRIJSTELLING_TEKST],
+);
+
+// Multi-template (klantverzoek 09-08): het ingebouwde ontwerp-sjabloon plus
+// migratie-bij-lezen van de oude één-profiel-vorm.
+check(
+  "templates: careongroup volgt het geïmporteerde ontwerp",
+  [
+    CAREONGROUP_TEMPLATE.id,
+    CAREONGROUP_TEMPLATE.naam,
+    CAREONGROUP_TEMPLATE.tagline,
+    CAREONGROUP_TEMPLATE.afzender.statutaireNaam,
+    CAREONGROUP_TEMPLATE.afzender.btwId,
+    CAREONGROUP_TEMPLATE.btw.standaardTarief,
+    CAREONGROUP_TEMPLATE.presentatie.logoBron,
+    CAREONGROUP_TEMPLATE.presentatie.toonLogo,
+  ],
+  [
+    "careongroup",
+    "Careon Group",
+    "Technology · Growth · Care",
+    "Careon Group B.V.",
+    "NL001234567B01",
+    "21",
+    "careongroup",
+    true,
+  ],
+);
+check(
+  "templates: demo toont meerdere sjablonen met careongroup als standaard",
+  [
+    DEMO_FACTURATIE_INSTELLINGEN.templates.map((template) => template.id),
+    DEMO_FACTURATIE_INSTELLINGEN.standaardTemplateId,
+  ],
+  [["careongroup", "tgc-groep"], "careongroup"],
+);
+check(
+  "templates: vindTemplate valt terug op het standaardsjabloon",
+  vindTemplate(DEMO_FACTURATIE_INSTELLINGEN, "bestaat-niet").id,
+  "careongroup",
+);
+check(
+  "templates: afzender-snapshot draagt sjabloonherkomst",
+  afzenderUitTemplate(CAREONGROUP_TEMPLATE).templateId,
+  "careongroup",
+);
+const oudeVorm = {
+  afzender: DEMO_FACTURATIE_INSTELLINGEN.templates[1].afzender,
+  bank: DEMO_FACTURATIE_INSTELLINGEN.templates[1].bank,
+  nummering: DEMO_FACTURATIE_INSTELLINGEN.templates[1].nummering,
+  betaling: DEMO_FACTURATIE_INSTELLINGEN.templates[1].betaling,
+  btw: DEMO_FACTURATIE_INSTELLINGEN.templates[1].btw,
+  presentatie: DEMO_FACTURATIE_INSTELLINGEN.templates[1].presentatie,
+  updatedAt: "2026-07-01T09:00:00.000Z",
+};
+check(
+  'templates: oude één-profiel-snapshot migreert naar sjabloon "standaard"',
+  (migreerInstellingen(oudeVorm) as FacturatieInstellingenType | null)?.templates.map((template) => template.id),
+  ["standaard"],
+);
+check(
+  "templates: nieuwe vorm passeert migratie ongewijzigd",
+  migreerInstellingen(DEMO_FACTURATIE_INSTELLINGEN)?.standaardTemplateId,
+  "careongroup",
+);
+
+// Fase B — mailinhoud (handoff 15 §7): uitsluitend nummer, bedrag en
+// vervaldatum; nooit regelteksten of andere cliënt-/behandelinhoud. De
+// opbouw is een pure functie, dus deze regels zijn hier hard afdwingbaar.
+const factuurMail = bouwFactuurMail(DEMO_FACTUREN[0]);
+check("mail: onderwerp draagt nummer en afzender", factuurMail.onderwerp, "Factuur F2026-0001 van TGC Groep B.V.");
+check(
+  "mail: tekst draagt nummer, bedrag en vervaldatum",
+  factuurMail.tekst.includes("F2026-0001") &&
+    factuurMail.tekst.includes(formatEuro(367_840)) &&
+    factuurMail.tekst.includes("5 juli 2026"),
+  true,
+);
+check(
+  "mail: tekst draagt GEEN regelteksten (inhoudsregel §7)",
+  /Detachering|GZ-psycholoog|Consult|SGGZ/i.test(factuurMail.tekst) ||
+    /Detachering|GZ-psycholoog/i.test(factuurMail.onderwerp),
+  false,
+);
+check(
+  "mail: creditfactuur krijgt een creditonderwerp zonder betaalverzoek",
+  (() => {
+    const credit = bouwFactuurMail({ ...DEMO_FACTUREN[0], soort: "creditfactuur", nummer: "C2026-0001" });
+    return credit.onderwerp.startsWith("Creditfactuur C2026-0001") && !credit.tekst.includes("uiterste betaaldatum");
+  })(),
+  true,
+);
+check(
+  "mail: e-mailvormcontrole",
+  [
+    isEmailAdres("administratie@zorggroepdelinde.nl"),
+    isEmailAdres("kaal"),
+    isEmailAdres("spatie in@adres.nl"),
+    isEmailAdres(`${"x".repeat(250)}@lang.nl`),
+    isEmailAdres(""),
+  ],
+  [true, false, false, false, false],
+);
+const maillogBasis = {
+  id: "log-1",
+  factuurId: "demo-factuur-1",
+  ontvanger: "test@voorbeeld.nl",
+  onderwerp: "Factuur F2026-0001",
+  status: "verzonden",
+  poging: 1,
+  createdAt: "2026-08-13T10:00:00.000Z",
+};
+check(
+  "mail: maillog-guard accepteert geldige regel en weigert corrupte",
+  [
+    isFactuurMaillogRegel(maillogBasis),
+    isFactuurMaillogRegel({ ...maillogBasis, status: "wachtend" }),
+    isFactuurMaillogRegel({ ...maillogBasis, ontvanger: "geen-adres" }),
+    isFactuurMaillogRegel({ ...maillogBasis, poging: 0 }),
+  ],
+  [true, false, false, false],
 );
 
 // Pdf-pijplijn: dezelfde renderer als de definitief-route. Tekststromen in de

@@ -26,6 +26,49 @@ export type ContactSoort = (typeof CONTACT_SOORTEN)[number];
 export const MAIL_STATUSSEN = ["niet_verzonden", "in_wachtrij", "verzonden", "mislukt"] as const;
 export type MailStatus = (typeof MAIL_STATUSSEN)[number];
 
+// Fase B (handoff 15 §7): één maillogregel per verzendpoging. "gebounced" is
+// gereserveerd voor een latere provider-webhook; de app zet hem zelf nooit.
+export const MAILLOG_STATUSSEN = ["in_wachtrij", "verzonden", "mislukt", "gebounced"] as const;
+export type MaillogStatus = (typeof MAILLOG_STATUSSEN)[number];
+
+export interface FactuurMaillogRegel {
+  id: string;
+  factuurId: string;
+  ontvanger: string;
+  onderwerp: string;
+  status: MaillogStatus;
+  foutTekst?: string;
+  poging: number;
+  createdAt: string;
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Basale e-mailvormcontrole (verzendadres van een factuurmail). */
+export function isEmailAdres(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 254 && EMAIL_PATTERN.test(value);
+}
+
+export function isFactuurMaillogRegel(value: unknown): value is FactuurMaillogRegel {
+  if (!value || typeof value !== "object") return false;
+  const regel = value as Record<string, unknown>;
+  return (
+    typeof regel.id === "string" &&
+    typeof regel.factuurId === "string" &&
+    isEmailAdres(regel.ontvanger) &&
+    typeof regel.onderwerp === "string" &&
+    regel.onderwerp.length >= 1 &&
+    regel.onderwerp.length <= 200 &&
+    typeof regel.status === "string" &&
+    (MAILLOG_STATUSSEN as readonly string[]).includes(regel.status) &&
+    (regel.foutTekst === undefined || (typeof regel.foutTekst === "string" && regel.foutTekst.length <= 500)) &&
+    typeof regel.poging === "number" &&
+    Number.isInteger(regel.poging) &&
+    regel.poging >= 1 &&
+    typeof regel.createdAt === "string"
+  );
+}
+
 export interface FactuurRegel {
   /** Client-uuid, alleen voor React-keys en volgorde. */
   id: string;
@@ -67,8 +110,19 @@ export interface FactuurPartij {
   email?: string;
 }
 
-/** Bevroren afzendergegevens op de factuur (platgeslagen instellingen-snapshot). */
+/** Ingebouwde logo's (meegeleverd asset) versus per-organisatie geüpload. */
+export type LogoBron = "careongroup" | "upload";
+
+/** Bevroren afzendergegevens op de factuur (platgeslagen template-snapshot). */
 export interface FactuurAfzender {
+  /** Herkomst-template (handoff 15, multi-template): concepten onthouden zo
+      hun sjabloonkeuze; de definitief-route herleidt de snapshot altijd
+      opnieuw uit dit id en vertrouwt nooit de client-inhoud. */
+  templateId?: string;
+  templateNaam?: string;
+  /** Ondertitel in de factuurvoet (bijv. "Technology · Growth · Care"). */
+  tagline?: string;
+  logoBron?: LogoBron;
   statutaireNaam: string;
   handelsnaam?: string;
   adresRegel1: string;
@@ -128,6 +182,8 @@ export interface Factuur {
   betaaldOp: string | null;
   pdfPad: string | null;
   mailStatus: MailStatus;
+  /** Tijdstip van de laatste geslaagde verzending (fase B). */
+  mailVerzondenOp?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -161,7 +217,13 @@ export interface FacturatieContact {
   updatedAt: string;
 }
 
-export interface FacturatieInstellingen {
+export interface FactuurTemplate {
+  /** Stabiele sleutel (slug), bijv. "careongroup". */
+  id: string;
+  /** Weergavenaam in de sjabloonlijst, bijv. "Careon Group". */
+  naam: string;
+  /** Ondertitel in de factuurvoet (bijv. "Technology · Growth · Care"). */
+  tagline?: string;
   afzender: {
     statutaireNaam: string;
     handelsnaam?: string;
@@ -189,7 +251,20 @@ export interface FacturatieInstellingen {
   };
   betaling: { standaardTermijnDagen: number; betaalinstructie?: string };
   btw: { standaardTarief: BtwTarief; vrijstellingTekst: string };
-  presentatie: { voettekst?: string; toonLogo: boolean; logoPad?: string; logoHash?: string };
+  presentatie: { voettekst?: string; toonLogo: boolean; logoBron?: LogoBron; logoPad?: string; logoHash?: string };
+}
+
+/**
+ * Multi-template (klantverzoek 09-08-2026): één organisatie beheert meerdere
+ * factuursjablonen (afzenderprofielen); de instellingenpagina toont eerst de
+ * sjabloonlijst en per factuur is het sjabloon te kiezen. Oudere snapshots
+ * (één profiel zonder templates-lijst) migreren bij lezen via
+ * migreerInstellingen().
+ */
+export interface FacturatieInstellingen {
+  templates: FactuurTemplate[];
+  /** Default voor nieuwe facturen. */
+  standaardTemplateId: string;
   updatedAt: string;
 }
 
@@ -229,6 +304,7 @@ export const FACTURATIE_LIMITS = {
   voettekst: 300,
   betaalinstructie: 300,
   contacten: 1000,
+  templates: 12,
 } as const;
 
 const KVK_PATTERN = /^[0-9]{8}$/;
@@ -318,6 +394,10 @@ export function isFactuurAfzender(value: unknown): value is FactuurAfzender {
   if (typeof value !== "object" || value === null) return false;
   const afzender = value as Record<string, unknown>;
   return (
+    isTekst(afzender.templateId, 40) &&
+    isTekst(afzender.templateNaam, FACTURATIE_LIMITS.naam) &&
+    isTekst(afzender.tagline, 120) &&
+    (afzender.logoBron === undefined || afzender.logoBron === "careongroup" || afzender.logoBron === "upload") &&
     isTekst(afzender.statutaireNaam, FACTURATIE_LIMITS.naam, true) &&
     isTekst(afzender.handelsnaam, FACTURATIE_LIMITS.naam) &&
     isTekst(afzender.adresRegel1, FACTURATIE_LIMITS.adres, true) &&
@@ -384,7 +464,11 @@ export function isFactuur(value: unknown): value is Factuur {
     factuur.regels.length <= FACTURATIE_LIMITS.regels &&
     factuur.regels.every(isFactuurRegel) &&
     Array.isArray(factuur.btwTotalen) &&
-    factuur.btwTotalen.length <= BTW_TARIEVEN.length &&
+    // Groepen zijn (tarief, categorie)-combinaties, niet alleen tarieven: de
+    // UI kan vrijgesteld:E, 0:Z, 0:AE (verlegd), 9:S en 21:S tegelijk
+    // opleveren — een cap op alleen BTW_TARIEVEN.length wees een geldige
+    // gemengde factuur af (en wiste daarmee de demo-state).
+    factuur.btwTotalen.length <= BTW_TARIEVEN.length + 1 &&
     factuur.btwTotalen.every(isBtwTotaal) &&
     isTekst(factuur.vrijstellingTekst, FACTURATIE_LIMITS.vrijstellingTekst) &&
     isCentBedrag(factuur.subtotaalCent, Number.MAX_SAFE_INTEGER) &&
@@ -396,6 +480,9 @@ export function isFactuur(value: unknown): value is Factuur {
     (factuur.pdfPad === null || typeof factuur.pdfPad === "string") &&
     typeof factuur.mailStatus === "string" &&
     (MAIL_STATUSSEN as readonly string[]).includes(factuur.mailStatus) &&
+    (factuur.mailVerzondenOp === undefined ||
+      factuur.mailVerzondenOp === null ||
+      (typeof factuur.mailVerzondenOp === "string" && factuur.mailVerzondenOp.length <= 40)) &&
     typeof factuur.createdAt === "string" &&
     typeof factuur.updatedAt === "string"
   );
@@ -439,15 +526,17 @@ export function isFacturatieContact(value: unknown): value is FacturatieContact 
   );
 }
 
-export function isFacturatieInstellingen(value: unknown): value is FacturatieInstellingen {
+const TEMPLATE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
+
+export function isFactuurTemplate(value: unknown): value is FactuurTemplate {
   if (typeof value !== "object" || value === null) return false;
-  const instellingen = value as Record<string, unknown>;
-  const afzender = instellingen.afzender as Record<string, unknown> | null | undefined;
-  const bank = instellingen.bank as Record<string, unknown> | null | undefined;
-  const nummering = instellingen.nummering as Record<string, unknown> | null | undefined;
-  const betaling = instellingen.betaling as Record<string, unknown> | null | undefined;
-  const btw = instellingen.btw as Record<string, unknown> | null | undefined;
-  const presentatie = instellingen.presentatie as Record<string, unknown> | null | undefined;
+  const template = value as Record<string, unknown>;
+  const afzender = template.afzender as Record<string, unknown> | null | undefined;
+  const bank = template.bank as Record<string, unknown> | null | undefined;
+  const nummering = template.nummering as Record<string, unknown> | null | undefined;
+  const betaling = template.betaling as Record<string, unknown> | null | undefined;
+  const btw = template.btw as Record<string, unknown> | null | undefined;
+  const presentatie = template.presentatie as Record<string, unknown> | null | undefined;
   if (!afzender || typeof afzender !== "object") return false;
   if (!bank || typeof bank !== "object") return false;
   if (!nummering || typeof nummering !== "object") return false;
@@ -455,18 +544,23 @@ export function isFacturatieInstellingen(value: unknown): value is FacturatieIns
   if (!btw || typeof btw !== "object") return false;
   if (!presentatie || typeof presentatie !== "object") return false;
   return (
-    // Afzender: velden mogen leeg zijn (EMPTY-seed) maar moeten qua vorm kloppen;
-    // de art. 35a-validator dwingt de inhoud pas af bij definitief maken.
-    isTekst(afzender.statutaireNaam, FACTURATIE_LIMITS.naam) &&
+    typeof template.id === "string" &&
+    TEMPLATE_ID_PATTERN.test(template.id) &&
+    isTekst(template.naam, FACTURATIE_LIMITS.naam, true) &&
+    isTekst(template.tagline, 120) &&
+    // Afzender: velden mogen leeg zijn (starter-sjabloon) maar moeten qua
+    // vorm kloppen; de art. 35a-validator dwingt de inhoud pas af bij
+    // definitief maken.
     typeof afzender.statutaireNaam === "string" &&
+    afzender.statutaireNaam.length <= FACTURATIE_LIMITS.naam &&
     isTekst(afzender.handelsnaam, FACTURATIE_LIMITS.naam) &&
-    isTekst(afzender.adresRegel1, FACTURATIE_LIMITS.adres) &&
     typeof afzender.adresRegel1 === "string" &&
+    afzender.adresRegel1.length <= FACTURATIE_LIMITS.adres &&
     isTekst(afzender.adresRegel2, FACTURATIE_LIMITS.adres) &&
-    isTekst(afzender.postcode, FACTURATIE_LIMITS.postcode) &&
     typeof afzender.postcode === "string" &&
-    isTekst(afzender.plaats, FACTURATIE_LIMITS.plaats) &&
+    afzender.postcode.length <= FACTURATIE_LIMITS.postcode &&
     typeof afzender.plaats === "string" &&
+    afzender.plaats.length <= FACTURATIE_LIMITS.plaats &&
     typeof afzender.land === "string" &&
     afzender.land.length === 2 &&
     typeof afzender.kvkNummer === "string" &&
@@ -499,9 +593,67 @@ export function isFacturatieInstellingen(value: unknown): value is FacturatieIns
     btw.vrijstellingTekst.length <= FACTURATIE_LIMITS.vrijstellingTekst &&
     isTekst(presentatie.voettekst, FACTURATIE_LIMITS.voettekst) &&
     typeof presentatie.toonLogo === "boolean" &&
+    (presentatie.logoBron === undefined ||
+      presentatie.logoBron === "careongroup" ||
+      presentatie.logoBron === "upload") &&
     (presentatie.logoPad === undefined || typeof presentatie.logoPad === "string") &&
-    (presentatie.logoHash === undefined || typeof presentatie.logoHash === "string") &&
+    (presentatie.logoHash === undefined || typeof presentatie.logoHash === "string")
+  );
+}
+
+export function isFacturatieInstellingen(value: unknown): value is FacturatieInstellingen {
+  if (typeof value !== "object" || value === null) return false;
+  const instellingen = value as Record<string, unknown>;
+  return (
+    Array.isArray(instellingen.templates) &&
+    instellingen.templates.length >= 1 &&
+    instellingen.templates.length <= FACTURATIE_LIMITS.templates &&
+    instellingen.templates.every(isFactuurTemplate) &&
+    new Set((instellingen.templates as FactuurTemplate[]).map((template) => template.id)).size ===
+      instellingen.templates.length &&
+    typeof instellingen.standaardTemplateId === "string" &&
+    (instellingen.templates as FactuurTemplate[]).some(
+      (template) => template.id === instellingen.standaardTemplateId,
+    ) &&
     typeof instellingen.updatedAt === "string" &&
     !Number.isNaN(Date.parse(instellingen.updatedAt))
+  );
+}
+
+/**
+ * Migratie-bij-lezen: snapshots van vóór de multi-template-uitbreiding
+ * (één profiel met afzender/bank/… op wortelniveau) worden één sjabloon
+ * "standaard". Geeft null terug voor alles wat ook geen oude vorm is.
+ */
+export function migreerInstellingen(value: unknown): FacturatieInstellingen | null {
+  if (isFacturatieInstellingen(value)) return value;
+  if (typeof value !== "object" || value === null) return null;
+  const oud = value as Record<string, unknown>;
+  if (!oud.afzender || typeof oud.updatedAt !== "string") return null;
+  const kandidaat: FacturatieInstellingen = {
+    templates: [
+      {
+        id: "standaard",
+        naam: "Standaard",
+        afzender: oud.afzender as FactuurTemplate["afzender"],
+        bank: oud.bank as FactuurTemplate["bank"],
+        nummering: oud.nummering as FactuurTemplate["nummering"],
+        betaling: oud.betaling as FactuurTemplate["betaling"],
+        btw: oud.btw as FactuurTemplate["btw"],
+        presentatie: oud.presentatie as FactuurTemplate["presentatie"],
+      },
+    ],
+    standaardTemplateId: "standaard",
+    updatedAt: oud.updatedAt,
+  };
+  return isFacturatieInstellingen(kandidaat) ? kandidaat : null;
+}
+
+/** Sjabloon opzoeken met terugval op het standaardsjabloon. */
+export function vindTemplate(instellingen: FacturatieInstellingen, templateId: string | undefined): FactuurTemplate {
+  return (
+    instellingen.templates.find((template) => template.id === templateId) ??
+    instellingen.templates.find((template) => template.id === instellingen.standaardTemplateId) ??
+    instellingen.templates[0]
   );
 }

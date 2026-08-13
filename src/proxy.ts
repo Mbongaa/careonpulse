@@ -38,6 +38,7 @@ export async function proxy(request: NextRequest) {
   // zonder sessie eerst inloggen, daarna herstart de module de flow zelf.
   const needsAuth =
     path.startsWith("/dashboard") ||
+    path.startsWith("/facturatie") ||
     path.startsWith("/admin") ||
     path.startsWith("/modules") ||
     path.startsWith("/oauth");

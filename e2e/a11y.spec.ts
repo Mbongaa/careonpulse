@@ -19,10 +19,10 @@ const ROUTES = [
   "/dashboard/databron",
   // Facturatie (handoff 15): drie statische pagina's + de editor via een
   // vast demo-factuur-id (demo-pad B12).
-  "/dashboard/facturatie",
-  "/dashboard/facturatie/contacten",
-  "/dashboard/facturatie/instellingen",
-  "/dashboard/facturatie/demo-factuur-3",
+  "/facturatie",
+  "/facturatie/contacten",
+  "/facturatie/instellingen",
+  "/facturatie/demo-factuur-3",
   // KPI-drilldowns (handoff 08): één cliëntrecord-variant en één event-variant.
   "/dashboard/details/actief",
   "/dashboard/details/noshow",
