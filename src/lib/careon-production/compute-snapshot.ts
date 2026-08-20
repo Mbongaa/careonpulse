@@ -1395,6 +1395,19 @@ export function computeProductionSnapshot(
       agendaFacts.clienten.length === 0 ? null : omzetGerealiseerdTotaal / agendaFacts.clienten.length;
     const trajectenTotaal = agendaFacts.trajecten ?? 0;
 
+    // Cumulatieve omzet over de volledige, afgesloten agenda-historie. De
+    // laatste (lopende) maand blijft buiten beschouwing, gelijk aan alle
+    // andere financiële kaarten. Zo is dit bedrag exact de som van de
+    // behandelmaanden in de omzet-drilldown.
+    const somHistorie = (bron: Map<string, number>): number =>
+      [...bron.entries()].reduce((sum, [key, omzet]) => sum + (agendaFullKeys.has(key) ? omzet : 0), 0);
+    const vecozoHistorie = somHistorie(omzetVecozoPerMaand);
+    const sbHistorie = somHistorie(omzetSbPerMaand);
+    const rmoHistorie = somHistorie(omzetRmoPerMaand);
+    const omzetHistorie = vecozoHistorie + sbHistorie + rmoHistorie;
+    const eersteHistorischeMaand = agendaMonthsFull[0];
+    const historieVenster = `${MAAND_NAMEN[eersteHistorischeMaand.month0]} ${eersteHistorischeMaand.year} t/m ${maandLabel} ${lastAgendaMonth.year}`;
+
     const verwachtUitbetaald = (bedrag: number, pct: number, pctLabel: string): LiveMetric["secondary"] => ({
       label: `Verwacht uitbetaald (${pctLabel})`,
       value: Math.round(bedrag * pct),
@@ -1404,8 +1417,21 @@ export function computeProductionSnapshot(
       Math.round((vecozo + sb) * UITBETALING_PCT + rmo);
 
     // Gesleuteld op de demo-labels (vervangings-patroon); "Totale omzet" en
-    // "Omzet RMO/RMA" zijn productie-exclusieve kaarten zonder demo-slot.
+    // de cumulatieve omzetkaart zijn productie-exclusief zonder demo-slot.
     const financieelMetrics: Record<string, LiveMetric> = {
+      "Totale omzet tot nu toe": {
+        label: "Totale omzet tot nu toe",
+        value: Math.round(omzetHistorie),
+        prev: Math.round(omzetHistorie - omzetTotaalLaatste),
+        prevLabel: "t/m vorige behandelmaand",
+        f: "eurK",
+        windowLabel: `${historieVenster} · excl. toeslagen`,
+        secondary: {
+          label: "Verwacht uitbetaald (65% · RMO/RMA 100%)",
+          value: verwachtTotaal(vecozoHistorie, sbHistorie, rmoHistorie),
+          f: "eurK",
+        },
+      },
       "Totale omzet": {
         label: "Totale omzet",
         value: Math.round(omzetTotaalLaatste),

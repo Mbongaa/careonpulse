@@ -75,11 +75,15 @@ export function FinancieelContent() {
     }
     return { metric: demoKpiMetric(metric, overrides, factor), detailId: metric.detailId, widget: metric.label };
   });
-  // Productie-exclusieve kaarten zonder demo-slot (driedeling klantoverzicht):
-  // "Totale omzet" voorop, "Omzet RMO/RMA" direct na de servicebureau-kaart.
+  // Productie-exclusieve kaarten zonder demo-slot. De cumulatieve kaart staat
+  // voorop; de bestaande "Totale omzet" blijft de laatste volledige maand.
   const totaleOmzet = financieel?.metrics["Totale omzet"];
   if (totaleOmzet) {
     metrics.unshift({ metric: totaleOmzet, detailId: "omzettotaal", widget: "Totale omzet" });
+  }
+  const totaleOmzetTotNuToe = financieel?.metrics["Totale omzet tot nu toe"];
+  if (totaleOmzetTotNuToe) {
+    metrics.unshift({ metric: totaleOmzetTotNuToe, detailId: undefined, widget: "Totale omzet tot nu toe" });
   }
   const rmoRma = financieel?.metrics["Omzet RMO/RMA"];
   if (rmoRma) {

@@ -106,7 +106,11 @@ export function KpiDetailTable({
   note,
 }: Readonly<{ rows: KpiDetailRow[]; columns: KpiDetailColumn[]; caption: string; note?: string }>) {
   const [visible, setVisible] = useState(PAGE_SIZE);
-  const shown = rows.slice(0, visible);
+  const dataRows = rows.filter((row) => row.rowKind !== "total");
+  const totalRows = rows.filter((row) => row.rowKind === "total");
+  // Samenvattingsrijen blijven altijd als laatste zichtbaar, onafhankelijk van
+  // de paginering van de onderliggende maand- of recordregels.
+  const shown = [...dataRows.slice(0, visible), ...totalRows];
   const identityColumn = columns.find((c) => c.format === "client" || c.format === "person");
   const mobileColumns = columns.filter((c) => c !== identityColumn && !c.hideOnMobile);
 
@@ -117,16 +121,16 @@ export function KpiDetailTable({
 
         {/* Een KPI mag legitiem nul records hebben (filter, of niets te melden);
             kale kolomkoppen lezen dan als een laadfout. */}
-        {rows.length === 0 && (
+        {dataRows.length === 0 && (
           <p className="px-4 py-8 text-center text-muted-foreground text-sm">
             Geen records voor deze selectie — er zijn geen onderliggende regels bij dit cijfer.
           </p>
         )}
 
         {/* Mobiel: één compacte kaart per record in plaats van de brede tabel. */}
-        <ul className={cn("divide-y md:hidden", rows.length === 0 && "hidden")}>
+        <ul className={cn("divide-y md:hidden", dataRows.length === 0 && "hidden")}>
           {shown.map((row) => (
-            <li key={row.key} className="space-y-3 p-4">
+            <li key={row.key} className={cn("space-y-3 p-4", row.rowKind === "total" && "bg-muted/60 font-semibold")}>
               {identityColumn ? (
                 <IdentityCell column={identityColumn} row={row} />
               ) : (
@@ -148,7 +152,7 @@ export function KpiDetailTable({
           ))}
         </ul>
 
-        <div className={cn("hidden", rows.length > 0 && "md:block")}>
+        <div className={cn("hidden", dataRows.length > 0 && "md:block")}>
           <Table>
             <TableHeader>
               <TableRow>
@@ -168,7 +172,10 @@ export function KpiDetailTable({
             </TableHeader>
             <TableBody>
               {shown.map((row) => (
-                <TableRow key={row.key}>
+                <TableRow
+                  key={row.key}
+                  className={cn(row.rowKind === "total" && "border-t-2 bg-muted/60 font-semibold hover:bg-muted/60")}
+                >
                   {columns.map((column, index) => (
                     <TableCell
                       key={column.key}
@@ -188,12 +195,13 @@ export function KpiDetailTable({
           </Table>
         </div>
 
-        {(rows.length > visible || note) && (
+        {(dataRows.length > visible || note) && (
           <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3">
             {note ? <p className="text-muted-foreground text-xs">{note}</p> : <span />}
-            {rows.length > visible && (
+            {dataRows.length > visible && (
               <Button variant="outline" size="sm" onClick={() => setVisible((v) => v + PAGE_SIZE)}>
-                Toon {Math.min(PAGE_SIZE, rows.length - visible)} meer ({nl.format(rows.length - visible)} resterend)
+                Toon {Math.min(PAGE_SIZE, dataRows.length - visible)} meer ({nl.format(dataRows.length - visible)}{" "}
+                resterend)
               </Button>
             )}
           </div>

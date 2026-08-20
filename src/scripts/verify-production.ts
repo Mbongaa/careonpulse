@@ -621,6 +621,11 @@ check(
   widgetSource("cockpit", "Totale omzet", { agenda: true }),
   "proxy",
 );
+check(
+  "provenance financieel cumulatieve omzet agenda live",
+  widgetSource("financieel", "Totale omzet tot nu toe", { agenda: true }),
+  "live",
+);
 
 // ---- Drift-bewaking: widget-sleutels zijn vrije strings; deze checks maken
 // een hernoemd KPI-label of alert-titel zonder bijgewerkt provenance-register
@@ -963,6 +968,16 @@ check(
   ],
   [750, 150, 100, "Omzet Vecozo (VGZ + DSW)", 250, 400],
 );
+check(
+  "agenda-snap: cumulatieve omzetkaart sommeert volledige historie t/m laatste volle maand",
+  [
+    agendaSnap.financieel.metrics["Totale omzet tot nu toe"].value,
+    agendaSnap.financieel.metrics["Totale omzet tot nu toe"].prev,
+    agendaSnap.financieel.metrics["Totale omzet tot nu toe"].prevLabel,
+    agendaSnap.financieel.metrics["Totale omzet tot nu toe"].secondary?.value,
+  ],
+  [900, 150, "t/m vorige behandelmaand", 725],
+);
 // Verwachte uitbetaling (65%-regel klant; RMO/RMA 100%) als tweede kaartwaarde.
 check(
   "agenda-snap: verwacht uitbetaald (65% Vecozo/SB, 100% RMO, totaal 0,65×350+400)",
@@ -1146,7 +1161,7 @@ check(
     pageLiveCounts("financieel", { agenda: true }).live,
     pageLiveCounts("financieel", { agenda: true, declaraties: true }).live,
   ],
-  [0, 12, 14],
+  [0, 13, 15],
 );
 check(
   "overlay: agenda-signaleringstitels niet langer demo",
@@ -2013,6 +2028,21 @@ check(
   ["2026-06", 100, 250, 400, 750],
 );
 check("agg-drill: verwacht-uitbetaald-kolom toont de volledige berekening", aggOmzet.rows[0].verwacht, 628);
+const aggOmzetTotaal = aggOmzet.rows.at(-1);
+check(
+  "agg-drill: omzettabel sluit af met cumulatieve totalen over de datarijen",
+  [
+    aggOmzet.rowCount,
+    aggOmzetTotaal?.rowKind,
+    aggOmzetTotaal?.maand,
+    aggOmzetTotaal?.omzetVecozo,
+    aggOmzetTotaal?.omzetSb,
+    aggOmzetTotaal?.omzetRmo,
+    aggOmzetTotaal?.totaal,
+    aggOmzetTotaal?.verwacht,
+  ],
+  [6, "total", "Totale omzet tot nu toe", 250, 250, 400, 900, 725],
+);
 check(
   "agg-drill: nieuwe drilldowns omzettotaal/omzetrmo delen de maandtabel",
   [

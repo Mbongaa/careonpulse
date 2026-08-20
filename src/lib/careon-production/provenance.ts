@@ -197,6 +197,7 @@ export const CAREON_PROVENANCE: Record<string, PageProvenance> = {
       // "Totale omzet" en "Omzet RMO/RMA" zijn productie-exclusieve kaarten
       // (klantformaat FACTURATIE.xlsx) — in demo-modus renderen ze niet, maar
       // de registratie bewaakt de herkomst-sleutels (verify:careon).
+      "Totale omzet tot nu toe": "demo",
       "Totale omzet": "demo",
       "Omzet verzekeraars": "demo",
       "Omzet Infomedics": "demo",
@@ -290,6 +291,7 @@ export const AGENDA_PROVENANCE: Record<string, Record<string, WidgetSource>> = {
     Sessievormen: "live",
   },
   financieel: {
+    "Totale omzet tot nu toe": "live",
     "Totale omzet": "live",
     "Omzet verzekeraars": "live",
     "Omzet Infomedics": "proxy",

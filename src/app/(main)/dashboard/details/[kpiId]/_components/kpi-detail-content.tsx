@@ -162,7 +162,7 @@ export function KpiDetailContent({ kpiId }: Readonly<{ kpiId: string }>) {
   if (isHrDetail) {
     caption = "1 handmatige HR-registratie · dezelfde waarde als op de HR-pagina";
   } else if (aggDetail) {
-    caption = `${nl.format(rows.length)} ${aggDetail.eenheid} · geaggregeerd (losse afspraakregels worden uit privacy-oogpunt niet bewaard)`;
+    caption = `${nl.format(aggDetail.rowCount ?? rows.length)} ${aggDetail.eenheid} · geaggregeerd (losse afspraakregels worden uit privacy-oogpunt niet bewaard)`;
   }
 
   const noten: string[] = [];

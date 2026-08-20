@@ -556,6 +556,8 @@ export interface AggDetail {
   rows: KpiDetailRow[];
   /** Eenheid voor de tabel-caption ("maanden", "koepels", …). */
   eenheid: string;
+  /** Aantal gewone datarijen; samenvattingsrijen tellen niet mee. */
+  rowCount?: number;
 }
 
 const MAAND_COLUMNS: KpiDetailColumn[] = [
@@ -613,7 +615,7 @@ function maandTabel(snapshot: ProductionSnapshot): AggDetail | null {
 
 function omzetTabel(snapshot: ProductionSnapshot): AggDetail | null {
   if (!snapshot.agenda) return null;
-  const rows = [...snapshot.monthly]
+  const rows = [...snapshot.monthlyFull]
     .filter((point) => point.omzet !== null)
     .reverse()
     .map((point) => ({
@@ -627,7 +629,31 @@ function omzetTabel(snapshot: ProductionSnapshot): AggDetail | null {
         ((point.omzetVecozo ?? 0) + (point.omzetServicebureau ?? 0)) * UITBETALING_PCT + (point.omzetRmoRma ?? 0),
       ),
     }));
-  return rows.length > 0 ? { columns: OMZET_COLUMNS, eenheid: "behandelmaanden", rows } : null;
+  if (rows.length === 0) return null;
+
+  const totalen = rows.reduce(
+    (sum, row) => ({
+      omzetVecozo: sum.omzetVecozo + row.omzetVecozo,
+      omzetSb: sum.omzetSb + row.omzetSb,
+      omzetRmo: sum.omzetRmo + row.omzetRmo,
+      totaal: sum.totaal + row.totaal,
+    }),
+    { omzetVecozo: 0, omzetSb: 0, omzetRmo: 0, totaal: 0 },
+  );
+  const totaalRij: KpiDetailRow = {
+    key: "__omzet_totaal__",
+    rowKind: "total",
+    maand: "Totale omzet tot nu toe",
+    ...totalen,
+    verwacht: Math.round((totalen.omzetVecozo + totalen.omzetSb) * UITBETALING_PCT + totalen.omzetRmo),
+  };
+
+  return {
+    columns: OMZET_COLUMNS,
+    eenheid: "behandelmaanden",
+    rowCount: rows.length,
+    rows: [...rows, totaalRij],
+  };
 }
 
 function koepelTabel(snapshot: ProductionSnapshot): AggDetail | null {
