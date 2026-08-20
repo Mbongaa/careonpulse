@@ -22,8 +22,13 @@
     "audit:production": "npm audit --audit-level=high",
     "test:e2e": "node src/scripts/run-isolated-e2e.mjs",
     "verify:production": "ts-node -P tsconfig.scripts.json src/scripts/verify-production.ts",
-    "verify:ci": "npm run check && npm run typecheck && npm run verify:data-hygiene && npm run verify:careon && npm run verify:production && npm run verify:assistant && npm run verify:runtime && npm run audit:production",
-    "push:production": "ts-node -P tsconfig.scripts.json src/scripts/push-production.ts"
+    "verify:tgc-sync": "ts-node -P tsconfig.scripts.json src/scripts/verify-tgc-sync.ts",
+    "verify:tgc-queue": "ts-node -P tsconfig.scripts.json src/scripts/verify-tgc-queue.ts",
+    "verify:tgc:live": "ts-node -P tsconfig.scripts.json src/scripts/verify-tgc-live.ts",
+    "verify:ci": "npm run check && npm run typecheck && npm run verify:data-hygiene && npm run verify:careon && npm run verify:production && npm run verify:assistant && npm run verify:runtime && npm run verify:tgc-sync && npm run verify:tgc-queue && npm run audit:production",
+    "push:production": "ts-node -P tsconfig.scripts.json src/scripts/push-production.ts",
+    "sync:tgc": "ts-node -P tsconfig.scripts.json src/scripts/sync-tgc-production.ts",
+    "worker:tgc": "ts-node -P tsconfig.scripts.json src/scripts/process-tgc-sync-queue.ts"
   },
   "lint-staged": {
     "*.{js,ts,jsx,tsx}": ["biome check --write --no-errors-on-unmatched"]
@@ -47,6 +52,7 @@
     "lucide-react": "^1.23.0",
     "next": "16.2.11",
     "next-themes": "^0.4.6",
+    "playwright": "1.61.1",
     "radix-ui": "^1.6.1",
     "react": "19.2.8",
     "react-day-picker": "^10.0.1",

@@ -67,6 +67,7 @@ import { MIDDELEN_TOOL_NAMES } from "@/lib/careon-middelen/assistant-tools";
 import { type ConceptActie, createConceptMiddelenApi, replayConceptActies } from "@/lib/careon-middelen/concept";
 import { buildProductionAssistantArtifact } from "@/lib/careon-production/assistant-artifact";
 import { buildProductionAssistantFacts } from "@/lib/careon-production/assistant-facts";
+import { isTgcImportUpdateRequest, type TgcSyncJob } from "@/lib/careon-production/tgc-sync-jobs";
 import type { ProductionSnapshot } from "@/lib/careon-production/types";
 import { cn } from "@/lib/utils";
 
@@ -641,6 +642,43 @@ export function AssistentContent() {
     const { text, intentHint } = latestUserTurn(options.messages);
     if (!text) {
       yield runResult("", {}, true);
+      return;
+    }
+
+    // Een expliciet verzoek om de EPD-exports te verversen is een
+    // deterministische platformactie. Start hem direct — onafhankelijk van
+    // modelbeschikbaarheid — en vraag nooit opnieuw om TGC-inloggegevens of
+    // bevestiging. De lokale worker bezit de credential en verwerkt de job.
+    if (isTgcImportUpdateRequest(text)) {
+      let antwoord: string;
+      try {
+        const response = await fetch("/api/careon/tgc-sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requestedVia: "assistant" }),
+          signal: options.abortSignal,
+        });
+        if (!response.ok) {
+          const fout = (await response.json().catch(() => null)) as { error?: unknown } | null;
+          throw new Error(typeof fout?.error === "string" ? fout.error : "De importupdate kon niet worden gestart.");
+        }
+        const body = (await response.json()) as { job: TgcSyncJob; reused: boolean };
+        window.sessionStorage.setItem("careon:tgc-sync-job", body.job.id);
+        antwoord = body.reused
+          ? "Er liep al een volledige TGC-importupdate; ik laat die automatisch doorgaan. Op Databron ziet u de live voortgang. U hoeft niets meer in te voeren."
+          : "Ik heb de volledige TGC-importupdate gestart. De vijf exports worden automatisch opgehaald, gevalideerd en centraal bijgewerkt. Op Databron ziet u de live voortgang; u hoeft niets meer in te voeren.";
+      } catch (updateError) {
+        if (options.abortSignal.aborted) throw updateError;
+        antwoord =
+          updateError instanceof Error
+            ? `De TGC-importupdate kon niet starten: ${updateError.message}`
+            : "De TGC-importupdate kon niet starten. Probeer het later opnieuw.";
+      }
+      for (let index = STREAM_CHUNK; index < antwoord.length; index += STREAM_CHUNK) {
+        yield runResult(antwoord.slice(0, index), {});
+        await sleepFrame(STREAM_FRAME_MS, options.abortSignal);
+      }
+      yield runResult(antwoord, {}, true);
       return;
     }
 

@@ -13,6 +13,8 @@ import { parseClientExport } from "@/lib/careon-production/parse-export";
 import type { ImportWarning, ParseExportResult, ProductionState } from "@/lib/careon-production/types";
 import { cn } from "@/lib/utils";
 
+import { TgcAiImport } from "./tgc-ai-import";
+
 // Productie-modus: importeert de volledige ZSG-cliëntendata-export (geen
 // KPI-totalen maar cliëntrijen) en berekent de dashboards uit echte data.
 // Persoonsgegevens (naam, geboortedatum, verzekeringsnummer) worden bij het
@@ -110,6 +112,8 @@ export function ProductieImportCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
+        <TgcAiImport />
+
         {isProduction && (
           <p className="flex items-center gap-2 text-emerald-700 text-sm dark:text-emerald-400">
             <CheckCircle2 className="size-4 shrink-0" />
