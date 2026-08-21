@@ -36,6 +36,49 @@ export interface CareonShellRegistry {
   modules: CareonShellModule[];
 }
 
+export function resolveCareonShellTarget(
+  module: Pick<CareonShellModule, "id" | "launchUrl" | "enabled">,
+  requestedTarget?: string | null,
+): string | null {
+  if (!module.enabled || !module.launchUrl) return null;
+  let base: URL;
+  try {
+    base = new URL(module.launchUrl);
+  } catch {
+    return null;
+  }
+  if (!requestedTarget || requestedTarget === "/") return base.toString();
+  if (
+    requestedTarget.length > 2_048 ||
+    !requestedTarget.startsWith("/") ||
+    requestedTarget.startsWith("//") ||
+    requestedTarget.includes("\\")
+  ) {
+    return null;
+  }
+  let target: URL;
+  try {
+    target = new URL(requestedTarget, base);
+  } catch {
+    return null;
+  }
+  if (
+    target.protocol !== "https:" ||
+    target.origin !== base.origin ||
+    target.username ||
+    target.password ||
+    target.toString().length > 2_048
+  ) {
+    return null;
+  }
+  if (module.id === "yaaz") {
+    const entry = new URL("/careon-sso/mobile/entry", base);
+    entry.searchParams.set("target", `${target.pathname}${target.search}${target.hash}`);
+    return entry.toString().length <= 2_048 ? entry.toString() : null;
+  }
+  return target.toString();
+}
+
 const MODULE_PRESENTATION: Record<
   string,
   { icon: CareonShellModule["icon"]; deepLinkPath: string; type: CareonShellModuleType }

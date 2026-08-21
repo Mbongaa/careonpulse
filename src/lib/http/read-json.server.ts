@@ -1,7 +1,7 @@
 export class RequestPayloadTooLargeError extends Error {}
 export class InvalidJsonBodyError extends Error {}
 
-export async function readJsonBodyLimited<T>(request: Request, maxBytes: number): Promise<T> {
+export async function readTextBodyLimited(request: Request, maxBytes: number): Promise<string> {
   const declared = Number(request.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > maxBytes) {
     throw new RequestPayloadTooLargeError();
@@ -30,8 +30,13 @@ export async function readJsonBodyLimited<T>(request: Request, maxBytes: number)
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  return new TextDecoder().decode(bytes);
+}
+
+export async function readJsonBodyLimited<T>(request: Request, maxBytes: number): Promise<T> {
+  const body = await readTextBodyLimited(request, maxBytes);
   try {
-    return JSON.parse(new TextDecoder().decode(bytes)) as T;
+    return JSON.parse(body) as T;
   } catch {
     throw new InvalidJsonBodyError();
   }
