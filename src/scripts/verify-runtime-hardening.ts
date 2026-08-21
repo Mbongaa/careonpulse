@@ -6,6 +6,7 @@
 import { amsterdamDagGrens } from "../lib/careon-admin/admin.server";
 import { authenticatedActorHash, loginActorHash } from "../lib/careon-assistant/runtime.server";
 import { CAREON_HOSTED_DEMO_EMAIL, isCareonHostedDemoEmail } from "../lib/careon-demo-account";
+import { evaluateEntraJitEligibility, resolveEntraJitConfig } from "../lib/careon-entra/jit-claims";
 import { RequestPayloadTooLargeError, readJsonBodyLimited } from "../lib/http/read-json.server";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -85,10 +86,176 @@ async function main() {
       !/Mail\.|Calendars\.|Files\.|Sites\.|Team\.|Channel\.|offline_access/.test(microsoftLoginSource),
   );
   check(
-    "Microsoft-callback weigert JIT-toegang en beëindigt de sessie lokaal",
+    "Microsoft-callback laat JIT alleen vóór het bestaande fail-closed weigerpad proberen",
     microsoftCallbackSource.includes('.eq("user_id", user.id)') &&
-      microsoftCallbackSource.includes("microsoft_no_access_assignment") &&
+      microsoftCallbackSource.includes("provisionEntraJitMembership(user)") &&
+      microsoftCallbackSource.indexOf("provisionEntraJitMembership(user)") <
+        microsoftCallbackSource.indexOf("microsoft_no_access_assignment") &&
       microsoftCallbackSource.includes('signOut({ scope: "local" })'),
+  );
+  const jitMigration = fs.readFileSync(
+    path.resolve(process.cwd(), "supabase/migrations/20260821131342_entra_jit_membership.sql"),
+    "utf8",
+  );
+  check(
+    "Entra JIT-RPC is service-role-only en kent uitsluitend de memberrol toe",
+    jitMigration.includes("current_setting('request.jwt.claim.role', true)") &&
+      jitMigration.includes("revoke all on function public.careon_provision_entra_member") &&
+      jitMigration.includes("grant execute on function public.careon_provision_entra_member") &&
+      jitMigration.includes("to service_role") &&
+      jitMigration.includes("values (v_org_id, p_user_id, 'member')") &&
+      !jitMigration.includes("values (v_org_id, p_user_id, 'org_admin')"),
+  );
+  check(
+    "Entra JIT blijft uit bij een ontbrekende of gedeeltelijke configuratie",
+    resolveEntraJitConfig({ CAREON_ENTRA_JIT_ENABLED: "0" }).status === "disabled" &&
+      resolveEntraJitConfig({ CAREON_ENTRA_JIT_ENABLED: "1" }).status === "invalid",
+  );
+  const jitConfig = {
+    status: "ready",
+    config: {
+      orgSlug: "tgc",
+      tenantId: "11111111-1111-4111-8111-111111111111",
+      requiredAppRole: "Careon.User",
+    },
+  } as const;
+  const entraUser = (overrides: Record<string, unknown> = {}) =>
+    ({
+      email: "medewerker@tgc.test",
+      identities: [
+        {
+          provider: "azure",
+          identity_data: {
+            email: "medewerker@tgc.test",
+            custom_claims: {
+              tid: "11111111-1111-4111-8111-111111111111",
+              acct: "0",
+              xms_edov: true,
+              roles: ["Careon.User"],
+            },
+            ...overrides,
+          },
+        },
+      ],
+    }) as unknown as Parameters<typeof evaluateEntraJitEligibility>[0];
+  check(
+    "Entra JIT accepteert exact de goedgekeurde tenant/e-mail/app-rol",
+    evaluateEntraJitEligibility(entraUser(), jitConfig).status === "eligible",
+  );
+  check(
+    "Entra JIT weigert een verkeerde tenant",
+    evaluateEntraJitEligibility(
+      entraUser({
+        custom_claims: {
+          tid: "22222222-2222-4222-8222-222222222222",
+          acct: "0",
+          xms_edov: true,
+          roles: ["Careon.User"],
+        },
+      }),
+      jitConfig,
+    ).status === "tenant_mismatch",
+  );
+  check(
+    "Entra JIT weigert gasten en een ontbrekend accounttype",
+    evaluateEntraJitEligibility(
+      entraUser({
+        custom_claims: {
+          tid: "11111111-1111-4111-8111-111111111111",
+          acct: "1",
+          xms_edov: true,
+          roles: ["Careon.User"],
+        },
+      }),
+      jitConfig,
+    ).status === "guest_or_account_type_unverified" &&
+      evaluateEntraJitEligibility(
+        entraUser({
+          custom_claims: {
+            tid: "11111111-1111-4111-8111-111111111111",
+            xms_edov: true,
+            roles: ["Careon.User"],
+          },
+        }),
+        jitConfig,
+      ).status === "guest_or_account_type_unverified",
+  );
+  check(
+    "Entra JIT weigert een niet-geverifieerd adres",
+    evaluateEntraJitEligibility(
+      entraUser({
+        custom_claims: { tid: "11111111-1111-4111-8111-111111111111", acct: "0", roles: ["Careon.User"] },
+      }),
+      jitConfig,
+    ).status === "email_not_verified",
+  );
+  check(
+    "Entra JIT weigert een e-mailmismatch",
+    evaluateEntraJitEligibility(entraUser({ email: "ander@tgc.test" }), jitConfig).status === "email_mismatch",
+  );
+  check(
+    "Entra JIT weigert een ontbrekende app-rol",
+    evaluateEntraJitEligibility(
+      entraUser({
+        custom_claims: { tid: "11111111-1111-4111-8111-111111111111", acct: "0", xms_edov: true, roles: [] },
+      }),
+      jitConfig,
+    ).status === "required_app_role_missing",
+  );
+  const directorySource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/lib/careon-entra/directory.server.ts"),
+    "utf8",
+  );
+  const directoryRouteSource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/app/api/org/entra-members/route.ts"),
+    "utf8",
+  );
+  const environmentExample = fs.readFileSync(path.resolve(process.cwd(), ".env.example"), "utf8");
+  check(
+    "Entra-directoryconnector blijft uit zonder volledige serverconfiguratie",
+    directorySource.includes('CAREON_ENTRA_DIRECTORY_ENABLED !== "1"') &&
+      directorySource.includes('status: "invalid_configuration"') &&
+      !directorySource.includes("NEXT_PUBLIC_CAREON_ENTRA_DIRECTORY"),
+  );
+  check(
+    "Entra-directoryconnector leest alleen de ingestelde groep via vaste Graph-origin",
+    directorySource.includes('const GRAPH_ORIGIN = "https://graph.microsoft.com"') &&
+      directorySource.includes("config.groupId}/members") &&
+      directorySource.includes("url.origin === GRAPH_ORIGIN") &&
+      directorySource.includes("url.pathname.startsWith(expectedPrefix)") &&
+      !directorySource.includes('method: "PATCH"') &&
+      !directorySource.includes('method: "DELETE"'),
+  );
+  check(
+    "Entra-medewerkersroute eist org-admin en controleert organisatiebinding",
+    directoryRouteSource.includes("requireOrgAdmin()") &&
+      directoryRouteSource.includes("organization.slug !== directory.config.orgSlug") &&
+      directoryRouteSource.includes('"Cache-Control": "no-store"'),
+  );
+  check(
+    "Entra-directoryconnector documenteert alleen minimale read-permissions",
+    environmentExample.includes("GroupMember.Read.All") &&
+      environmentExample.includes("User.Read.All") &&
+      environmentExample.includes("geen write-permissions") &&
+      !environmentExample.includes("GroupMember.ReadWrite.All"),
+  );
+  const yaazDirectorySource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/lib/careon-yaaz/directory.server.ts"),
+    "utf8",
+  );
+  check(
+    "YAAZ-directorykoppeling is apart, server-only en fail-closed",
+    yaazDirectorySource.includes('import "server-only"') &&
+      yaazDirectorySource.includes('CAREON_YAAZ_DIRECTORY_ENABLED !== "1"') &&
+      yaazDirectorySource.includes("CAREON_YAAZ_DIRECTORY_KEY") &&
+      !yaazDirectorySource.includes("NEXT_PUBLIC_CAREON_YAAZ_DIRECTORY_KEY"),
+  );
+  check(
+    "YAAZ-directorybearer volgt geen redirects en accepteert alleen de vaste statusroute",
+    yaazDirectorySource.includes('redirect: "error"') &&
+      yaazDirectorySource.includes("/microsoft-365/internal-directory") &&
+      yaazDirectorySource.includes("MAX_RESPONSE_BYTES") &&
+      yaazDirectorySource.includes("Authorization: `Bearer "),
   );
   check(
     "OAuth-redirect vertrouwt in productie alleen de canonieke app-URL",

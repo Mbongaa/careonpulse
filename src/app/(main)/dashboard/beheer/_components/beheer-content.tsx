@@ -8,6 +8,7 @@ import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/care
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
+import { EntraMembersPanel } from "./entra-members-panel";
 import { MemberActions } from "./member-actions";
 import { MemberCreateForm } from "./member-create-form";
 
@@ -71,7 +72,7 @@ export function BeheerContent() {
     <div className="@container/main flex flex-col gap-4 md:gap-6">
       <CareonPageHeader
         title="Gebruikersbeheer"
-        sub="Accounts van uw organisatie aanmaken en beheren — nieuwe collega's kiezen zelf een wachtwoord via de link die u persoonlijk doorgeeft."
+        sub="Microsoft-medewerkers en Careon-toegang vanuit één overzicht — Entra bepaalt werknemerstoegang, Careon blijft de bron voor rollen en modules."
       />
 
       {blocked && (
@@ -85,12 +86,14 @@ export function BeheerContent() {
 
       {!blocked && (
         <>
+          <EntraMembersPanel />
+
           <Card>
             <CardHeader>
-              <CardTitle>Leden van uw organisatie</CardTitle>
+              <CardTitle>Bestaande Careon-accounts</CardTitle>
               <CardDescription>
-                "Wachtwoord-link" maakt een nieuwe link waarmee het lid zelf een (nieuw) wachtwoord kiest; blokkeren
-                geldt direct en houdt aan tot u deblokkeert.
+                Rollen en blokkades beheert u altijd in Careon. De wachtwoord-link blijft alleen beschikbaar voor
+                uitzonderingen en break-glass; gewone werknemers gebruiken Microsoft.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -146,10 +149,10 @@ export function BeheerContent() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Nieuw account</CardTitle>
+              <CardTitle>Handmatig uitzonderingsaccount</CardTitle>
               <CardDescription>
-                Het account hoort automatisch bij uw organisatie en ziet dezelfde dashboarddata. Na het aanmaken
-                verschijnt een wachtwoord-link die u persoonlijk doorgeeft.
+                Alleen voor accounts buiten de goedgekeurde Microsoft-werknemersstroom. Gewone medewerkers hoeven niet
+                handmatig te worden uitgenodigd: hun eerste toegelaten Microsoft-login maakt de standaardrol.
               </CardDescription>
             </CardHeader>
             <CardContent>

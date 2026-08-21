@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { loginActorHash } from "@/lib/careon-assistant/runtime.server";
 import { scheduleAuditEvent } from "@/lib/careon-audit/audit.server";
+import { provisionEntraJitMembership } from "@/lib/careon-entra/jit.server";
 import { careonOAuthOrigin, isMicrosoftLoginEnabled } from "@/lib/supabase/oauth.server";
 import { supabaseServer } from "@/lib/supabase/server";
 
@@ -12,8 +13,10 @@ function loginRedirect(origin: string, error: string): NextResponse {
 }
 
 /** Wisselt de eenmalige PKCE-code om voor de gewone Supabase-cookie-sessie.
-    Geen JIT-lidmaatschap: een geldig Microsoft-account zonder vooraf
-    ingericht org-lidmaatschap wordt meteen weer uitgelogd. */
+    Een bestaand lid gaat direct door. Een nog niet ingericht account kan
+    uitsluitend via de dubbel gevalideerde, app-role-gated G01-A JIT-route
+    een normaal `member`-lidmaatschap krijgen; zonder complete configuratie of
+    geldige providerclaims blijft het bestaande uitlog-/weigerpad actief. */
 export async function GET(request: Request) {
   const origin = careonOAuthOrigin(request);
   if (!origin || !isMicrosoftLoginEnabled()) {
@@ -57,15 +60,27 @@ export async function GET(request: Request) {
     supabase.from("organization_members").select("org_id").eq("user_id", user.id).order("created_at").limit(1),
     supabase.from("platform_admins").select("user_id").eq("user_id", user.id).maybeSingle(),
   ]);
-  const orgId = (membership.data?.[0] as { org_id?: string } | undefined)?.org_id ?? null;
+  let orgId = (membership.data?.[0] as { org_id?: string } | undefined)?.org_id ?? null;
   const isPlatformAdmin = Boolean(platformAdmin.data);
+  let provisioning: "preprovisioned" | "jit_created" | "jit_existing" = "preprovisioned";
+  let jitStatus = "not_attempted";
+
+  if (!orgId && !isPlatformAdmin) {
+    const jit = await provisionEntraJitMembership(user);
+    jitStatus = jit.status;
+    if (jit.status === "created" || jit.status === "existing") {
+      orgId = jit.orgId;
+      provisioning = jit.status === "created" ? "jit_created" : "jit_existing";
+    }
+  }
+
   if (!orgId && !isPlatformAdmin) {
     await supabase.auth.signOut({ scope: "local" });
     scheduleAuditEvent({
       action: "auth.login_failed",
       resource: "auth",
       userId: user.id,
-      detail: { reason: "microsoft_no_access_assignment", actor },
+      detail: { reason: "microsoft_no_access_assignment", jit_status: jitStatus, actor },
     });
     return loginRedirect(origin, "microsoft-no-access");
   }
@@ -75,7 +90,7 @@ export async function GET(request: Request) {
     resource: "auth",
     orgId,
     userId: user.id,
-    detail: { actor },
+    detail: { actor, provisioning },
   });
   return NextResponse.redirect(`${origin}${isPlatformAdmin ? "/admin" : "/modules"}`, 303);
 }
