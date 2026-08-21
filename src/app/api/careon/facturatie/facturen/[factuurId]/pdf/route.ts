@@ -19,25 +19,34 @@ import { createHash } from "node:crypto";
 
 export const runtime = "nodejs";
 
+function privateNoStore<T>(response: NextResponse<T>): NextResponse<T> {
+  response.headers.set("Cache-Control", "private, no-store, max-age=0");
+  response.headers.set("Vary", "Cookie");
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  return response;
+}
+
 /** Download van de gearchiveerde pdf (service-role ná rolcheck; nooit een
     publieke of signed Storage-URL in de UI — handoff 15 §3.3). */
 export async function GET(_request: Request, context: { params: Promise<{ factuurId: string }> }) {
   const auth = await requireOrgAdmin();
-  if ("denied" in auth) return auth.denied;
+  if ("denied" in auth) return privateNoStore(auth.denied);
   const session = auth.session;
   const { factuurId } = await context.params;
 
   try {
     const rij = await haalFactuurRij(session, factuurId);
     if (!rij) {
-      return NextResponse.json({ error: "Deze factuur bestaat niet (meer) voor deze organisatie." }, { status: 404 });
+      return privateNoStore(
+        NextResponse.json({ error: "Deze factuur bestaat niet (meer) voor deze organisatie." }, { status: 404 }),
+      );
     }
     if (!rij.pdf_pad) {
-      return NextResponse.json({ error: "Pdf ontbreekt — genereer opnieuw." }, { status: 409 });
+      return privateNoStore(NextResponse.json({ error: "Pdf ontbreekt — genereer opnieuw." }, { status: 409 }));
     }
     const bytes = await downloadUitBucket(rij.pdf_pad);
     if (!bytes) {
-      return NextResponse.json({ error: "Pdf ontbreekt — genereer opnieuw." }, { status: 409 });
+      return privateNoStore(NextResponse.json({ error: "Pdf ontbreekt — genereer opnieuw." }, { status: 409 }));
     }
 
     scheduleAuditEvent({
@@ -48,15 +57,16 @@ export async function GET(_request: Request, context: { params: Promise<{ factuu
       userId: session.userId,
       detail: { nummer: rij.nummer },
     });
-    return new NextResponse(bytes, {
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${rij.nummer ?? "factuur"}.pdf"`,
-        "Cache-Control": "no-store",
-      },
-    });
+    return privateNoStore(
+      new NextResponse(bytes, {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename="${rij.nummer ?? "factuur"}.pdf"`,
+        },
+      }),
+    );
   } catch {
-    return NextResponse.json({ error: "Supabase niet bereikbaar." }, { status: 502 });
+    return privateNoStore(NextResponse.json({ error: "Supabase niet bereikbaar." }, { status: 502 }));
   }
 }
 
@@ -68,20 +78,24 @@ export async function GET(_request: Request, context: { params: Promise<{ factuu
  */
 export async function POST(_request: Request, context: { params: Promise<{ factuurId: string }> }) {
   const auth = await requireOrgAdmin();
-  if ("denied" in auth) return auth.denied;
+  if ("denied" in auth) return privateNoStore(auth.denied);
   const session = auth.session;
   const { factuurId } = await context.params;
 
   if (!storageBeschikbaar()) {
-    return NextResponse.json({ error: "Authenticatie is niet geconfigureerd." }, { status: 503 });
+    return privateNoStore(NextResponse.json({ error: "Authenticatie is niet geconfigureerd." }, { status: 503 }));
   }
   try {
     const rij = await haalFactuurRij(session, factuurId);
     if (!rij) {
-      return NextResponse.json({ error: "Deze factuur bestaat niet (meer) voor deze organisatie." }, { status: 404 });
+      return privateNoStore(
+        NextResponse.json({ error: "Deze factuur bestaat niet (meer) voor deze organisatie." }, { status: 404 }),
+      );
     }
     if (rij.status === "concept" || !rij.nummer) {
-      return NextResponse.json({ error: "Alleen uitgereikte facturen hebben een archief-pdf." }, { status: 409 });
+      return privateNoStore(
+        NextResponse.json({ error: "Alleen uitgereikte facturen hebben een archief-pdf." }, { status: 409 }),
+      );
     }
 
     const orgId = session.orgId as string;
@@ -118,12 +132,14 @@ export async function POST(_request: Request, context: { params: Promise<{ factu
       ok = (await genereerEnArchiveerPdf(orgId, factuurVanRij(rij))).ok;
     }
     if (!ok) {
-      return NextResponse.json(
-        {
-          error:
-            "De pdf kon niet worden gegenereerd. De factuur is wel uitgereikt; probeer de pdf opnieuw te genereren.",
-        },
-        { status: 502 },
+      return privateNoStore(
+        NextResponse.json(
+          {
+            error:
+              "De pdf kon niet worden gegenereerd. De factuur is wel uitgereikt; probeer de pdf opnieuw te genereren.",
+          },
+          { status: 502 },
+        ),
       );
     }
 
@@ -136,8 +152,8 @@ export async function POST(_request: Request, context: { params: Promise<{ factu
       detail: { nummer: rij.nummer },
     });
     const vers = await haalFactuurRij(session, factuurId);
-    return NextResponse.json({ configured: true, factuur: vers ? factuurVanRij(vers) : null });
+    return privateNoStore(NextResponse.json({ configured: true, factuur: vers ? factuurVanRij(vers) : null }));
   } catch {
-    return NextResponse.json({ error: "Supabase niet bereikbaar." }, { status: 502 });
+    return privateNoStore(NextResponse.json({ error: "Supabase niet bereikbaar." }, { status: 502 }));
   }
 }

@@ -282,6 +282,10 @@ const csvImportSource = readFileSync(
   resolve(repo, "src/app/(main)/dashboard/databron/_components/csv-import-card.tsx"),
   "utf8",
 );
+const factuurPdfRouteSource = readFileSync(
+  resolve(repo, "src/app/api/careon/facturatie/facturen/[factuurId]/pdf/route.ts"),
+  "utf8",
+);
 check(
   "native bestandsbrug vereist de exacte shell user-agent",
   nativeFileSource.includes('userAgent.startsWith("CareonPulseShell/")'),
@@ -305,6 +309,12 @@ check(
   true,
 );
 check("Databron gebruikt de gedeelde native bestandsbrug", csvImportSource.includes("saveBlobThroughCareon"), true);
+check(
+  "Facturatie-pdf is op elk antwoord private no-store",
+  factuurPdfRouteSource.includes("privateNoStore(auth.denied)") &&
+    factuurPdfRouteSource.includes('"private, no-store, max-age=0"'),
+  true,
+);
 
 console.log(`\n${checks - failures}/${checks} checks geslaagd.`);
 if (failures > 0) process.exit(1);
