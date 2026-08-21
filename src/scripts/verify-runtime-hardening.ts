@@ -214,15 +214,20 @@ async function main() {
   check(
     "Entra-directoryconnector blijft uit zonder volledige serverconfiguratie",
     directorySource.includes('CAREON_ENTRA_DIRECTORY_ENABLED !== "1"') &&
+      directorySource.includes("CAREON_ENTRA_DIRECTORY_SOURCE") &&
       directorySource.includes('status: "invalid_configuration"') &&
       !directorySource.includes("NEXT_PUBLIC_CAREON_ENTRA_DIRECTORY"),
   );
   check(
-    "Entra-directoryconnector leest alleen de ingestelde groep via vaste Graph-origin",
+    "Entra-directoryconnector leest alleen de ingestelde eligibility-bron via vaste Graph-origin",
     directorySource.includes('const GRAPH_ORIGIN = "https://graph.microsoft.com"') &&
-      directorySource.includes("config.groupId}/members") &&
+      directorySource.includes("/appRoleAssignedTo") &&
+      directorySource.includes("/members") &&
+      directorySource.includes('config.source === "group"') &&
+      directorySource.includes("/v1.0/$batch") &&
       directorySource.includes("url.origin === GRAPH_ORIGIN") &&
-      directorySource.includes("url.pathname.startsWith(expectedPrefix)") &&
+      directorySource.includes("url.pathname === graphCollectionPath(config)") &&
+      directorySource.includes('redirect: "error"') &&
       !directorySource.includes('method: "PATCH"') &&
       !directorySource.includes('method: "DELETE"'),
   );
@@ -235,8 +240,9 @@ async function main() {
   check(
     "Entra-directoryconnector documenteert alleen minimale read-permissions",
     environmentExample.includes("GroupMember.Read.All") &&
+      environmentExample.includes("Application.Read.All") &&
       environmentExample.includes("User.Read.All") &&
-      environmentExample.includes("geen write-permissions") &&
+      environmentExample.includes("nooit write-permissions") &&
       !environmentExample.includes("GroupMember.ReadWrite.All"),
   );
   const yaazDirectorySource = fs.readFileSync(

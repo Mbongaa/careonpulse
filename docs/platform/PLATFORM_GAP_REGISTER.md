@@ -49,7 +49,7 @@ Close and track the Careon Pulse/YAAZ professional-platform gaps across sessions
 
 Use a **split source-of-truth model**:
 
-- **Microsoft Entra ID is authoritative for employee identity and platform eligibility.** TGC-IT manages a dedicated Entra security group such as `Careon Pulse — Users` and assigns that group to the Careon enterprise application.
+- **Microsoft Entra ID is authoritative for employee identity and platform eligibility.** With TGC's current licensing, TGC-IT assigns approved employees directly to app role `Careon.User`; after P1/P2 is licensed for the eligible workforce, a dedicated `Careon Pulse — Users` security group can replace the direct list.
 - **Careon remains authoritative for organization membership details, Careon roles and module entitlements.** Directory membership never grants `org_admin`, superadmin, financial or clinical privileges automatically.
 - **Normal employees do not need a Careon invitation or password.** Their first successful Microsoft login creates or links the Supabase identity and creates a default TGC `member` membership, but only if all eligibility checks pass.
 - **A personal Microsoft 365/Graph data connection remains per-user.** Tenant-wide admin consent can remove the consent prompt, but delegated Outlook/Teams/SharePoint access still requires the employee to authenticate once; it must not be fabricated or impersonated in the background.
@@ -60,7 +60,7 @@ This is safer than treating all roughly 65 tenant directory objects as employees
 
 ### Confirmed sign-in/provisioning flow (D22)
 
-1. TGC-IT adds an employee to `Careon Pulse — Users`; the enterprise application has **user assignment required** enabled.
+1. TGC-IT assigns an approved employee to app role `Careon.User` (directly under the current licence, later through `Careon Pulse — Users`); the enterprise application has **user assignment required** enabled.
 2. The employee chooses **Inloggen met Microsoft**. Entra enforces the tenant's MFA and Conditional Access.
 3. Supabase creates a new auth identity or automatically links the Azure identity to an existing user only when the verified e-mail matches.
 4. The Careon callback validates, server-side, the Azure provider, exact configured tenant ID (`tid`), tenant-member claim (`acct=0`), verified-email claim (`xms_edov`) and normalized e-mail.
@@ -70,7 +70,7 @@ This is safer than treating all roughly 65 tenant directory objects as employees
 
 ### Directie employee-management experience
 
-Add an admin-only **Microsoft medewerkers** view to Careon Directie, alongside the current membership manager. It should reconcile an approved Entra group—not indiscriminately import the entire tenant—and show at least:
+Add an admin-only **Microsoft medewerkers** view to Careon Directie, alongside the current membership manager. It should reconcile the configured Entra eligibility source—not indiscriminately import the entire tenant—and show at least:
 
 | Field | Meaning |
 |---|---|
@@ -87,7 +87,7 @@ For a read-only interactive directory view, Microsoft Graph's user/group APIs ca
 
 | Phase | Scope | Result |
 |---|---|---|
-| G01-A | Dedicated assignment group, tenant/verified-email validation, group-gated just-in-time `member` creation, audit event and tests. | New eligible employees need no Careon invite; first Microsoft login provisions safe default access. |
+| G01-A | Curated app-role assignment source, tenant/verified-email validation, assignment-gated just-in-time `member` creation, audit event and tests. | New eligible employees need no Careon invite; first Microsoft login provisions safe default access. |
 | G01-B | Admin-only Entra/Careon/YAAZ reconciliation page with status filters and explicit role/entitlement actions. | Management can see rollout coverage and resolve exceptions from Careon Directie. |
 | G01-C | Scheduled/delta or SCIM-style reconciliation, disable/remove handling, Supabase session revocation and YAAZ Graph disconnect. | Entra eligibility changes reliably propagate to the full platform. |
 
@@ -146,3 +146,5 @@ Decision reference:
 - **21 Aug 2026 — G01-B application and cross-plane surface built:** an org-admin-only `/api/org/entra-members` route and Directie `Microsoft-medewerkers` panel reconcile the configured eligibility group with Careon identity/membership, YAAZ account/last login and personal Microsoft 365 connection presence. The Entra connector is separate from D20/D21, app-only, group-scoped, read-only and fail-closed. YAAZ `careon-m365` v0.3 exposes only a bounded OIDC/account status projection through a separate bearer-protected endpoint; it never selects provider tokens and degrades independently. Verification: Careon full CI green (998 product, 412 production, 145 assistant, 98 runtime-hardening and 34 queue checks), npm audit zero vulnerabilities, **130/130** browser tests; YAAZ **110/110** rollback checks plus live local 503-disabled, 401-wrong-bearer and 200-correct-bearer probes. The code is deployed on both planes but stays unavailable until its separate production configuration is deliberately activated. Module-entitlement columns and tenant activation remain.
 - **21 Aug 2026 — Entra inventory and first activation step:** the existing dynamic security group `Alle gebruikers` contains 66 direct users and its rule is effectively “All Users”; it is therefore not an acceptable Careon eligibility source. After D22 approval, the enabled Users/Groups app role `Careon.User` was created successfully on the existing single-tenant `Careon Pulse — login` registration; this did not assign or grant access to any employee. Pending tenant actions are a dedicated curated group/direct assignment list, optional ID-token claim `acct`, assignment-required policy, explicit assignments and denied/success acceptance accounts.
 - **21 Aug 2026 — G16 closed and G01 fail-closed production baseline deployed:** Careon commit `51bf605` and platform commits `c21da22` + LF portability fix `35d7124` are pushed; both working trees equal `origin/main`. Vercel's Git integration built `51bf605` as Ready/Production in 1m03s, with Microsoft login still enabled and all three new JIT/directory flags absent. YAAZ `careon-m365` 0.3.0 was deployed from the tracked archive after a verified backup at `/opt/platform-deploy/backups/code-20260821T134803Z-pre-c21da22.tar.gz`; host/runtime module manifests both hash to `d187521c491306a9133eec69eff7fae80889c62cad68221f7b63bc71b82e578a`, all containers are healthy, Graph read health is green with writes off, the normal module route redirects to login and `/microsoft-365/internal-directory` returns the intended disabled `503`.
+- **21 Aug 2026 — TGC licensing and identity reconciliation:** live Entra inventory shows 46 Microsoft 365 Business Standard licences and 1 Business Premium licence. Microsoft requires Entra ID P1/P2 for group-based enterprise-app assignment, so using one group for the broader workforce is not licence-compliant today; direct app-role assignments are the approved D22 fallback. Exact comparison found Hicham, Wida and Zairo as matching Entra members, while `hassan@tgcgroep.nl` has no Entra object and retains Careon password access. Zairo already had `Default Access`; no new assignments have been submitted yet.
+- **21 Aug 2026 — Directie connector adapted to current licensing:** the fail-closed read connector now accepts either the future group source or direct assignments to the one configured service principal/app-role. The direct mode reads `/servicePrincipals/{id}/appRoleAssignedTo` with application `Application.Read.All`, filters the exact role and resolves only assigned users through Graph batches capped at 20; `User.Read.All` supplies their status. Pagination is restricted to the exact configured Graph path, bearer-carrying requests reject redirects and no write methods exist. Full CI, production build and an isolated mocked token → assignments → batch test are green.

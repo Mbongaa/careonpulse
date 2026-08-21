@@ -142,7 +142,7 @@ export async function GET() {
     guests: members.filter((member) => member.userType === "Guest").length,
   };
   return NextResponse.json(
-    { configured: true, groupId: directory.config.groupId, yaazAvailable, members, summary },
+    { configured: true, eligibilitySource: directory.config.source, yaazAvailable, members, summary },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

@@ -35,7 +35,7 @@ interface EntraMemberRow {
 
 interface EntraPayload {
   configured: true;
-  groupId: string;
+  eligibilitySource: "app_role_assignments" | "group";
   yaazAvailable: boolean;
   members: EntraMemberRow[];
   summary: {
@@ -153,7 +153,7 @@ export function EntraMembersPanel() {
       <Card>
         <CardHeader>
           <CardTitle>Microsoft-medewerkers</CardTitle>
-          <CardDescription>De goedgekeurde Entra-groep en Careon-accounts worden vergeleken.</CardDescription>
+          <CardDescription>De goedgekeurde Entra-toegang en Careon-accounts worden vergeleken.</CardDescription>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">Medewerkers laden…</CardContent>
       </Card>
@@ -169,7 +169,7 @@ export function EntraMembersPanel() {
         </CardHeader>
         <CardContent className="flex items-start gap-3 text-muted-foreground text-sm">
           <ShieldAlert className="mt-0.5 size-4 shrink-0" />
-          Totdat TGC-IT de aparte leesconnector en eligibility-groep activeert, blijft het bestaande Careon-overzicht
+          Totdat TGC-IT de aparte leesconnector en eligibility-bron activeert, blijft het bestaande Careon-overzicht
           hieronder beschikbaar.
         </CardContent>
       </Card>
@@ -227,7 +227,11 @@ export function EntraMembersPanel() {
             <CardTitle id="entra-members-title">Microsoft-medewerkers</CardTitle>
             <CardDescription className="mt-1 max-w-3xl">
               Entra bepaalt wie werknemerstoegang mag krijgen. De Careon-rol blijft apart beheerd; een eerste
-              Microsoft-login kan alleen de standaardrol Gebruiker aanmaken.
+              Microsoft-login kan alleen de standaardrol Gebruiker aanmaken. Bron:{" "}
+              {payload.eligibilitySource === "app_role_assignments"
+                ? "directe Careon.User-toewijzingen"
+                : "goedgekeurde Entra-groep"}
+              .
             </CardDescription>
           </div>
           <Button type="button" variant="outline" onClick={() => void load()} disabled={loading}>

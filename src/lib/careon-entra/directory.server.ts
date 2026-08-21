@@ -3,13 +3,17 @@ import "server-only";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ORG_SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const GRAPH_ORIGIN = "https://graph.microsoft.com";
-const GRAPH_PATH_PREFIX = "/v1.0/groups/";
+
+export type EntraDirectorySource = "app_role_assignments" | "group";
 
 export interface EntraDirectoryConfig {
   tenantId: string;
   clientId: string;
   clientSecret: string;
-  groupId: string;
+  source: EntraDirectorySource;
+  groupId: string | null;
+  servicePrincipalId: string | null;
+  appRoleId: string | null;
   orgSlug: string;
 }
 
@@ -47,37 +51,57 @@ export function resolveEntraDirectoryConfig(
   | { status: "ready"; config: EntraDirectoryConfig } {
   if (environment.CAREON_ENTRA_DIRECTORY_ENABLED !== "1") return { status: "disabled" };
 
+  const sourceValue = text(environment.CAREON_ENTRA_DIRECTORY_SOURCE).toLowerCase();
+  const source = sourceValue === "group" || sourceValue === "app_role_assignments" ? sourceValue : null;
+  const groupId = text(environment.CAREON_ENTRA_DIRECTORY_GROUP_ID).toLowerCase();
+  const servicePrincipalId = text(environment.CAREON_ENTRA_DIRECTORY_SERVICE_PRINCIPAL_ID).toLowerCase();
+  const appRoleId = text(environment.CAREON_ENTRA_DIRECTORY_APP_ROLE_ID).toLowerCase();
   const config: EntraDirectoryConfig = {
     tenantId: text(environment.CAREON_ENTRA_DIRECTORY_TENANT_ID).toLowerCase(),
     clientId: text(environment.CAREON_ENTRA_DIRECTORY_CLIENT_ID).toLowerCase(),
     clientSecret: text(environment.CAREON_ENTRA_DIRECTORY_CLIENT_SECRET),
-    groupId: text(environment.CAREON_ENTRA_DIRECTORY_GROUP_ID).toLowerCase(),
+    source: source ?? "group",
+    groupId: source === "group" ? groupId : null,
+    servicePrincipalId: source === "app_role_assignments" ? servicePrincipalId : null,
+    appRoleId: source === "app_role_assignments" ? appRoleId : null,
     orgSlug: text(environment.CAREON_ENTRA_DIRECTORY_ORG_SLUG).toLowerCase(),
   };
   const invalidFields = [
+    !source ? "CAREON_ENTRA_DIRECTORY_SOURCE" : "",
     !UUID_PATTERN.test(config.tenantId) ? "CAREON_ENTRA_DIRECTORY_TENANT_ID" : "",
     !UUID_PATTERN.test(config.clientId) ? "CAREON_ENTRA_DIRECTORY_CLIENT_ID" : "",
     config.clientSecret.length < 16 ? "CAREON_ENTRA_DIRECTORY_CLIENT_SECRET" : "",
-    !UUID_PATTERN.test(config.groupId) ? "CAREON_ENTRA_DIRECTORY_GROUP_ID" : "",
+    source === "group" && !UUID_PATTERN.test(groupId) ? "CAREON_ENTRA_DIRECTORY_GROUP_ID" : "",
+    source === "app_role_assignments" && !UUID_PATTERN.test(servicePrincipalId)
+      ? "CAREON_ENTRA_DIRECTORY_SERVICE_PRINCIPAL_ID"
+      : "",
+    source === "app_role_assignments" && !UUID_PATTERN.test(appRoleId) ? "CAREON_ENTRA_DIRECTORY_APP_ROLE_ID" : "",
     !ORG_SLUG_PATTERN.test(config.orgSlug) ? "CAREON_ENTRA_DIRECTORY_ORG_SLUG" : "",
   ].filter(Boolean);
   return invalidFields.length > 0 ? { status: "invalid_configuration", invalidFields } : { status: "ready", config };
+}
+
+function graphCollectionPath(config: EntraDirectoryConfig): string {
+  return config.source === "group"
+    ? `/v1.0/groups/${config.groupId}/members`
+    : `/v1.0/servicePrincipals/${config.servicePrincipalId}/appRoleAssignedTo`;
 }
 
 function safeNextLink(value: unknown, config: EntraDirectoryConfig): string | null {
   if (typeof value !== "string") return null;
   try {
     const url = new URL(value);
-    const expectedPrefix = `${GRAPH_PATH_PREFIX}${config.groupId}/members`;
-    return url.origin === GRAPH_ORIGIN && url.pathname.startsWith(expectedPrefix) ? url.toString() : null;
+    return url.origin === GRAPH_ORIGIN && url.pathname === graphCollectionPath(config) ? url.toString() : null;
   } catch {
     return null;
   }
 }
 
-function graphMember(value: unknown): EntraDirectoryMember | null {
+function graphMember(value: unknown, requireUserTypeMarker: boolean): EntraDirectoryMember | null {
   const item = record(value);
-  if (item["@odata.type"] !== "#microsoft.graph.user" || !UUID_PATTERN.test(text(item.id))) return null;
+  if ((requireUserTypeMarker && item["@odata.type"] !== "#microsoft.graph.user") || !UUID_PATTERN.test(text(item.id))) {
+    return null;
+  }
   const userType = item.userType === "Member" || item.userType === "Guest" ? item.userType : "Unknown";
   return {
     entraObjectId: text(item.id),
@@ -102,6 +126,7 @@ async function applicationToken(config: EntraDirectoryConfig): Promise<string | 
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
     cache: "no-store",
+    redirect: "error",
     signal: AbortSignal.timeout(8_000),
   }).catch(() => null);
   if (!response?.ok) return null;
@@ -109,10 +134,95 @@ async function applicationToken(config: EntraDirectoryConfig): Promise<string | 
   return payload.token_type === "Bearer" && typeof payload.access_token === "string" ? payload.access_token : null;
 }
 
+async function pagedGraphValues(
+  initialUrl: string,
+  config: EntraDirectoryConfig,
+  accessToken: string,
+): Promise<{ status: "graph_unavailable" | "unexpected_response" } | { status: "ready"; values: unknown[] }> {
+  let nextUrl: string | null = initialUrl;
+  const values: unknown[] = [];
+
+  for (let page = 0; nextUrl && page < 5; page += 1) {
+    const response = await fetch(nextUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    }).catch(() => null);
+    if (!response?.ok) return { status: "graph_unavailable" };
+    const payload = record(await response.json().catch(() => null));
+    if (!Array.isArray(payload.value)) return { status: "unexpected_response" };
+    values.push(...payload.value);
+    const providedNext = typeof payload["@odata.nextLink"] === "string";
+    nextUrl = safeNextLink(payload["@odata.nextLink"], config);
+    if (providedNext && !nextUrl) return { status: "unexpected_response" };
+  }
+  if (nextUrl || values.length > 1_000) return { status: "unexpected_response" };
+  return { status: "ready", values };
+}
+
+function assignedUserId(value: unknown, appRoleId: string): string | null {
+  const item = record(value);
+  if (
+    item.principalType !== "User" ||
+    text(item.appRoleId).toLowerCase() !== appRoleId ||
+    !UUID_PATTERN.test(text(item.principalId))
+  ) {
+    return null;
+  }
+  return text(item.principalId).toLowerCase();
+}
+
+async function graphUsersById(
+  userIds: string[],
+  accessToken: string,
+): Promise<
+  { status: "graph_unavailable" | "unexpected_response" } | { status: "ready"; members: EntraDirectoryMember[] }
+> {
+  const byId = new Map<string, EntraDirectoryMember>();
+  const select = "id,displayName,mail,userPrincipalName,jobTitle,userType,accountEnabled";
+
+  for (let start = 0; start < userIds.length; start += 20) {
+    const batch = userIds.slice(start, start + 20);
+    const response = await fetch(`${GRAPH_ORIGIN}/v1.0/$batch`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requests: batch.map((userId, index) => ({
+          id: String(index + 1),
+          method: "GET",
+          url: `/users/${userId}?$select=${select}`,
+        })),
+      }),
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
+    }).catch(() => null);
+    if (!response?.ok) return { status: "graph_unavailable" };
+    const payload = record(await response.json().catch(() => null));
+    if (!Array.isArray(payload.responses) || payload.responses.length !== batch.length) {
+      return { status: "unexpected_response" };
+    }
+    for (const item of payload.responses) {
+      const entry = record(item);
+      const requestIndex = Number.parseInt(text(entry.id), 10) - 1;
+      const expectedId = batch[requestIndex];
+      const member = entry.status === 200 ? graphMember(entry.body, false) : null;
+      if (!expectedId || !member || member.entraObjectId.toLowerCase() !== expectedId) {
+        return { status: "unexpected_response" };
+      }
+      byId.set(member.entraObjectId, member);
+    }
+  }
+  return byId.size === userIds.length
+    ? { status: "ready", members: [...byId.values()] }
+    : { status: "unexpected_response" };
+}
+
 /**
- * Reads only the explicitly configured eligibility group. The connector has
- * no write methods and accepts pagination links only from the fixed Graph
- * origin and group path.
+ * Reads one explicitly configured eligibility source: either direct app-role
+ * assignments (the licence-safe TGC fallback) or a group. The connector has
+ * no write methods and accepts pagination only on its exact Graph path.
  */
 export async function listEntraDirectoryMembers(): Promise<EntraDirectoryResult> {
   const configResult = resolveEntraDirectoryConfig();
@@ -122,32 +232,37 @@ export async function listEntraDirectoryMembers(): Promise<EntraDirectoryResult>
   if (!accessToken) return { status: "token_unavailable" };
 
   const select = "id,displayName,mail,userPrincipalName,jobTitle,userType,accountEnabled";
-  let nextUrl: string | null =
-    `${GRAPH_ORIGIN}${GRAPH_PATH_PREFIX}${config.groupId}/members?$select=${select}&$top=999`;
-  const byId = new Map<string, EntraDirectoryMember>();
+  const initialUrl =
+    config.source === "group"
+      ? `${GRAPH_ORIGIN}${graphCollectionPath(config)}?$select=${select}&$top=999`
+      : `${GRAPH_ORIGIN}${graphCollectionPath(config)}?$select=principalId,principalType,appRoleId&$top=999`;
+  const pageResult = await pagedGraphValues(initialUrl, config, accessToken);
+  if (pageResult.status !== "ready") return pageResult;
 
-  for (let page = 0; nextUrl && page < 5; page += 1) {
-    const response = await fetch(nextUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      cache: "no-store",
-      signal: AbortSignal.timeout(10_000),
-    }).catch(() => null);
-    if (!response?.ok) return { status: "graph_unavailable" };
-    const payload = record(await response.json().catch(() => null));
-    if (!Array.isArray(payload.value)) return { status: "unexpected_response" };
-    for (const item of payload.value) {
-      const member = graphMember(item);
+  let members: EntraDirectoryMember[];
+  if (config.source === "group") {
+    const byId = new Map<string, EntraDirectoryMember>();
+    for (const item of pageResult.values) {
+      const member = graphMember(item, true);
       if (member) byId.set(member.entraObjectId, member);
     }
-    const providedNext = typeof payload["@odata.nextLink"] === "string";
-    nextUrl = safeNextLink(payload["@odata.nextLink"], config);
-    if (providedNext && !nextUrl) return { status: "unexpected_response" };
+    members = [...byId.values()];
+  } else {
+    const userIds = [
+      ...new Set(
+        pageResult.values
+          .map((item) => assignedUserId(item, config.appRoleId as string))
+          .filter((value): value is string => value !== null),
+      ),
+    ];
+    const userResult = await graphUsersById(userIds, accessToken);
+    if (userResult.status !== "ready") return userResult;
+    members = userResult.members;
   }
-  if (nextUrl) return { status: "unexpected_response" };
 
   return {
     status: "ready",
     config,
-    members: [...byId.values()].sort((a, b) => a.displayName.localeCompare(b.displayName, "nl")),
+    members: members.sort((a, b) => a.displayName.localeCompare(b.displayName, "nl")),
   };
 }
