@@ -97,9 +97,14 @@ async function main() {
     path.resolve(process.cwd(), "supabase/migrations/20260821131342_entra_jit_membership.sql"),
     "utf8",
   );
+  const currentJwtRoleGuardMigration = fs.readFileSync(
+    path.resolve(process.cwd(), "supabase/migrations/20260821155300_current_postgrest_jwt_role_guard.sql"),
+    "utf8",
+  );
   check(
     "Entra JIT-RPC is service-role-only en kent uitsluitend de memberrol toe",
-    jitMigration.includes("current_setting('request.jwt.claim.role', true)") &&
+    currentJwtRoleGuardMigration.includes("coalesce(auth.jwt() ->> ''role'', '''')") &&
+      currentJwtRoleGuardMigration.includes("careon_provision_entra_member(uuid,text,text,text)") &&
       jitMigration.includes("revoke all on function public.careon_provision_entra_member") &&
       jitMigration.includes("grant execute on function public.careon_provision_entra_member") &&
       jitMigration.includes("to service_role") &&
@@ -283,7 +288,10 @@ async function main() {
   check(
     "Entra-lifecycle bewaart service-only observaties en beschermt beheerders",
     lifecycleMigration.includes("alter table public.careon_entra_lifecycle force row level security") &&
-      lifecycleMigration.includes("current_setting('request.jwt.claim.role', true)") &&
+      currentJwtRoleGuardMigration.includes("careon_reconcile_entra_snapshot(text,jsonb,integer)") &&
+      currentJwtRoleGuardMigration.includes(
+        "careon_finalize_entra_lifecycle_action(text,uuid,text,boolean,text,text)",
+      ) &&
       lifecycleMigration.includes("v_org_role = 'org_admin'") &&
       lifecycleMigration.includes("public.platform_admins") &&
       lifecycleMigration.includes("p_missing_threshold not between 2 and 24") &&
