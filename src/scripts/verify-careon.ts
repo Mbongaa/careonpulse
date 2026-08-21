@@ -1286,6 +1286,7 @@ check(
   true,
 );
 const facturatieTegel = CAREON_MODULES.find((mod) => mod.id === "careon-facturatie");
+const yaazTegel = CAREON_MODULES.find((mod) => mod.id === "yaaz");
 check("register: facturatietegel is live op /facturatie", facturatieTegel?.href, "/facturatie");
 check("register: facturatietegel is beheerder-only", facturatieTegel?.zichtbaarVoor, "org_admin");
 
@@ -1298,6 +1299,11 @@ check(
   "careon-mark",
 );
 check("register: facturatietegel heeft geen beeldmerk (klant: 'gewoon goed zo')", facturatieTegel?.logo, undefined);
+check("register: YAAZ-tegel draagt een professionele wordmark", yaazTegel?.logo, {
+  type: "wordmark",
+  label: "YAAZ",
+});
+check("register: YAAZ-omschrijving is volledig Nederlands", yaazTegel?.description.includes("Spaces"), false);
 check(
   "register: bestandslogo's komen uit /public met positieve afmetingen",
   CAREON_MODULES.every(

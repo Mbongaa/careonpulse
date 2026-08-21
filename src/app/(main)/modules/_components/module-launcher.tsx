@@ -24,21 +24,36 @@ import { cn } from "@/lib/utils";
 // tegelnaam staat er als tekst naast, dus geen alt-tekst (anders leest de
 // link "YAAZ YAAZ …").
 function ModuleLogo({ logo, gedempt }: Readonly<{ logo: CareonModuleLogo; gedempt?: boolean }>) {
-  return (
-    <span className={cn("careon-brand flex h-12 shrink-0 items-center", gedempt && "opacity-60")}>
-      {logo.type === "careon-mark" ? (
-        <CareonMark animation="none" className="size-12" />
-      ) : (
-        <Image
-          src={logo.src}
-          alt=""
-          width={logo.breedte}
-          height={logo.hoogte}
-          className={cn("h-full w-auto max-w-24 object-contain object-left", logo.wit && "invert dark:invert-0")}
-        />
-      )}
-    </span>
-  );
+  let inhoud: ReactNode;
+  if (logo.type === "careon-mark") {
+    inhoud = <CareonMark animation="none" className="size-12" />;
+  } else if (logo.type === "wordmark") {
+    inhoud = (
+      <span
+        aria-hidden="true"
+        className="relative flex h-12 w-24 items-center justify-center overflow-hidden rounded-xl border border-[#6878ff]/35 bg-[#0c1234] shadow-[0_10px_28px_-16px_rgba(61,206,255,0.9)]"
+      >
+        <span className="absolute -top-7 left-1/2 size-16 -translate-x-1/2 rounded-full bg-[#344cff]/35 blur-xl" />
+        <span className="absolute -right-4 -bottom-5 size-12 rounded-full bg-[#d533ff]/30 blur-lg" />
+        <span className="absolute top-2 left-2 size-1.5 rounded-full bg-[#52d5ff] shadow-[0_0_10px_#52d5ff]" />
+        <span className="relative bg-gradient-to-r from-[#67dbff] via-white to-[#dc7dff] bg-clip-text font-black text-base text-transparent tracking-[0.18em]">
+          {logo.label}
+        </span>
+      </span>
+    );
+  } else {
+    inhoud = (
+      <Image
+        src={logo.src}
+        alt=""
+        width={logo.breedte}
+        height={logo.hoogte}
+        className={cn("h-full w-auto max-w-24 object-contain object-left", logo.wit && "invert dark:invert-0")}
+      />
+    );
+  }
+
+  return <span className={cn("careon-brand flex h-12 shrink-0 items-center", gedempt && "opacity-60")}>{inhoud}</span>;
 }
 
 // Kop van de tegel: optioneel beeldmerk links, daarnaast naam (+ pijl of

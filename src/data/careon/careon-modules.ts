@@ -17,7 +17,8 @@ export type CareonModuleZichtbaarheid = "iedereen" | "org_admin";
     zou het onzichtbaar zijn op de witte kaart. */
 export type CareonModuleLogo =
   | { type: "careon-mark" }
-  | { type: "image"; src: string; breedte: number; hoogte: number; wit?: boolean };
+  | { type: "image"; src: string; breedte: number; hoogte: number; wit?: boolean }
+  | { type: "wordmark"; label: string };
 
 export type CareonModule = {
   id: string;
@@ -42,11 +43,11 @@ export type CareonModule = {
 // dezelfde code geldig blijft voor omgevingen zonder draaiende comms-plane.
 const YAAZ_URL = process.env.NEXT_PUBLIC_YAAZ_URL;
 
-// YAAZ-beeldmerk (wit) volgt nog van de klant (14-08-2026). Zodra het bestand
-// er is: zet het in public/branding/ (bijv. yaaz-logo-wit.svg) en vul hier
-// `{ type: "image", src: "/branding/yaaz-logo-wit.svg", breedte: …, hoogte: …, wit: true }`
-// in — de tegel toont het dan links van de naam, in beide statussen (live/binnenkort).
-const YAAZ_LOGO: CareonModuleLogo | undefined = undefined;
+// Professionele product-wordmark zolang de klant geen officieel los YAAZ-
+// beeldbestand heeft aangeleverd. De variant is bewust tekst/CSS: scherp op
+// ieder scherm, geen verzonnen beeldmerk en later één-op-één vervangbaar door
+// een goedgekeurd bestand uit /public/branding.
+const YAAZ_LOGO: CareonModuleLogo = { type: "wordmark", label: "YAAZ" };
 
 export const CAREON_MODULES: readonly CareonModule[] = [
   {
@@ -61,7 +62,7 @@ export const CAREON_MODULES: readonly CareonModule[] = [
     ? {
         id: "yaaz",
         name: "YAAZ",
-        description: "Communicatieplatform: nieuwsfeed, berichten, Spaces en bestanden.",
+        description: "Communicatieplatform: nieuws, gesprekken, ruimtes en documenten.",
         status: "live",
         href: YAAZ_URL,
         logo: YAAZ_LOGO,
