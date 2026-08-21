@@ -910,6 +910,122 @@ html[data-theme-mode="careon"] [data-slot="sidebar-inset"] > div:has(> [data-car
   }
 }
 
+/* Careon brand, doorlopende hartslag (`CareonMark animation="loop"`, klant-
+   verzoek 14-08-2026 voor de modulekiezer: "moet blijven bewegen"). Na de
+   intro hierboven start op 3,6s een cyclus van 1,5s die blijft herhalen: een
+   puls in het merkverloop (kop, midden, staart — oplopende dekking; lichte
+   tint op donkere thema's, diepere tint op het lichte thema zodat het contrast
+   op de witte kaart toeneemt i.p.v. wegvalt) loopt van links naar rechts over
+   de hartslaglijn (0–60%), en de lijn klopt mee wanneer de kop de piek
+   passeert (12–36%: 1 → 1.14 → 0.99 → 1.06 → 1). De lijn zelf blijft
+   volledig getekend. Dashes lopen in pathLength-eenheden: kop = einde van de
+   dash, buiten [0,1] is de puls onzichtbaar (ook zonder animatie, dus ook
+   onder prefers-reduced-motion). De verloop-id's komen als CSS-variabelen van
+   het svg-element (uniek per instantie). */
+.careon-mark-beat-group {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.careon-mark-trace {
+  stroke: var(--careon-trace-tint, #8fc3ff);
+  opacity: 0.35;
+  stroke-dasharray: 0.3 1.7;
+  stroke-dashoffset: 0.35;
+}
+
+.careon-mark-trace-mid {
+  opacity: 0.6;
+  stroke-dasharray: 0.2 1.8;
+  stroke-dashoffset: 0.25;
+}
+
+.careon-mark-trace-core {
+  opacity: 1;
+  stroke-dasharray: 0.1 1.9;
+  stroke-dashoffset: 0.15;
+}
+
+html:not(.dark) .careon-mark-trace {
+  stroke: var(--careon-trace-shade, #0d5fd6);
+}
+
+@keyframes careon-trace-tail {
+  0% {
+    stroke-dashoffset: 0.35;
+  }
+
+  60%,
+  100% {
+    stroke-dashoffset: -1.05;
+  }
+}
+
+@keyframes careon-trace-mid {
+  0% {
+    stroke-dashoffset: 0.25;
+  }
+
+  60%,
+  100% {
+    stroke-dashoffset: -1.15;
+  }
+}
+
+@keyframes careon-trace-core {
+  0% {
+    stroke-dashoffset: 0.15;
+  }
+
+  60%,
+  100% {
+    stroke-dashoffset: -1.25;
+  }
+}
+
+@keyframes careon-beat-thump {
+  0%,
+  12% {
+    transform: scale(1);
+    animation-timing-function: cubic-bezier(0.3, 0, 0.15, 1);
+  }
+
+  18% {
+    transform: scale(1.14);
+  }
+
+  24% {
+    transform: scale(0.99);
+  }
+
+  29% {
+    transform: scale(1.06);
+  }
+
+  36%,
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .careon-mark-loop .careon-mark-beat-group {
+    animation: careon-beat-thump 1.5s linear 3.6s infinite;
+  }
+
+  .careon-mark-loop .careon-mark-trace-tail {
+    animation: careon-trace-tail 1.5s linear 3.6s infinite;
+  }
+
+  .careon-mark-loop .careon-mark-trace-mid {
+    animation: careon-trace-mid 1.5s linear 3.6s infinite;
+  }
+
+  .careon-mark-loop .careon-mark-trace-core {
+    animation: careon-trace-core 1.5s linear 3.6s infinite;
+  }
+}
+
 /* Careon: invalid-login shake feedback */
 @keyframes careon-shake {
   10%,

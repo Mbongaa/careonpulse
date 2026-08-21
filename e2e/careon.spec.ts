@@ -17,6 +17,14 @@ test.describe("auth", () => {
     await expect(response.json()).resolves.toMatchObject({ configured: false, demo: true });
   });
 
+  test("demo keeps Microsoft federation fail-closed", async ({ page, request }) => {
+    const response = await request.get("/api/auth/microsoft");
+    expect(response.status()).toBe(503);
+
+    await page.goto(LOGIN_URL);
+    await expect(page.getByRole("link", { name: "Inloggen met Microsoft" })).toHaveCount(0);
+  });
+
   test("unauthenticated dashboard visit redirects to login", async ({ page }) => {
     const response = await page.goto("/dashboard/directiecockpit");
     const csp = response?.headers()["content-security-policy"] ?? "";
@@ -71,6 +79,17 @@ test.describe("auth", () => {
     await page.getByRole("button", { name: "Inloggen" }).click();
     await page.waitForURL("**/modules");
     await expect(page.getByRole("heading", { name: "Kies een module" })).toBeVisible();
+
+    // Merk boven de kop (klantverzoek 14-08-2026): het hero-merkteken met de
+    // doorlopende hartslag staat precies één keer op het scherm, de kopregel
+    // houdt de gewone (eenmalige) lockup en de Directie-tegel draagt het
+    // statische merkteken.
+    await expect(page.locator('[data-careon-mark="loop"]')).toHaveCount(1);
+    await expect(page.locator("header").locator('[data-careon-mark="once"]')).toHaveCount(1);
+    await expect(
+      page.getByRole("link", { name: /Careon Pulse Directie/ }).locator('[data-careon-mark="none"]'),
+    ).toHaveCount(1);
+    await expect(page.getByRole("link", { name: /Facturatie/ }).locator("[data-careon-mark]")).toHaveCount(0);
 
     // YAAZ: met NEXT_PUBLIC_YAAZ_URL in de build is de tegel een externe link
     // naar de comms-plane; zonder die URL blijft het bewust "binnenkort" zonder
@@ -547,6 +566,17 @@ test.describe("databron", () => {
     await loginViaSession(page);
     await page.goto("/dashboard/databron");
     await expect(page.getByRole("heading", { name: "Databron" })).toBeVisible();
+  });
+
+  test("AI update entry point keeps the manual import workflow", async ({ page }) => {
+    const aiUpdate = page.getByRole("button", { name: "Update imports through AI" });
+    await expect(aiUpdate).toBeVisible();
+    // The isolated suite runs in explicit demo mode; the live authenticated
+    // smoke below verifies the enabled/job path. Demo must fail closed.
+    await expect(aiUpdate).toBeDisabled();
+    await expect(page.getByText("Sleep de cliëntendata-export hierheen of klik om te bladeren")).toBeVisible();
+    await expect(page.locator('input[type="file"][accept*=".csv"]').first()).toBeAttached();
+    await expect(page.getByText("De handmatige import hieronder blijft altijd beschikbaar.")).toBeVisible();
   });
 
   test("API preview flow is explicit and restores demo", async ({ page }) => {

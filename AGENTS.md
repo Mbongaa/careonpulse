@@ -136,7 +136,7 @@ Keep a component inside its route until it is reused by another feature. Do not 
 
 This repository is one module of the **Careon Pulse** multi-module platform: a Flutter shell app + a Supabase identity hub (OAuth 2.1 / OIDC) + independent modules (this dashboard, the HumHub communication platform, JaaS meetings, and the recording/AI module).
 
-Platform-level architecture, the decision log (D1–D18), the roadmap, and cross-repo rules live in `docs/platform/PLATFORM_BLUEPRINT.md`. Read it before any work that touches authentication, organizations/roles, tile entitlements, the OAuth 2.1 server configuration, or integration with other modules. Decisions marked **Confirmed** there must not be changed silently — propose alternatives explicitly with consequences.
+Platform-level architecture, the decision log (D1–D21), the roadmap, and cross-repo rules live in `docs/platform/PLATFORM_BLUEPRINT.md`. Read it before any work that touches authentication, organizations/roles, tile entitlements, the OAuth 2.1 server configuration, Microsoft Entra/Graph, or integration with other modules. Decisions marked **Confirmed** there must not be changed silently — propose alternatives explicitly with consequences.
 
 Current platform state, phase progress, and next milestones are tracked in `docs/platform/PROJECT_STATUS.md` — update it when a milestone changes state.
 

@@ -9,11 +9,23 @@ export type CareonModuleStatus = "live" | "coming-soon";
     de launcher-client krijgt alleen de al gefilterde lijst als prop. */
 export type CareonModuleZichtbaarheid = "iedereen" | "org_admin";
 
+/** Beeldmerk op de moduletegel (klantverzoek 14-08-2026), naast de bestaande
+    naam en omschrijving. "careon-mark" = het statische Careon Pulse-merkteken
+    (CareonMark, animatie uit); "image" = een bestand uit /public (breedte en
+    hoogte in px, zodat de tegel geen layout-sprong maakt). `wit` markeert een
+    wit beeldmerk: op het lichte thema wordt het geïnverteerd getoond, anders
+    zou het onzichtbaar zijn op de witte kaart. */
+export type CareonModuleLogo =
+  | { type: "careon-mark" }
+  | { type: "image"; src: string; breedte: number; hoogte: number; wit?: boolean };
+
 export type CareonModule = {
   id: string;
   name: string;
   description: string;
   status: CareonModuleStatus;
+  /** Optioneel beeldmerk links van naam en omschrijving op de tegel; zonder = alleen tekst. */
+  logo?: CareonModuleLogo;
   /**
    * Route van de module; alleen aanwezig wanneer status "live" is. Interne
    * routes ("/dashboard/…") navigeren binnen de app; een volledige URL opent
@@ -30,6 +42,12 @@ export type CareonModule = {
 // dezelfde code geldig blijft voor omgevingen zonder draaiende comms-plane.
 const YAAZ_URL = process.env.NEXT_PUBLIC_YAAZ_URL;
 
+// YAAZ-beeldmerk (wit) volgt nog van de klant (14-08-2026). Zodra het bestand
+// er is: zet het in public/branding/ (bijv. yaaz-logo-wit.svg) en vul hier
+// `{ type: "image", src: "/branding/yaaz-logo-wit.svg", breedte: …, hoogte: …, wit: true }`
+// in — de tegel toont het dan links van de naam, in beide statussen (live/binnenkort).
+const YAAZ_LOGO: CareonModuleLogo | undefined = undefined;
+
 export const CAREON_MODULES: readonly CareonModule[] = [
   {
     id: "careon-pulse-directie",
@@ -37,6 +55,7 @@ export const CAREON_MODULES: readonly CareonModule[] = [
     description: "Zorgdashboard met KPI's, signaleringen, financieel en de AI-assistent.",
     status: "live",
     href: "/dashboard/directiecockpit",
+    logo: { type: "careon-mark" },
   },
   YAAZ_URL
     ? {
@@ -45,12 +64,14 @@ export const CAREON_MODULES: readonly CareonModule[] = [
         description: "Communicatieplatform: nieuwsfeed, berichten, Spaces en bestanden.",
         status: "live",
         href: YAAZ_URL,
+        logo: YAAZ_LOGO,
       }
     : {
         id: "yaaz",
         name: "YAAZ",
         description: "Nieuwe module binnen Careon Pulse.",
         status: "coming-soon",
+        logo: YAAZ_LOGO,
       },
   // Facturatie (handoff 15): beheerdersmodule — alleen zichtbaar voor
   // org_admins/superadmins mét organisatie (en het demo-account, B12).

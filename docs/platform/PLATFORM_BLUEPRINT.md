@@ -1,6 +1,6 @@
 # Careon Pulse — Platform Blueprint
 
-**Version:** 2.2 · **Date:** 13 August 2026 · **Status:** Approved for implementation · **Supersedes:** v2.1 (adds D20, hybrid authentication / Entra ID federation) · v2.0 (adds D19, facturatie module) · v1.0 (single-app HumHub blueprint)
+**Version:** 2.3 · **Date:** 20 August 2026 · **Status:** Approved for implementation · **Adds:** D21, delegated Microsoft 365 data plane in YAAZ · **Supersedes:** v2.2 (D20, hybrid authentication / Entra ID federation) · v2.1 (D19, facturatie module) · v1.0 (single-app HumHub blueprint)
 **Prepared by:** Bayaan Hub · **Product:** Careon Pulse · **Current organization:** TGC Groep (multi-org-ready)
 
 This document is the implementation source of truth for **Careon Pulse**: a multi-module employee platform in which users sign in once and open the modules their account is entitled to — the healthcare KPI dashboard (live today), the communication platform, and audio/video meetings with optional recording and AI meeting documentation. It is the **umbrella guide for AI agents and developers across all Careon Pulse repositories**; repository-local AGENTS.md files govern local conventions and defer to this document for platform-level decisions. Decisions marked **Confirmed** must not be changed silently; propose alternatives explicitly with consequences (Section 2).
@@ -13,13 +13,13 @@ Careon Pulse is delivered as a **shell + modules** platform. A custom Flutter **
 
 The **identity hub** is the existing Careon Pulse Supabase project (EU): Supabase Auth extended with its OAuth 2.1 / OIDC server, reusing the organization/member/role model already in production for the dashboard. **Module 1 — Pulse dashboard** is live: a Dutch healthcare KPI dashboard (Next.js on Vercel) with organization-scoped RLS and a hardened OpenAI-based assistant. **Module 2 — Communication** is HumHub (PHP 8 / Yii2 / MariaDB) on a Hetzner VPS deployed by Coolify: feeds, chat, Spaces, files, notifications — roughly 80% of a Speakap-class platform out of the box. **Module 3 — Meetings** adds JaaS (8x8) rooms through the custom `meeting-core` module, with a native Jitsi screen in the shell. The optional **recording + AI module** archives meeting recordings to Cloudflare R2 and produces transcripts, summaries, decisions, and action items via Gemini on Vertex AI (EU) — Gemini is used **only** for meeting intelligence; the dashboard assistant remains on its pinned OpenAI setup.
 
-The platform is **multi-organization by design**: TGC Groep is the current organization, and further organizations can be onboarded later (each with its own memberships, entitlements, and its own HumHub installation, while identity stays central).
+The platform is **multi-organization by design**: TGC Groep is the current organization, and further organizations can be onboarded later (each with its own memberships, entitlements, and its own HumHub installation, while identity stays central). For Microsoft 365 organizations, YAAZ additionally presents Outlook, calendar, Teams, SharePoint and shared documents through delegated Microsoft Graph access; the employee's existing Microsoft permissions remain authoritative (D21).
 
 Delivery keeps the contracted phase structure — Phase 1 base platform, Phase 2 calling, Phase 3 recording & AI — extended in Phase 1 with the shell app and identity integration (additional scope, priced separately; Section 21). Hosting is heterogeneous by intent: Vercel for the dashboard, Supabase for identity and dashboard data, Hetzner + Coolify for HumHub and the processing pipeline, with JaaS, R2, and Vertex as managed external services.
 
 ## 2. Confirmed Decisions (Decision Log)
 
-Any change to a Confirmed decision must be proposed as an explicit alternative with consequences (cost, scope, timeline) — never applied silently. D1–D12 originate in v1.0 (D4 revised); D13–D18 were added in v2.0; D19 was added in v2.1 (facturatie module); D20 was added in v2.2 (hybrid authentication — Entra ID federation, owner-confirmed 13 Aug 2026).
+Any change to a Confirmed decision must be proposed as an explicit alternative with consequences (cost, scope, timeline) — never applied silently. D1–D12 originate in v1.0 (D4 revised); D13–D18 were added in v2.0; D19 was added in v2.1 (facturatie module); D20 was added in v2.2 (hybrid authentication — Entra ID federation, owner-confirmed 13 Aug 2026); D21 was added in v2.3 (delegated Microsoft 365 data plane in YAAZ, owner-confirmed 20 Aug 2026 following the client's explicit Office 365 request).
 
 | # | Decision | Choice (Confirmed) | Rationale | Rejected alternatives |
 |---|---|---|---|---|
@@ -43,6 +43,7 @@ Any change to a Confirmed decision must be proposed as an explicit alternative w
 | D18 | Repositories | `careonpulse` stays a single-app repo and hosts the umbrella docs; shell, HumHub modules, and deploy live in sibling repos | The dashboard's CI gates are tuned to one Next.js app; Flutter + PHP would fight them | One physical monorepo |
 | D19 | Facturatie module (v2.1) | Invoicing is a standalone route section (`/facturatie`, own module shell + menu) with its own Supabase schema **inside Module 1**, not a fifth repo or OIDC client. Access limited to `org_admin` + superadmins **with** org membership, enforced on four layers (launcher filter, server page gate, `requireOrgAdmin()` per API route, RLS `app.mag_facturatie_zien`); tile visibility is a precursor of D13 entitlements, not a replacement. No AI tools on invoice data in phase A (privacy grounds; D17 unchanged). Final PDFs live immutably in the platform's **first Supabase Storage bucket** (`facturen`, private, EU) with its own backup regime — D8 (R2) stays recordings/HumHub-backups only. E-mail dispatch is phase B; the transactional mail provider will be **one platform-wide choice** (dashboard + HumHub `SMTP_*` in `platform-deploy`, same sender domain/DKIM/SPF), settled with a DPA before the first real send. **Amendment 13 Aug 2026 (owner decision): the provider is Resend (US)**, deviating from the EU-sovereign proposal (Brevo) in client answer V17. Consequences, explicitly accepted by the owner: US jurisdiction (CLOUD Act) and DPF/SCC reliance for the recipient address and the attached invoice PDF — which for private clients implies GGZ care. Mitigations: DPA incl. SCCs signed **before** activation, dispatch fail-closed until then, and the provider isolated in one file (`mail.server.ts`) so swapping back stays a small change. The platform-wide clause (same provider for HumHub `SMTP_*`) stays in force. Full spec: `agent-handoff/15-facturatie.md`. | The CI gates are tuned to one Next.js app (D18) and hosting/auth stay unchanged (D15); D14 stays intact because invoice data lives under the dashboard plane's first-party sessions and RLS | Separate first-party Supabase app (allowed by D14 §4 but fights D18) |
 | D20 | Authentication methods (v2.2) | **Hybrid authentication; login method is organization policy** (owner-confirmed 13 Aug 2026). The Supabase hub (D14) stays the single identity point for all modules; Microsoft **Entra ID federates into the hub as an upstream provider** (Supabase Azure provider; single-tenant app registration in the customer's tenant). Modules keep speaking OIDC to the hub and never see Entra. "Inloggen met Microsoft" becomes the primary path for TGC employees; e-mail/wachtwoord stays for platform administration, demo/e2e, and break-glass. **No JIT membership**: an Entra login without a provisioned account gets a Supabase user but no `organization_members` row → no access (existing behavior, deliberate). Identity linking requires verified-e-mail equality (UPN/primary mail must equal the account e-mail). Enforcement is phase 2: `sso_verplicht` per organization (exception: `platform_admins`), activated for TGC only after proven adoption. Full spec: `agent-handoff/16-office365-yaaz-modules.md`. | Employees log in with their existing Microsoft work account incl. TGC's own MFA/conditional-access; Entra offboarding locks the account out of every module at next token refresh; removes employee passwords to phish (structural fix for the weak-password finding, audit 29 Jul 2026) | Microsoft-only platform-wide (breaks superadmin outside the tenant, demo/e2e accounts, non-M365 organizations per D16, and break-glass); Entra as direct IdP per module (breaks D14, duplicates client registrations, loses the hook-0019 org/role claims) |
+| D21 | Microsoft 365 data inside YAAZ (v2.3) | **A separate, single-tenant Entra app registration gives YAAZ delegated Microsoft Graph access per employee** (owner-confirmed 20 Aug 2026 after the client's explicit request for SharePoint, Outlook/mail, Office 365, Teams and shared documents). This is a data plane, not login: D20's Entra→Supabase app remains identity-only and is never reused. YAAZ uses authorization-code + PKCE and `offline_access`; server-side access/refresh tokens are AES-256-GCM encrypted in MariaDB with per-user associated data and never sent to the browser. The connected Graph mail/UPN must exactly match the HumHub account e-mail. Read profile is default (`Mail.ReadBasic`, `Calendars.ReadBasic`, `Files.Read.All`, `Sites.Read.All`, `Team.ReadBasic.All`, `Channel.ReadBasic.All`); writes (`Mail.Send`, `Calendars.ReadWrite`, `Files.ReadWrite.All`) require a separate deployment flag and tenant consent. Graph operates as the signed-in employee, so Microsoft ACLs remain authoritative. Outlook occurrences are additionally shown as a live, read-only provider in HumHub Calendar beside YAAZ events; they are never copied to MariaDB or transparently synchronized. No application permissions, Teams-message reads, mail-body/attendee/attachment reads, tenant-directory reads, transparent two-way sync, or embedded Office editor. Full delivery/runbook: `agent-handoff/17-microsoft365-yaaz-deliverable.md`. | Delivers the client's requested working hub while retaining least privilege, tenant Conditional Access, per-user SharePoint/Teams rights, revocable consent and independent failure domains for login vs Office data. It explicitly supersedes handoff 16's earlier recommendation to avoid a custom SharePoint/OneDrive surface; that recommendation predated the client's direct request and the bounded delegated design. | Reusing the D20 login registration (scope coupling and excessive login consent); app-only Graph permissions (tenant-wide blast radius); storing provider tokens in the browser; pretending Office for the web can edit HumHub-owned files; iframe embedding of Microsoft 365 |
 
 ## 3. System Architecture
 
@@ -62,6 +63,8 @@ flowchart LR
   R2["Cloudflare R2 (EU)"]
   GEM["Vertex AI — Gemini (EU)"]
   PUSH["FCM / APNs"]
+  ENTRA["Microsoft Entra ID<br/>upstream login provider"]
+  GRAPH["Microsoft Graph<br/>Outlook · Teams · SharePoint"]
   SHELL -->|OIDC login PKCE| SUPA
   SHELL -->|tiles: WebView + session handoff| DASH
   SHELL -->|tiles: WebView + session handoff| HH
@@ -69,6 +72,8 @@ flowchart LR
   WEB --> HH
   DASH -->|first-party auth · RLS| SUPA
   HH -.->|OIDC client · auto-provision| SUPA
+  ENTRA -->|identity-only federation D20| SUPA
+  HH -->|delegated per-user Graph D21| GRAPH
   HH -->|rooms · JWTs| JAAS
   SHELL -->|native Jitsi screen P2| JAAS
   JAAS -->|signed webhooks| HH
@@ -99,12 +104,15 @@ flowchart LR
 | GitHub + Coolify Cloud | CI/CD and orchestration (Hetzner plane) | Images, config | 1 | Coolify ~$5/month |
 | Hetzner | VPS + snapshots | — | 1 | ~€5.49–10/month + 20% backup add-on |
 | Transactional e-mail — **Resend** (facturatie phase B) | Invoice dispatch from the dashboard; later HumHub's `SMTP_*` on the same sender domain | Recipient address, invoice number, amount, due date; the PDF as attachment | phase B — built 13 Aug 2026, **fail-closed** | **Resend selected** (owner decision 13 Aug 2026, deviating from the EU-sovereign proposal — consequences recorded in D19). US jurisdiction: DPA **incl. SCCs** required. Still one platform-wide choice per D19. Build live but dispatch disabled (route answers 503) until the DPA is signed and the sender domain incl. DKIM/SPF is verified; free tier likely sufficient |
+| Microsoft Entra ID + Microsoft Graph | D20 upstream employee login; D21 delegated Outlook, calendar, Teams, SharePoint/shared-document access in YAAZ | Identity claims to Supabase; per-user Graph responses and encrypted OAuth tokens on the YAAZ server | D20 deployed on Vercel/fail-closed; D21 v0.2.0 deployed on YAAZ/fail-closed 20 Aug 2026; tenant activation pending | Included with applicable Microsoft 365 licenses; tenant app registrations and admin consent owned by TGC-IT |
 
 ## 4. Identity & SSO
 
 **Hub (Confirmed, D14).** The existing careonpulse Supabase project (EU region) is the platform's identity authority. It already provides Supabase Auth with cookie sessions, an organization/member model (`org_admin` / `member` per organization plus a platform-level superadmin), login rate limiting, and audit events — all in production. v2.0 adds two things: the **OAuth 2.1 / OIDC server** (so external modules can federate) and a per-account **tile entitlement** model (Section 5).
 
-**Upstream provider (Confirmed, D20 — v2.2).** For organizations on Microsoft 365, **Entra ID federates into the hub as an upstream provider** (Supabase Azure provider; single-tenant app registration in the customer's tenant, redirect URI = the hub's `/auth/v1/callback`). The federation is invisible below the hub: modules keep speaking OIDC to the hub only. Login method is organization policy — hybrid by default (Microsoft primary for employees; e-mail/wachtwoord retained for platform administration, demo/e2e, break-glass), per-organization enforcement (`sso_verplicht`) is a later, explicit phase. Provisioning stays admin-driven (no JIT membership); identity linking runs on verified-e-mail equality. Spec and rollout plan: `agent-handoff/16-office365-yaaz-modules.md`.
+**Upstream provider (Confirmed, D20 — v2.2).** For organizations on Microsoft 365, **Entra ID federates into the hub as an upstream provider** (Supabase Azure provider; single-tenant app registration in the customer's tenant, redirect URI = the hub's `/auth/v1/callback`). The Entra optional claim `xms_edov` is required before activation so Supabase can treat the returned e-mail as verified. The federation is invisible below the hub: modules keep speaking OIDC to the hub only. Login method is organization policy — hybrid by default (Microsoft primary for employees; e-mail/wachtwoord retained for platform administration, demo/e2e, break-glass), per-organization enforcement (`sso_verplicht`) is a later, explicit phase. Provisioning stays admin-driven (no JIT membership); identity linking runs on exact verified-e-mail equality. Spec and rollout plan: `agent-handoff/16-office365-yaaz-modules.md`.
+
+**Microsoft 365 data plane (Confirmed, D21 — v2.3).** Office data is not an identity-token concern. YAAZ uses its own single-tenant Entra app and per-employee authorization-code + PKCE consent to call Microsoft Graph. The employee connects once after entering YAAZ; the server verifies that Graph `mail` or `userPrincipalName` exactly equals the HumHub account e-mail before storing an encrypted, renewable connection. The login registration remains identity-only, and Graph access can be revoked without breaking platform SSO. Read surfaces are inbox metadata (no bodies/attachments), a 14-day Outlook overview, a native read-only Outlook overlay in the YAAZ week/month Calendar, joined Teams and channels, a configured SharePoint library or personal OneDrive root, and Microsoft Search results filtered by Microsoft's ACLs. The Calendar provider fetches only the visible `/me/calendarView` window, basic event fields and validated Microsoft links; it stores no Graph events and degrades independently so local YAAZ events remain usable. Optional writes are mail send, calendar event creation and conflict-safe upload to one configured SharePoint library; all are disabled by default. The implementation and tenant handoff are in `agent-handoff/17-microsoft365-yaaz-deliverable.md`.
 
 **Authentication flows.**
 
@@ -120,7 +128,7 @@ flowchart LR
 
 **Blast radius.** External OIDC clients (shell, HumHub) receive **identity-scoped tokens only** — no data-API scopes against the Supabase project. The dashboard's data access continues to run through its own first-party sessions and RLS; the service-role key remains server-side in the dashboard plane only.
 
-**Lifecycle.** Administrators create and deactivate accounts in the identity hub; deactivation locks the user out of every module at next token refresh. Organization membership and role changes propagate the same way.
+**Lifecycle.** Administrators create and deactivate accounts in the identity hub; organization membership and role changes propagate at platform-token refresh. **v2.3 security clarification:** disabling an account in Entra blocks the next interactive Microsoft login but does not revoke an already-issued Supabase refresh token by itself. Production offboarding therefore includes identity-hub deactivation/session revocation; a later Graph `/users/delta` worker may automate that handoff. Disconnecting D21 immediately deletes the encrypted Graph tokens from YAAZ; tenant-side consent and user-session revocation remain TGC-IT controls.
 
 **Phase-0 gate.** Supabase's OAuth server left beta in late 2025, so before any feature code: an end-to-end spike — shell login (PKCE), HumHub OIDC login, auto-provisioning, role claim, deactivation propagation, logout. If the spike fails on a hard blocker, the documented fallback is a **Keycloak** container on the Hetzner plane as the OIDC provider; every module only assumes "an OIDC provider", never a brand.
 
@@ -447,7 +455,7 @@ A meeting administration area provides: enabling/disabling the meeting modules g
 
 **Transport & access.** HTTPS everywhere with automatic certificates. Every meeting, recording, transcript, and report route enforces HumHub authentication plus membership and role checks; media is reachable only through short-lived signed URLs. Meetings are joinable only via invitation/permission — room names are unguessable and JaaS access requires our server-signed JWT.
 
-**Keys & webhooks.** The RS256 private key exists only server-side; JWTs are short-lived; webhooks are signature-verified and idempotent (Section 14). External OIDC clients receive identity-scoped tokens only — no data-API scopes against the Supabase project — and the service-role key never leaves the dashboard's server plane.
+**Keys & webhooks.** The RS256 private key exists only server-side; JWTs are short-lived; webhooks are signature-verified and idempotent (Section 14). External OIDC clients receive identity-scoped tokens only — no data-API scopes against the Supabase project — and the service-role key never leaves the dashboard's server plane. D21 Graph access is deliberately separate: delegated tokens stay server-side, are AES-256-GCM encrypted with a deployment key plus per-user associated data, and are deleted on disconnect/user deletion. The browser receives rendered results and Microsoft web links, never bearer or refresh tokens. Secrets and the encryption key live only in the deployment secret store; key rotation requires an explicit reconnect/rotation runbook.
 
 **Data locations.** Supabase project in an EU region; Vercel for the stateless dashboard runtime; Hetzner (Germany/Finland); R2 with the EU jurisdiction option; Vertex AI in an EU region. 8x8/JaaS processing regions must be confirmed and recorded (Open Questions). Facturatie (D19): invoice rows and PDFs live in the same EU Supabase project (schema + private Storage bucket `facturen`); statutory retention is 7 years (10 for immovable property), enforced by excluding issued invoices from every prune routine.
 
@@ -456,6 +464,7 @@ A meeting administration area provides: enabling/disabling the meeting modules g
 - Recording is always visible: the JaaS indicator plus a notice text shown before joining a recorded meeting (final wording: Open Questions, with client's counsel).
 - Data-processing agreements (verwerkersovereenkomsten) with 8x8, Cloudflare, and Google are the client's responsibility to execute; we supply the processing inventory (this document).
 - Data minimization: push payloads carry no content; Gemini receives extracted audio, not raw video, by default.
+- Microsoft 365 (D21): inbox access is metadata-only (`Mail.ReadBasic`), Microsoft ACLs govern Teams/files/search, write scopes stay disabled until separately approved, and Graph content is rendered transiently rather than copied into Careon tables. Calendar subjects and filenames may still reveal health or employment context, so administrators must keep YAAZ membership aligned with employment and TGC must include this processing in its privacy/security register.
 - Right to erasure: administrator deletion of recordings/reports plus automated retention deletion; deletions are audited.
 - Employees are informed through the client's internal policy; the platform is an internal tool, not public.
 - Facturatie (D19): storing invoice contacts **including e-mail addresses** is a new processing activity (client-approved 9 Aug 2026) — a deliberate exception to the dashboard's data-minimization line (referrer e-mails are not stored; private debtors are reduced to a label). Abandoned invoice drafts are pruned after 180 days; issued invoices are retention-locked. The AI assistant gets no read or write tools on invoice data. **Phase B (e-mail dispatch, built 13 Aug 2026):** the recipient address of every send attempt is logged in `careon_facturatie_maillog` — same processing activity as the invoice contacts (contact details incl. e-mail, client-approved V18), readable only under RLS, excluded from every prune (7-year administration), and deliberately kept **out of** the `facturatie.factuur.send` audit event. **Resend (US) is the new sub-processor — DPA incl. SCCs PENDING**, to be signed by the owner (owner decision 13 Aug 2026 deviating from the EU-sovereign proposal; transfer-risk analysis recorded in D19). Until the credentials are set the dispatch route is fail-closed (503), so no personal data reaches the provider.
@@ -480,6 +489,11 @@ A meeting administration area provides: enabling/disabling the meeting modules g
 | DB_HOST / DB_NAME / DB_USER / DB_PASS | MariaDB connection |
 | HUMHUB_BASE_URL | Canonical comms URL |
 | OIDC_ISSUER_URL / OIDC_CLIENT_ID / OIDC_CLIENT_SECRET | HumHub → Supabase identity federation |
+| M365_GRAPH_ENABLED / M365_GRAPH_TENANT_ID / M365_GRAPH_CLIENT_ID / M365_GRAPH_CLIENT_SECRET | D21 YAAZ delegated Graph registration (separate from D20 login) |
+| M365_GRAPH_REDIRECT_URI / M365_GRAPH_TOKEN_KEY | Exact Entra callback and base64 32-byte AES-256-GCM key |
+| M365_GRAPH_WRITE_ENABLED | Enables `Mail.Send`, `Calendars.ReadWrite`, `Files.ReadWrite.All`; default `0` |
+| M365_GRAPH_SHARED_DRIVE_ID / M365_GRAPH_SHARED_FOLDER_ID | Optional SharePoint target |
+| M365_GRAPH_TIMEZONE / M365_GRAPH_IANA_TIMEZONE | Matching Windows Graph-response zone and IANA PHP/YAAZ rendering zone |
 | SMTP_HOST / SMTP_USER / SMTP_PASS / SMTP_FROM | Transactional email |
 | REDIS_HOST | Queue/cache |
 | JAAS_APP_ID / JAAS_KEY_ID / JAAS_PRIVATE_KEY_PATH / JAAS_WEBHOOK_SECRET | JaaS identity, signing, webhooks |
@@ -556,6 +570,7 @@ No calendar dates (Confirmed): phases are sequenced at Bayaan Hub's discretion, 
 - **Tasks:** compatibility matrix in `VERSIONS.md`; create `careonpulse-shell`, `humhub-meeting-modules`, `platform-deploy`; provision Hetzner + Coolify; deploy a skeleton HumHub to staging; **Spike A — identity:** Supabase OAuth server end-to-end (shell PKCE login, HumHub OIDC login, auto-provisioning, role claim, deactivation, logout; Keycloak fallback decision); **Spike B — meetings:** shell WebView ↔ native Jitsi bridge; start the client's Apple/Google developer-account enrollment immediately (legal entity per Open Questions).
 - **Acceptance:** both spikes pass or the fallback is invoked; pinned versions install cleanly; push-to-deploy works on both planes.
 - **Recorded exception (9 Aug 2026):** the facturatie module (D19) was built in parallel with Phase 0 on explicit owner instruction — Module 1 is live and the work touches neither spike; "gates before feature code" continues to apply to the shell/comms planes.
+- **Recorded exception (20 Aug 2026):** the D20 dashboard login path and D21 YAAZ Microsoft 365 module were built fail-closed on explicit owner instruction while TGC-IT tenant configuration is outstanding. No external permission or production secret was fabricated: activation remains an acceptance step after both Entra registrations and admin consent arrive.
 
 ### Phase 1 — Shell + Base Platform
 
@@ -595,6 +610,7 @@ No calendar dates (Confirmed): phases are sequenced at Bayaan Hub's discretion, 
 | Push | Delivery + deep links on both platforms, foreground/background |
 | Ops | Backup created nightly; documented restore succeeds |
 | SSO / identity | Shell PKCE login; HumHub OIDC login + auto-provisioning; role claim mapping; deactivation locks all modules; token refresh |
+| Microsoft 365 / Graph | OAuth state + PKCE expiry/user binding; exact e-mail match; encrypted token round-trip + refresh rotation; no token in HTML/logs; permission-denied partial states; Outlook metadata/calendar; native bounded read-only Calendar overlay with validated links/no DB copy; joined Teams/channels; ACL-aware file search; disconnect deletion; write flag and conflict-safe upload |
 | Launcher / entitlements | Tiles match entitlements; direct module-URL access without entitlement rejected server-side; kill switch hides a tile |
 
 ## 24. Risk Register
@@ -615,6 +631,9 @@ No calendar dates (Confirmed): phases are sequenced at Bayaan Hub's discretion, 
 | Supabase OAuth server immaturity (out of beta late 2025) | Medium | High | Phase-0 Spike A gates everything; Keycloak fallback documented; modules assume only "an OIDC provider" |
 | Patient data present in recordings/transcripts | Medium | High | Special-category posture: organizer+admin access default, consent notice, EU-only processing, confirmed retention |
 | Session/token handling across shell WebViews | Medium | Medium | One handoff contract for all modules; covered in the Phase-1 test plan; no module-specific auth hacks |
+| Microsoft tenant consent or app secret unavailable/expired | Medium | High | Separate login/data registrations and failure domains; feature flags default off; health command fails closed; secret-expiry owner + rotation reminder required |
+| Delegated Graph scopes expose more than a user's job needs | Medium | High | Employee-delegated access only, Microsoft ACLs authoritative, no application permissions, metadata-only mail, writes separately gated, periodic consent/scope review and immediate disconnect |
+| Entra account disabled while platform/Graph refresh sessions remain valid | Medium | High | Operational offboarding revokes Careon sessions and deletes the YAAZ connection; later `/users/delta` automation; do not claim Entra disable alone is immediate global logout |
 
 ## 25. Open Questions (for client / owner confirmation)
 
@@ -630,14 +649,21 @@ No calendar dates (Confirmed): phases are sequenced at Bayaan Hub's discretion, 
 10. Should action items later sync into HumHub task modules (future enhancement)?
 11. Preferred Hetzner location (default: Falkenstein, Germany).
 12. Onboarding order and timing for additional organizations beyond TGC Groep.
-13. *(M365, added 13 Aug 2026 — asked via the TGC-IT message in `agent-handoff/16-office365-yaaz-modules.md` §8)* Does TGC actually run on Microsoft 365, and which tenant? Is employees' primary e-mail equal to their UPN (e.g. `naam@tgcgroep.nl`)? — **blocking for D20 rollout** (identity linking, §2.2 of the handoff).
+13. *(M365, added 13 Aug 2026 — revised 20 Aug 2026; request in `agent-handoff/17-microsoft365-yaaz-deliverable.md`)* Does TGC actually run on Microsoft 365, and which tenant? Is employees' primary e-mail equal to their UPN (e.g. `naam@tgcgroep.nl`)? — **blocking for D20 and D21 rollout**.
 14. *(M365, added 13 Aug 2026)* Which Microsoft 365 license tier do frontline/care staff have (E vs F) — determines whether every employee can use Entra login.
-15. *(M365, added 13 Aug 2026)* Is Teams actively used for internal communication? (YAAZ-vs-Teams positioning — have that conversation deliberately, not mid-demo.)
+15. *(M365, added 13 Aug 2026; product direction answered 20 Aug 2026)* Teams must be reachable from YAAZ; confirm which Teams/channels are actually used so the acceptance group reflects real work rather than demo memberships.
+16. *(M365 data, added 20 Aug 2026)* Which SharePoint site/document-library is the shared-document home? TGC-IT must provide the Graph drive ID (and optional folder item ID); until then YAAZ falls back to each employee's OneDrive root and disables shared-library upload.
+17. *(M365 data, added 20 Aug 2026)* Should production launch read-only first (recommended), or may users send mail/create appointments/upload documents from YAAZ? Write consent and `M365_GRAPH_WRITE_ENABLED=1` are a separate acceptance decision.
+18. *(M365 data, added 20 Aug 2026)* Who owns the two Entra app registrations, secret-expiry reminders, Conditional Access policy and incident revocation procedure at TGC-IT?
 
 ## 26. References
 
 - Careon Pulse dashboard repo: https://github.com/Mbongaa/careonpulse (template base: https://github.com/arhamkhnz/next-shadcn-admin-dashboard)
 - Supabase Auth OAuth 2.1 / OIDC server: https://supabase.com/docs/guides/auth/oauth-server
+- Supabase Azure login and verified-email setup: https://supabase.com/docs/guides/auth/social-login/auth-azure
+- Microsoft identity-platform authorization-code + PKCE flow: https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow
+- Microsoft Graph delegated-permissions reference: https://learn.microsoft.com/en-us/graph/permissions-reference
+- Microsoft Search ACL behavior: https://learn.microsoft.com/en-us/graph/api/resources/search-api-overview
 - HumHub: https://github.com/humhub/humhub · docs: https://docs.humhub.org
 - Jitsi Flutter SDK: https://github.com/jitsi/jitsi-meet-flutter-sdk · pub.dev: https://pub.dev/packages/jitsi_meet_flutter_sdk
 - JaaS developer docs: https://developer.8x8.com/jaas · pricing: https://jaas.8x8.vc/#/pricing

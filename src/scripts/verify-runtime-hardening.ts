@@ -63,6 +63,39 @@ async function main() {
     "logout beëindigt alleen huidige sessie",
     logoutSource.includes('signOut({ scope: "local" })') && loginSource.includes('signOut({ scope: "local" })'),
   );
+  const microsoftLoginSource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/app/api/auth/microsoft/route.ts"),
+    "utf8",
+  );
+  const microsoftCallbackSource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/app/api/auth/callback/route.ts"),
+    "utf8",
+  );
+  const oauthConfigSource = fs.readFileSync(path.resolve(process.cwd(), "src/lib/supabase/oauth.server.ts"), "utf8");
+  check(
+    "Microsoft-login is featureflagged en demo-gesloten",
+    oauthConfigSource.includes('process.env.CAREON_MICROSOFT_LOGIN_ENABLED === "1"') &&
+      oauthConfigSource.includes("!isCareonDemoMode()") &&
+      microsoftLoginSource.includes("if (!isMicrosoftLoginEnabled())"),
+  );
+  check(
+    "Microsoft-loginregistratie blijft identity-only",
+    microsoftLoginSource.includes('provider: "azure"') &&
+      microsoftLoginSource.includes('scopes: "openid profile email"') &&
+      !/Mail\.|Calendars\.|Files\.|Sites\.|Team\.|Channel\.|offline_access/.test(microsoftLoginSource),
+  );
+  check(
+    "Microsoft-callback weigert JIT-toegang en beëindigt de sessie lokaal",
+    microsoftCallbackSource.includes('.eq("user_id", user.id)') &&
+      microsoftCallbackSource.includes("microsoft_no_access_assignment") &&
+      microsoftCallbackSource.includes('signOut({ scope: "local" })'),
+  );
+  check(
+    "OAuth-redirect vertrouwt in productie alleen de canonieke app-URL",
+    oauthConfigSource.includes('process.env.NODE_ENV === "production"') &&
+      oauthConfigSource.includes("return null") &&
+      !/headers\.get\(["'](?:host|x-forwarded-host)/.test(oauthConfigSource),
+  );
   const chatMigration = fs.readFileSync(
     path.resolve(process.cwd(), "supabase/migrations/20260726175252_auth_security_hardening.sql"),
     "utf8",

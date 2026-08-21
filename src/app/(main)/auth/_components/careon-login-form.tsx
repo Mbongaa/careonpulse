@@ -9,17 +9,37 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { CAREON_SIGNIN_MESSAGES, careonPostLoginRoute, careonSignIn } from "@/lib/careon-auth";
 import { cn } from "@/lib/utils";
 
-export function CareonLoginForm({ initiallyUnavailable = false }: Readonly<{ initiallyUnavailable?: boolean }>) {
+function MicrosoftMark() {
+  return (
+    <span aria-hidden="true" className="grid size-4 grid-cols-2 gap-px">
+      <span className="bg-red-500" />
+      <span className="bg-green-500" />
+      <span className="bg-blue-500" />
+      <span className="bg-yellow-400" />
+    </span>
+  );
+}
+
+export function CareonLoginForm({
+  initiallyUnavailable = false,
+  initialErrorMessage = "",
+  microsoftEnabled = false,
+}: Readonly<{ initiallyUnavailable?: boolean; initialErrorMessage?: string; microsoftEnabled?: boolean }>) {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [invalid, setInvalid] = useState(false);
-  const [errorMessage, setErrorMessage] = useState(initiallyUnavailable ? CAREON_SIGNIN_MESSAGES.unavailable : "");
+  let initialMessage = initialErrorMessage;
+  if (initialMessage === "" && initiallyUnavailable) {
+    initialMessage = CAREON_SIGNIN_MESSAGES.unavailable;
+  }
+  const [errorMessage, setErrorMessage] = useState(initialMessage);
   const [shake, setShake] = useState(false);
 
   const canSubmit = username.trim() !== "" && password !== "" && !submitting;
@@ -52,6 +72,21 @@ export function CareonLoginForm({ initiallyUnavailable = false }: Readonly<{ ini
 
   return (
     <form noValidate onSubmit={onSubmit} className="flex flex-col gap-4">
+      {microsoftEnabled && (
+        <>
+          <Button asChild type="button" variant="outline" size="lg" className="w-full">
+            <a href="/api/auth/microsoft">
+              <MicrosoftMark />
+              Inloggen met Microsoft
+            </a>
+          </Button>
+          <div className="flex items-center gap-3 text-muted-foreground text-xs" aria-hidden="true">
+            <Separator className="flex-1" />
+            <span>of met wachtwoord</span>
+            <Separator className="flex-1" />
+          </div>
+        </>
+      )}
       <div className={cn("flex flex-col gap-4", shake && "careon-shake")}>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="careon-username">Gebruikersnaam</Label>

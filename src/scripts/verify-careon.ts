@@ -1289,6 +1289,24 @@ const facturatieTegel = CAREON_MODULES.find((mod) => mod.id === "careon-facturat
 check("register: facturatietegel is live op /facturatie", facturatieTegel?.href, "/facturatie");
 check("register: facturatietegel is beheerder-only", facturatieTegel?.zichtbaarVoor, "org_admin");
 
+// Tegel-beeldmerken (klantverzoek 14-08-2026): de Directie-tegel draagt het
+// statische Careon-merkteken, Facturatie bewust geen beeldmerk; een
+// bestandslogo moet uit /public komen met vaste afmetingen (geen layout-sprong).
+check(
+  "register: directietegel draagt het Careon-merkteken",
+  CAREON_MODULES.find((mod) => mod.id === "careon-pulse-directie")?.logo?.type,
+  "careon-mark",
+);
+check("register: facturatietegel heeft geen beeldmerk (klant: 'gewoon goed zo')", facturatieTegel?.logo, undefined);
+check(
+  "register: bestandslogo's komen uit /public met positieve afmetingen",
+  CAREON_MODULES.every(
+    (mod) =>
+      mod.logo?.type !== "image" || (mod.logo.src.startsWith("/") && mod.logo.breedte > 0 && mod.logo.hoogte > 0),
+  ),
+  true,
+);
+
 // Rolpredicaat: beheerdersmodule, en een superadmin zonder org kan niets.
 const orgSessie = { orgId: "org-1", email: "iemand@example.nl" };
 check("facturatierol: org_admin", magFacturatieZien({ ...orgSessie, orgRole: "org_admin", isSuperadmin: false }), true);

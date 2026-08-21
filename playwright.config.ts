@@ -33,6 +33,7 @@ export default defineConfig({
     env: {
       CAREON_ASSISTANT_LIVE: "0",
       CAREON_DEMO_MODE: "1",
+      CAREON_MICROSOFT_LOGIN_ENABLED: "0",
       NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:9",
       NEXT_PUBLIC_SUPABASE_ANON_KEY: "e2e-inert-anon-key",
       SUPABASE_SERVICE_ROLE_KEY: "",

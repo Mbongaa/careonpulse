@@ -48,3 +48,5 @@ cli_ntendata_export*.csv
 declared_surcharges*.csv
 Exports EPD/
 .env*
+
+.vercel

@@ -312,6 +312,25 @@ diagnosegroep + woonplaats + leeftijd per cliënt-ID) is voor kleine teams
 realistisch herleidbaar: behandel de browseropslag als vertrouwelijk en wis
 die op gedeelde werkplekken.
 
+### Microsoft Entra-login en YAAZ Office 365 (D20/D21)
+
+Beide integraties zijn gebouwd maar blijven **fail-closed** totdat TGC-IT de
+tenantregistraties oplevert. Het zijn twee aparte apps:
+
+- `Careon Pulse — login`: identity-only Entra → Supabase, met `xms_edov`,
+  exacte e-mail/UPN-koppeling en `CAREON_MICROSOFT_LOGIN_ENABLED=1` pas na de
+  no-JIT/membership-acceptatietest;
+- `Careon Pulse — YAAZ Microsoft 365`: delegated Graph per medewerker,
+  server-side versleutelde tokens en read-only eerste pilot. Writes blijven
+  uit tot een afzonderlijk consentbesluit.
+
+Go-live vereist: veilig ontvangen tenant/client/secret + vervaldatum/eigenaar,
+exacte redirect-URI's, tenant admin consent, een aangewezen SharePoint
+drive/folder, Conditional Access-test, twee gebruikers met verschillende
+Microsoft-rechten (negatieve ACL-test), disconnect/revocation-test en een
+offboardingrunbook dat zowel Careon-sessies als de YAAZ Graph-koppeling
+intrekt. Volledige permission matrix en checklist: `agent-handoff/17-microsoft365-yaaz-deliverable.md`.
+
 ## ⚠️ Vereisten vóór publieke hosting van echte data
 
 1. **Echte authenticatie — GEREGELD (2026-07-26, handoff 13).** Supabase

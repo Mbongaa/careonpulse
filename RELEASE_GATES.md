@@ -360,5 +360,66 @@ Gates: `verify:careon` **989/0** en `verify:runtime` **72/0** (13-08-2026), `typ
 
 **Fase B — e-mailverzending (13-08-2026)**: een uitgereikte factuur kan als transactionele mail (**Resend** — eigenaarsbesluit 13-08-2026, afwijkend van het EU-soevereine voorstel; consequenties vastgelegd in D19) verstuurd worden met de archief-pdf als bijlage; migratie `0021` voegt `careon_facturatie_maillog` toe (één rij per verzendpoging, RLS **select-only**, schrijven alleen service-role, buiten élke opschoning) plus de quota-scope `mail` in `careon_consume_assistant_quota` (CHECK-constraint én functie-allowlist). Onderwerp en body dragen uitsluitend factuurnummer, totaalbedrag, vervaldatum en afzendernaam/IBAN — nooit regelteksten; het audit-event `facturatie.factuur.send` bevat bewust géén e-mailadres (dat staat alleen in het maillog, onder RLS). **Fail-closed DPA-poort**: zolang `CAREON_MAIL_RESEND_API_KEY` / `CAREON_MAIL_AFZENDER_EMAIL` / `CAREON_MAIL_AFZENDER_NAAM` leeg zijn (server-side, nooit `NEXT_PUBLIC_`) geeft de verzendroute 503 — er kan niets verzonden worden vóór de verwerkersovereenkomst. Bewust niet gebouwd: automatische herverzending (de cron markeert hangende pogingen alleen als mislukt — dubbel-verzendrisico) en de bounce-webhook (`gebounced` is gereserveerd). Gates: `verify:careon` **995/0** en `verify:runtime` **80/0** (mailinhoudsregels, e-mailvormcontrole, maillog-guard; bronchecks op `0021`: select-only-policy, quota-scope op beide plekken, fail-closed-route, AVG-auditcheck, server-side-only-env, maillog in `ORG_AFHANKELIJKHEDEN`), `typecheck` + Biome schoon, e2e-verzendtest op het demo-pad. De **live smoke** dekt nu ook de fail-closed-503 (zolang de provider niet geconfigureerd is) en maillog-RLS-probes — hij verstuurt bewust nooit echte mail. Activeren gebeurt volgens de go-live-checklist in `PRODUCTION_MODE.md` (DPA incl. SCC's met Resend, afzenderdomein + DKIM/SPF, sleutels in Vercel, testverzending); detail in handoff 15 §0.5. Op de fase-B-bouw volgde dezelfde dag een adversariële reviewronde (14 agents); alle bevestigde punten — o.a. de ontvangerveld-resync, de administratie-try/catch ná verzending, de in-flight-markering + zichtbare verzendhistorie en de reply-to-validatie — zijn direct verholpen (zie handoff 15 §0.5).
 
+## Modulekiezer — merk met doorlopende hartslag + tegel-beeldmerken (2026-08-15)
+
+Klantverzoek 14-08-2026 (handoff 14, sectie "Merk & tegel-beeldmerken"): boven "Kies een module" de hero-lockup met een hartslag die blijft bewegen (`CareonMark animation="loop"`: handoff-intro ongewijzigd, daarna een 1,5 s-cyclus — puls in het merkverloop over de lijn + kloppen; uit onder `prefers-reduced-motion`), statisch merkteken op de Directie-tegel, YAAZ-tegel voorbereid op het witte YAAZ-logo (bestand volgt van de klant; één registerregel `YAAZ_LOGO`), Facturatie en de kopregel-lockup ongewijzigd. De loop is de **enige** afwijking van de merkregel "één cyclus bij paginalading" en staat alleen op `/modules`.
+
+Gates: `verify:careon` **998/0** (+3 registerchecks: Directie draagt het merkteken, Facturatie niet, bestandslogo's uit `/public` met vaste afmetingen), `verify:runtime` **80/0**, `typecheck` + Biome schoon, volledige Playwright-suite **128/128** (desktop + a11y licht/donker/careon met reduced motion + mobiel; nieuwe asserties: precies één `[data-careon-mark="loop"]`, kopregel `once`, Directie-tegel `none`, Facturatie zonder merkteken). Bekende bewuste keuze: de oneindige, decoratieve animatie heeft geen pauzeknop op de pagina (WCAG 2.2.2 wordt via de systeeminstelling reduced-motion gehonoreerd) — klantvereiste "moet blijven bewegen".
+
+## Microsoft Entra login + Microsoft 365 in YAAZ (2026-08-20)
+
+Client request: SharePoint, Outlook/mail, Office 365, Teams and shared documents must be
+available through YAAZ. Delivered as two independent, fail-closed security planes (blueprint
+v2.3 D20/D21): identity-only Entra→Supabase login in this repo and a separately consented,
+delegated Graph module in `platform-deploy`.
+
+- Dashboard: feature-flagged Azure OAuth/PKCE start + callback, canonical production origin,
+  no JIT membership, platform-admin/org membership gate, local sign-out on denial, Microsoft
+  audit event and demo-hidden shadcn login action. No Graph/provider token is handled here.
+- YAAZ: custom `careon-m365` 0.2.0 with first-class Werkagenda/Outlook/Teams/Documenten
+  navigation, Outlook inbox metadata, a 14-day overview and native read-only Outlook overlay
+  in HumHub Calendar, Teams + channels, SharePoint/OneDrive documents, ACL-scoped Search,
+  encrypted rotating tokens and separately gated mail/event/upload writes. Installer,
+  migration, config health and runbook are versioned. The overlay uses bounded delegated
+  `/me/calendarView` calls and never copies events into YAAZ or enables drag/drop/two-way sync.
+- Local YAAZ evidence: `setup-m365.sh` idempotent twice; all PHP files lint clean; Compose
+  valid; migration/FK/unique index present; fail-closed and disposable ready-config health
+  passes; guarded mock-transport verifier **99/99** with DB rollback (PKCE/state/replay,
+  exact account binding, encrypted rotation, Graph retry/errors, upload, disconnect,
+  timezone/link guards and the native Calendar-provider contract);
+  unauthenticated 302; authenticated desktop + 390 px page with Office nav/prepared state,
+  no console errors or horizontal overflow; no careon-m365 fatal/error log entries.
+- Production YAAZ evidence: pre-change code backup
+  `/opt/platform-deploy/backups/code-20260820T190835Z-m365-0.2.0` retained; migration
+  current; module 0.2.0 enabled; local/host/runtime module-tree manifest hash (`LC_ALL=C`)
+  `b80ae83e286788d672359821eb9076a6c59de341e929beb057c5440b3495ed62` matches; health
+  fail-closed; both the wrapper and integration command refuse production before test
+  execution (exit 78);
+  strict tenant/client/callback and Graph URL/bearer boundaries are covered; Compose/DB/Redis/HumHub
+  healthy; both protected routes return 302; logs clean; 0 stored connections/tokens. The authenticated prepared
+  page was HTTP 200 before the service-only hardening and its prepared-state shell is
+  browser-verified locally; connected v0.2.0 Graph rendering remains a tenant acceptance
+  test. A new production scripted login was not forced because the
+  server's bootstrap-admin env credential is stale and live credentials were not mutated.
+- Dashboard evidence: `npm run verify:ci` green — check/typecheck/data hygiene, Careon
+  **998/0**, production **412/0**, assistant **145/0**, runtime **84/0** (four new Microsoft
+  boundary guards), TGC queue **34/0**, npm audit **0 vulnerabilities**. Isolated Next 16.2.11
+  production build green; full Playwright **130/130**, including Microsoft demo fail-closed,
+  WCAG, mobile and PWA suites.
+- **D20 publication status: deployed fail-closed.** Vercel CLI was re-authenticated to linked
+  team `team_JdOsxHMuMHUGSSzqsIn8ERU8`; only the five scoped D20 files were overlaid onto a
+  clean `db227243725ff77facbe619112ea416d91ddd3ab` worktree. Preview and unaliased production
+  builds passed before deployment `dpl_3yuJxrzvzQJbqroiqdkSeoKSNFMi` was promoted. Both
+  `careonpulse.vercel.app` and `www.careonpulse.com` now return the intended 503 JSON from
+  `/api/auth/microsoft`; login is 200 with the Microsoft button hidden; post-promotion error
+  logs are clean. **Persistence caveat:** this direct Vercel artifact is not on `origin/main`;
+  the D20 changes remain uncommitted, so a later Git production deploy can overwrite them until
+  the owner separately authorizes the scoped stage/commit/push.
+- External acceptance remains deliberately open: Supabase live audit on 20 Aug found Azure
+  provider disabled (`Unsupported provider: provider is not enabled`) and 0 Azure identities.
+  TGC-IT must provide two single-tenant app
+  registrations, `xms_edov`, admin consent, secret owners/expiry and the SharePoint drive.
+  Exact message and acceptance matrix: `agent-handoff/17-microsoft365-yaaz-deliverable.md`.
+
 ## Definition of done
 All gates 🟢, then final full pass: check → tsc → build → server smoke → gates table re-verified in one go, loop stops.
