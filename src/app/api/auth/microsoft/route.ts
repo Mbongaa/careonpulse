@@ -13,6 +13,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Microsoft-inloggen is nog niet geactiveerd." }, { status: 503 });
   }
   const origin = careonOAuthOrigin(request);
+  const prompt = new URL(request.url).searchParams.get("prompt");
+  const queryParams = prompt === "select_account" ? { prompt } : undefined;
   const supabase = await supabaseServer();
   if (!origin || !supabase) {
     return NextResponse.json({ error: "Authenticatie is niet volledig geconfigureerd." }, { status: 503 });
@@ -26,6 +28,7 @@ export async function GET(request: Request) {
       // vraagt die later via zijn eigen Graph-consentregistratie.
       scopes: "openid profile email",
       redirectTo: `${origin}/api/auth/callback`,
+      queryParams,
       skipBrowserRedirect: true,
     },
   });
