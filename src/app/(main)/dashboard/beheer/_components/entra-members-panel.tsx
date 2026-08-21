@@ -65,6 +65,19 @@ function statusVariant(status: CareonStatus): "default" | "destructive" | "outli
   return status === "identity_only" ? "secondary" : "outline";
 }
 
+function careonStatusLabel(member: EntraMemberRow): string {
+  if (member.eligible) return STATUS_LABEL[member.careonStatus];
+  if (member.careonStatus === "blocked") return STATUS_LABEL.blocked;
+  if (member.careonStatus === "active") return "Bestaand uitzonderingsaccount";
+  return "Geen Careon-toegang";
+}
+
+function careonStatusVariant(member: EntraMemberRow): "default" | "destructive" | "outline" | "secondary" {
+  if (member.eligible) return statusVariant(member.careonStatus);
+  if (member.careonStatus === "blocked") return "destructive";
+  return member.careonStatus === "active" ? "secondary" : "outline";
+}
+
 function formatMoment(iso: string | null): string {
   if (!iso) return "Nog niet ingelogd";
   return new Date(iso).toLocaleString("nl-NL", {
@@ -151,7 +164,7 @@ export function EntraMembersPanel() {
         member.displayName,
         member.matchEmail,
         member.jobTitle,
-        STATUS_LABEL[member.careonStatus],
+        careonStatusLabel(member),
         member.eligible ? "Careon.User toegang" : "geen Careon toegang",
         member.userType,
       ].some((value) => value.toLowerCase().includes(needle)),
@@ -308,7 +321,7 @@ export function EntraMembersPanel() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant={statusVariant(member.careonStatus)}>{STATUS_LABEL[member.careonStatus]}</Badge>
+                        <Badge variant={careonStatusVariant(member)}>{careonStatusLabel(member)}</Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground">{careonRoleLabel(member.careonRole)}</TableCell>
                       <TableCell className="text-muted-foreground text-xs">
