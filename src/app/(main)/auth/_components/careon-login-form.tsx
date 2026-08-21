@@ -9,17 +9,16 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { CAREON_SIGNIN_MESSAGES, careonPostLoginRoute, careonSignIn } from "@/lib/careon-auth";
 import { cn } from "@/lib/utils";
 
 function MicrosoftMark() {
   return (
-    <span aria-hidden="true" className="grid size-4 grid-cols-2 gap-px">
-      <span className="bg-red-500" />
-      <span className="bg-green-500" />
-      <span className="bg-blue-500" />
-      <span className="bg-yellow-400" />
+    <span aria-hidden="true" className="careon-auth-ms-mark grid grid-cols-2">
+      <span className="bg-[#f25022]" />
+      <span className="bg-[#7fba00]" />
+      <span className="bg-[#00a4ef]" />
+      <span className="bg-[#ffb900]" />
     </span>
   );
 }
@@ -43,6 +42,8 @@ export function CareonLoginForm({
   const [shake, setShake] = useState(false);
 
   const canSubmit = username.trim() !== "" && password !== "" && !submitting;
+  let submitLabel = microsoftEnabled ? "Inloggen met wachtwoord" : "Inloggen";
+  if (submitting) submitLabel = "Bezig met inloggen...";
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -71,25 +72,30 @@ export function CareonLoginForm({
   }
 
   return (
-    <form noValidate onSubmit={onSubmit} className="flex flex-col gap-4">
+    <form noValidate onSubmit={onSubmit} className="careon-auth-form">
       {microsoftEnabled && (
         <>
-          <Button asChild type="button" variant="outline" size="lg" className="w-full">
-            <a href="/api/auth/microsoft">
+          <Button asChild type="button" className="careon-auth-btn careon-auth-btn-primary">
+            <a href="/api/auth/microsoft" aria-describedby="careon-microsoft-hint">
               <MicrosoftMark />
               Inloggen met Microsoft
             </a>
           </Button>
-          <div className="flex items-center gap-3 text-muted-foreground text-xs" aria-hidden="true">
-            <Separator className="flex-1" />
-            <span>of met wachtwoord</span>
-            <Separator className="flex-1" />
+          <p id="careon-microsoft-hint" className="careon-auth-hint text-center">
+            Aanbevolen voor medewerkers · gebruik uw Microsoft 365-werkaccount
+          </p>
+          <div className="careon-auth-divider" aria-hidden="true">
+            <span className="careon-auth-divider-rule" />
+            <span className="careon-auth-divider-label">BEHEER OF UITZONDERING</span>
+            <span className="careon-auth-divider-rule" />
           </div>
         </>
       )}
-      <div className={cn("flex flex-col gap-4", shake && "careon-shake")}>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="careon-username">Gebruikersnaam</Label>
+      <div className={cn("careon-auth-fields", shake && "careon-shake")}>
+        <div className="careon-auth-field">
+          <Label className="careon-auth-label" htmlFor="careon-username">
+            Gebruikersnaam
+          </Label>
           <Input
             id="careon-username"
             placeholder="Gebruikersnaam"
@@ -101,12 +107,14 @@ export function CareonLoginForm({
               setErrorMessage("");
             }}
             aria-invalid={invalid}
-            className={cn(invalid && "border-destructive focus-visible:ring-destructive")}
+            className={cn("careon-auth-input", invalid && "careon-auth-input-invalid")}
           />
         </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="careon-password">Wachtwoord</Label>
-          <div className="relative">
+        <div className="careon-auth-field">
+          <Label className="careon-auth-label" htmlFor="careon-password">
+            Wachtwoord
+          </Label>
+          <div className="careon-auth-input-wrap">
             <Input
               id="careon-password"
               type={showPassword ? "text" : "password"}
@@ -119,27 +127,34 @@ export function CareonLoginForm({
                 setErrorMessage("");
               }}
               aria-invalid={invalid}
-              className={cn("pr-10", invalid && "border-destructive focus-visible:ring-destructive")}
+              className={cn("careon-auth-input careon-auth-input-eye", invalid && "careon-auth-input-invalid")}
             />
             <button
               type="button"
-              aria-label="Wachtwoord tonen"
+              aria-label={showPassword ? "Wachtwoord verbergen" : "Wachtwoord tonen"}
+              aria-pressed={showPassword}
               onClick={() => setShowPassword((current) => !current)}
-              className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground hover:text-foreground"
+              className="careon-auth-eye"
             >
               {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
             </button>
           </div>
         </div>
         {errorMessage && (
-          <p role="alert" className="text-destructive text-sm">
+          <p role="alert" className="careon-auth-error">
+            <span aria-hidden="true" className="careon-auth-error-dot" />
             {errorMessage}
           </p>
         )}
       </div>
-      <Button className="w-full" type="submit" disabled={!canSubmit}>
+      <Button
+        className={cn("careon-auth-btn", microsoftEnabled ? "careon-auth-btn-secondary" : "careon-auth-btn-primary")}
+        type="submit"
+        data-busy={submitting || undefined}
+        disabled={!canSubmit}
+      >
         {submitting && <Loader2 className="size-4 animate-spin" />}
-        {submitting ? "Bezig met inloggen..." : "Inloggen"}
+        {submitLabel}
       </Button>
     </form>
   );

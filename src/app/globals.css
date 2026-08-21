@@ -1056,3 +1056,545 @@ html:not(.dark) .careon-mark-trace {
     animation: none;
   }
 }
+
+/* ============================================================================
+   Careon Pulse — authenticatieschermen (.careon-auth-*)
+   Eén vorm voor login, wachtwoord instellen en het toestemmingsscherm, in
+   dezelfde ontwerptaal als de YAAZ-loginschermen: mobiel één gecentreerde
+   kolom met de merk-glow-kaart, vanaf 1024px een split met het merkpaneel
+   (raster + merkgloed) links en een rustig formulierpaneel rechts.
+   Alle kleuren lopen via tokens: de licht- en donkermodus lenen de semantische
+   thematokens, de careon-modus draagt de exacte merkwaarden uit het ontwerp.
+   ========================================================================= */
+.careon-auth-shell {
+  /* Lichte modus: de pagina krijgt een koele tint zodat de witte kaart
+     (mobiel) er zichtbaar boven zweeft, en het merkpaneel een eigen oppervlak
+     zodat de split vanaf 1024px net zo duidelijk leest als in het ontwerp. */
+  --careon-auth-page: #f4f6fc;
+  --careon-auth-panel-bg: #ffffff;
+  --careon-auth-brand-base: #e7edfa;
+  --careon-auth-brand-wash:
+    radial-gradient(circle at 30% 20%, rgb(30 136 255 / 22%), transparent 26rem),
+    radial-gradient(circle at 75% 80%, rgb(160 32 240 / 16%), transparent 26rem);
+  --careon-auth-page-wash:
+    radial-gradient(circle at 50% -10%, rgb(30 136 255 / 10%), transparent 30rem),
+    radial-gradient(circle at 90% 30%, rgb(160 32 240 / 7%), transparent 22rem);
+  --careon-auth-grid: rgb(11 18 46 / 2.5%);
+  --careon-auth-card-fill: linear-gradient(var(--card), var(--card));
+  --careon-auth-card-edge: linear-gradient(140deg, rgb(30 136 255 / 55%), rgb(160 32 240 / 38%));
+  --careon-auth-card-shadow: 0 18px 40px -24px rgb(9 14 40 / 18%);
+  --careon-auth-hairline: rgb(30 136 255 / 18%);
+  --careon-auth-rule: var(--border);
+  --careon-auth-title-color: var(--foreground);
+  /* Lichte modus: het merkpaneel draagt een merkwaas, waardoor de neutrale
+     muted-token onder 4,5:1 zakt. Slate-600/500 houdt elke tekstregel — ook
+     boven de waas — ruim binnen WCAG AA. */
+  --careon-auth-body: #475569;
+  --careon-auth-muted: #475569;
+  --careon-auth-soft: #64748b;
+  --careon-auth-input-bg: var(--background);
+  --careon-auth-input-edge: var(--input);
+  --careon-auth-input-text: var(--foreground);
+  --careon-auth-placeholder: #64748b;
+  --careon-auth-secondary-bg: var(--card);
+  --careon-auth-secondary-edge: var(--border);
+  --careon-auth-secondary-text: var(--foreground);
+  /* Merkblauw, maar donker genoeg voor WCAG AA: wit op de lichtste stop
+     (#1179c9) meet 4,56:1, op de donkerste 5,75:1. De ontwerp-gradient
+     #19a7ff→#0f7fd6 haalt met witte 15px/600-tekst maar 2,6:1. */
+  --careon-auth-primary: linear-gradient(180deg, #1179c9, #0a5ea4);
+  --careon-auth-primary-edge: #1587dd;
+  --careon-auth-primary-glow: 0 10px 22px -10px rgb(25 167 255 / 55%);
+  --careon-auth-disabled-bg: var(--muted);
+  --careon-auth-disabled-edge: var(--border);
+  --careon-auth-disabled-text: var(--muted-foreground);
+  --careon-auth-error-bg: rgb(255 71 126 / 10%);
+  --careon-auth-error-edge: rgb(255 71 126 / 40%);
+  /* De destructive-token (rood op wit) haalt op de roze foutpil geen 4,5:1;
+     rose-700 wel. */
+  --careon-auth-error-text: #be123c;
+  --careon-auth-error-dot: #ff477e;
+  --careon-auth-success: #0f766e;
+  --careon-auth-ring: #2f8cff;
+  --careon-auth-ring-soft: rgb(47 140 255 / 25%);
+
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.625rem;
+  padding: 2rem 1.5rem calc(2rem + env(safe-area-inset-bottom));
+  background: var(--careon-auth-page-wash), var(--careon-auth-page);
+  color: var(--careon-auth-title-color);
+}
+
+.dark .careon-auth-shell {
+  /* De lichte modus zet deze drie op literale waarden; donker haalt weer de
+     thematokens op. */
+  --careon-auth-page: var(--background);
+  --careon-auth-panel-bg: var(--background);
+  --careon-auth-hairline: var(--border);
+  --careon-auth-brand-base: var(--card);
+  --careon-auth-brand-wash:
+    radial-gradient(circle at 30% 20%, rgb(48 72 255 / 24%), transparent 26rem),
+    radial-gradient(circle at 75% 80%, rgb(191 29 255 / 16%), transparent 26rem);
+  --careon-auth-page-wash:
+    radial-gradient(circle at 50% -10%, rgb(48 72 255 / 18%), transparent 30rem),
+    radial-gradient(circle at 90% 30%, rgb(191 29 255 / 10%), transparent 22rem);
+  --careon-auth-grid: rgb(255 255 255 / 4%);
+  --careon-auth-body: var(--muted-foreground);
+  --careon-auth-muted: var(--muted-foreground);
+  --careon-auth-soft: var(--muted-foreground);
+  --careon-auth-placeholder: var(--muted-foreground);
+  --careon-auth-card-shadow: 0 30px 70px -44px rgb(0 0 0 / 90%);
+  --careon-auth-input-bg: rgb(255 255 255 / 5%);
+  --careon-auth-secondary-bg: rgb(255 255 255 / 8%);
+  --careon-auth-error-text: #ff8fae;
+  --careon-auth-success: #38e0c8;
+}
+
+html[data-theme-mode="careon"] .careon-auth-shell {
+  --careon-auth-page: #07091a;
+  --careon-auth-panel-bg: #0a0e24;
+  --careon-auth-brand-base: #07091a;
+  --careon-auth-brand-wash:
+    radial-gradient(circle at 30% 20%, rgb(48 72 255 / 35%), transparent 26rem),
+    radial-gradient(circle at 75% 80%, rgb(191 29 255 / 22%), transparent 26rem);
+  --careon-auth-page-wash:
+    radial-gradient(circle at 50% -10%, rgb(48 72 255 / 30%), transparent 30rem),
+    radial-gradient(circle at 90% 30%, rgb(191 29 255 / 12%), transparent 22rem);
+  --careon-auth-grid: rgb(255 255 255 / 2%);
+  --careon-auth-card-fill: linear-gradient(#0f1434, #0c1129);
+  --careon-auth-card-edge: linear-gradient(140deg, rgb(22 155 255 / 55%), rgb(191 29 255 / 35%));
+  --careon-auth-card-shadow: 0 32px 90px -46px rgb(0 0 0 / 98%);
+  --careon-auth-hairline: rgb(121 132 255 / 14%);
+  --careon-auth-rule: rgb(121 132 255 / 20%);
+  --careon-auth-title-color: #f8fbff;
+  --careon-auth-body: #c9d3ee;
+  --careon-auth-muted: #9ba6c7;
+  --careon-auth-soft: #8f9ac0;
+  --careon-auth-input-bg: #0c1129;
+  --careon-auth-input-edge: #2a3468;
+  --careon-auth-input-text: #f8fbff;
+  --careon-auth-placeholder: #8f9ac0;
+  --careon-auth-secondary-bg: #1b2350;
+  --careon-auth-secondary-edge: rgb(121 132 255 / 25%);
+  --careon-auth-secondary-text: #e9ecff;
+  --careon-auth-primary-glow: 0 10px 22px -10px rgb(25 167 255 / 80%);
+  --careon-auth-disabled-bg: #0d1230;
+  --careon-auth-disabled-edge: rgb(121 132 255 / 14%);
+  --careon-auth-disabled-text: #8f9ac0;
+  --careon-auth-error-text: #ff8fae;
+  --careon-auth-success: #38e0c8;
+}
+
+/* ---- merkzijde ---------------------------------------------------------- */
+.careon-auth-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.875rem;
+  text-align: center;
+}
+
+.careon-auth-brand-tagline {
+  display: none;
+}
+
+.careon-auth-desktop-only {
+  display: none;
+}
+
+.careon-auth-eyebrow {
+  color: var(--careon-auth-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+/* ---- formulierzijde ----------------------------------------------------- */
+.careon-auth-panel {
+  display: flex;
+  justify-content: center;
+}
+
+.careon-auth-column {
+  display: flex;
+  width: 100%;
+  max-width: 25rem;
+  flex-direction: column;
+  gap: 1.125rem;
+}
+
+.careon-auth-card {
+  border: 1px solid transparent;
+  border-radius: 22px;
+  background:
+    var(--careon-auth-card-fill) padding-box,
+    var(--careon-auth-card-edge) border-box;
+  box-shadow: var(--careon-auth-card-shadow);
+  padding: 1.375rem 1.25rem 1.5rem;
+}
+
+.careon-auth-title {
+  color: var(--careon-auth-title-color);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.careon-auth-sub {
+  margin-top: 0.375rem;
+  color: var(--careon-auth-body);
+  font-size: 0.8438rem;
+  line-height: 1.5;
+}
+
+.careon-auth-form {
+  display: flex;
+  margin-top: 1.125rem;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.careon-auth-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.careon-auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.careon-auth-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: var(--careon-auth-muted);
+  font-size: 0.7188rem;
+  line-height: 1.6;
+  text-align: center;
+}
+
+/* ---- besturingselementen ------------------------------------------------ */
+html .careon-auth-shell .careon-auth-label {
+  color: var(--careon-auth-body);
+  font-size: 0.7812rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+html .careon-auth-shell .careon-auth-input {
+  height: 46px;
+  border: 1px solid var(--careon-auth-input-edge);
+  border-radius: 14px;
+  background: var(--careon-auth-input-bg);
+  color: var(--careon-auth-input-text);
+  font-size: 1rem;
+  padding: 0 0.875rem;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+html .careon-auth-shell .careon-auth-input::placeholder {
+  color: var(--careon-auth-placeholder);
+}
+
+html .careon-auth-shell .careon-auth-input:focus-visible {
+  border-color: var(--careon-auth-ring);
+  box-shadow: 0 0 0 3px var(--careon-auth-ring-soft);
+  outline: none;
+}
+
+html .careon-auth-shell .careon-auth-input-invalid {
+  border-color: var(--careon-auth-error-dot);
+}
+
+html .careon-auth-shell .careon-auth-input-invalid:focus-visible {
+  border-color: var(--careon-auth-error-dot);
+  box-shadow: 0 0 0 3px var(--careon-auth-error-bg);
+}
+
+html .careon-auth-shell .careon-auth-input-eye {
+  padding-right: 2.875rem;
+}
+
+.careon-auth-input-wrap {
+  position: relative;
+}
+
+html .careon-auth-shell .careon-auth-eye {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  bottom: 0;
+  display: flex;
+  width: 44px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  color: var(--careon-auth-muted);
+}
+
+html .careon-auth-shell .careon-auth-eye:hover {
+  color: var(--careon-auth-title-color);
+}
+
+html .careon-auth-shell .careon-auth-eye:focus-visible {
+  box-shadow: 0 0 0 3px var(--careon-auth-ring-soft);
+  outline: none;
+}
+
+/* ---- knoppen ------------------------------------------------------------ */
+html .careon-auth-shell .careon-auth-btn {
+  width: 100%;
+  height: 48px;
+  gap: 0.625rem;
+  border-radius: 14px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  padding: 0 1rem;
+}
+
+html .careon-auth-shell .careon-auth-btn:focus-visible {
+  border-color: var(--careon-auth-ring);
+  box-shadow: 0 0 0 3px var(--careon-auth-ring-soft);
+  outline: none;
+}
+
+html .careon-auth-shell .careon-auth-btn-primary {
+  border: 1px solid var(--careon-auth-primary-edge);
+  background: var(--careon-auth-primary);
+  box-shadow: var(--careon-auth-primary-glow);
+  color: #ffffff;
+}
+
+html .careon-auth-shell .careon-auth-btn-primary:hover {
+  background: var(--careon-auth-primary);
+  filter: brightness(1.07);
+}
+
+html .careon-auth-shell .careon-auth-btn-primary:disabled {
+  border-color: var(--careon-auth-disabled-edge);
+  background: var(--careon-auth-disabled-bg);
+  box-shadow: none;
+  color: var(--careon-auth-disabled-text);
+  filter: none;
+  opacity: 1;
+}
+
+/* Bezig met inloggen: de knop is technisch uitgeschakeld (geen dubbele
+   verzending), maar blijft visueel de primaire actie met een draaiende ring. */
+html .careon-auth-shell .careon-auth-btn-primary[data-busy]:disabled {
+  border-color: var(--careon-auth-primary-edge);
+  background: var(--careon-auth-primary);
+  box-shadow: var(--careon-auth-primary-glow);
+  color: #ffffff;
+}
+
+html .careon-auth-shell .careon-auth-btn-secondary {
+  border: 1px solid var(--careon-auth-secondary-edge);
+  background: var(--careon-auth-secondary-bg);
+  color: var(--careon-auth-secondary-text);
+}
+
+html .careon-auth-shell .careon-auth-btn-secondary:hover {
+  border-color: var(--careon-auth-ring);
+  background: var(--careon-auth-secondary-bg);
+  color: var(--careon-auth-secondary-text);
+}
+
+.careon-auth-ms-mark {
+  width: 17px;
+  height: 17px;
+  gap: 1px;
+}
+
+/* ---- scheiding, meldingen ----------------------------------------------- */
+.careon-auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.125rem 0;
+}
+
+.careon-auth-divider-rule {
+  height: 1px;
+  flex: 1;
+  background: var(--careon-auth-rule);
+}
+
+.careon-auth-divider-label {
+  color: var(--careon-auth-soft);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+}
+
+.careon-auth-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  border: 1px solid var(--careon-auth-error-edge);
+  border-radius: 12px;
+  background: var(--careon-auth-error-bg);
+  color: var(--careon-auth-error-text);
+  font-size: 0.7812rem;
+  line-height: 1.5;
+  padding: 0.625rem 0.75rem;
+}
+
+.careon-auth-error-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  margin-top: 0.3125rem;
+  border-radius: 50%;
+  background: var(--careon-auth-error-dot);
+}
+
+.careon-auth-success {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  color: var(--careon-auth-success);
+  font-size: 0.8438rem;
+  line-height: 1.5;
+}
+
+.careon-auth-hint,
+.careon-auth-note {
+  color: var(--careon-auth-muted);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.careon-auth-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  border: 1px solid var(--careon-auth-hairline);
+  border-radius: 14px;
+  background: var(--careon-auth-input-bg);
+  color: var(--careon-auth-body);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  padding: 0.75rem;
+}
+
+/* ---- vanaf 1024px: split met merkpaneel --------------------------------- */
+@media (min-width: 1024px) {
+  .careon-auth-shell {
+    display: grid;
+    min-height: 100dvh;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 0;
+    padding: 0;
+    background: var(--careon-auth-page);
+  }
+
+  .careon-auth-brand {
+    position: relative;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 1.75rem;
+    overflow: hidden;
+    padding: 3rem clamp(3rem, 6vw, 5.5rem);
+    text-align: left;
+    background:
+      var(--careon-auth-brand-wash), linear-gradient(var(--careon-auth-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--careon-auth-grid) 1px, transparent 1px), var(--careon-auth-brand-base);
+    background-size:
+      auto,
+      auto,
+      44px 44px,
+      44px 44px,
+      auto;
+  }
+
+  .careon-auth-brand .careon-auth-logo {
+    justify-content: flex-start;
+  }
+
+  .careon-auth-brand .careon-auth-logo .careon-wordmark {
+    font-size: clamp(2.25rem, 3.2vw, 3rem);
+  }
+
+  .careon-auth-brand-tagline {
+    display: block;
+    max-width: 26rem;
+    color: var(--careon-auth-body);
+    font-size: 1.0625rem;
+    line-height: 1.55;
+  }
+
+  .careon-auth-desktop-only {
+    display: block;
+    letter-spacing: 0.14em;
+  }
+
+  .careon-auth-mobile-only {
+    display: none;
+  }
+
+  .careon-auth-panel {
+    align-items: center;
+    border-left: 1px solid var(--careon-auth-hairline);
+    background: var(--careon-auth-panel-bg);
+    padding: 3rem 2rem calc(3rem + env(safe-area-inset-bottom));
+  }
+
+  .careon-auth-card {
+    border: 0;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    padding: 0;
+  }
+
+  .careon-auth-title {
+    font-size: 1.375rem;
+  }
+
+  .careon-auth-foot {
+    text-align: center;
+  }
+
+  html .careon-auth-shell .careon-auth-input {
+    font-size: 0.875rem;
+  }
+}
+
+/* Accenttekst voor de tekstknop (toestemmingsscherm): merkblauw dat op elk
+   oppervlak AA haalt — donkerder op het lichte thema, lichter op donker. */
+.careon-auth-shell {
+  --careon-auth-accent-text: #0b6fbd;
+  --careon-auth-accent-edge: rgb(25 167 255 / 40%);
+}
+
+.dark .careon-auth-shell,
+html[data-theme-mode="careon"] .careon-auth-shell {
+  --careon-auth-accent-text: #5ec1ff;
+  --careon-auth-accent-edge: rgb(25 167 255 / 30%);
+}
+
+.careon-auth-strong {
+  color: var(--careon-auth-title-color);
+  font-weight: 600;
+}
+
+html .careon-auth-shell .careon-auth-btn-ghost {
+  border: 1px solid var(--careon-auth-accent-edge);
+  background: transparent;
+  color: var(--careon-auth-accent-text);
+}
+
+html .careon-auth-shell .careon-auth-btn-ghost:hover {
+  background: rgb(25 167 255 / 10%);
+  color: var(--careon-auth-accent-text);
+}

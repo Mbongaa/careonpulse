@@ -27,33 +27,42 @@ export default async function LoginV1({ searchParams }: { searchParams: Promise<
   const configurationError = query.error === "configuration";
   const oauthError = Array.isArray(query.error) ? query.error[0] : query.error;
   const oauthMessage = oauthError ? (MICROSOFT_LOGIN_ERRORS[oauthError] ?? "") : "";
+  // Middot als scheidingsteken, net als de andere regels op deze schermen.
   const environmentLabel = isCareonDemoMode()
-    ? "Careon Group - beveiligde demo-omgeving"
-    : "Careon Group - beveiligde omgeving";
+    ? "Careon Group · beveiligde demo-omgeving"
+    : "Careon Group · beveiligde omgeving";
 
   return (
-    <div className="careon-login-shell flex min-h-dvh items-center justify-center overflow-hidden p-5 lg:justify-end lg:p-12">
-      <div className="careon-login-card w-full max-w-md space-y-8 rounded-3xl p-7 text-center md:p-10 lg:mr-[7vw]">
-        <div className="space-y-5">
-          <CareonLogo variant="hero" />
-          <div className="space-y-2">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-[0.36em]">{CAREON_ORG.tagline}</p>
-            <h1 className="font-semibold text-4xl tracking-tight">Welkom terug</h1>
-            <p className="mx-auto max-w-xs text-muted-foreground">Log in op uw beveiligde zorgdashboard.</p>
+    // Gedeelde authenticatie-vorm (globals.css, .careon-auth-*): mobiel één
+    // gecentreerde kolom met de merk-glow-kaart, vanaf lg een split met het
+    // merkpaneel links en het formulier rechts — dezelfde taal als de YAAZ-
+    // loginschermen, maar met de Careon-lockup en Careon-copy.
+    <div className="careon-auth-shell">
+      <aside className="careon-auth-brand">
+        <CareonLogo variant="hero" className="careon-auth-logo" />
+        <p className="careon-auth-brand-tagline">
+          Het beveiligde zorgdashboard van uw organisatie — KPI&apos;s, signaleringen en rapportages op één plek.
+        </p>
+        <p className="careon-auth-eyebrow careon-auth-desktop-only">Careon Pulse · Module 1</p>
+        <p className="careon-auth-eyebrow careon-auth-mobile-only">{CAREON_ORG.tagline}</p>
+      </aside>
+      <main className="careon-auth-panel">
+        <div className="careon-auth-column">
+          <div className="careon-auth-card">
+            <h1 className="careon-auth-title">Inloggen bij Careon Pulse</h1>
+            <p className="careon-auth-sub">Medewerkers loggen veilig in met hun Microsoft 365-werkaccount.</p>
+            <CareonLoginForm
+              initiallyUnavailable={configurationError}
+              initialErrorMessage={oauthMessage}
+              microsoftEnabled={isMicrosoftLoginEnabled()}
+            />
+          </div>
+          <div className="careon-auth-foot">
+            <p>Wachtwoordtoegang is alleen voor platformbeheer en uitzonderingen.</p>
+            <p>{environmentLabel}</p>
           </div>
         </div>
-        <div className="space-y-4 text-left">
-          <CareonLoginForm
-            initiallyUnavailable={configurationError}
-            initialErrorMessage={oauthMessage}
-            microsoftEnabled={isMicrosoftLoginEnabled()}
-          />
-          <p className="text-center text-muted-foreground text-xs">
-            Toegangsgegevens ontvangt u van uw contactpersoon bij Careon.
-          </p>
-          <p className="text-center text-muted-foreground text-xs">{environmentLabel}</p>
-        </div>
-      </div>
+      </main>
     </div>
   );
 }
