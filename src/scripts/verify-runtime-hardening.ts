@@ -596,6 +596,15 @@ async function main() {
     path.resolve(process.cwd(), "supabase/migrations/0021_careon_facturatie_mail.sql"),
     "utf8",
   );
+  const facturatieFkMigration = fs.readFileSync(
+    path.resolve(process.cwd(), "supabase/migrations/20260821213000_facturatie_fk_indexes.sql"),
+    "utf8",
+  );
+  check(
+    "facturatie: foreign keys hebben een eigen leidende index",
+    facturatieFkMigration.includes("careon_facturatie_facturen (contact_id)") &&
+      facturatieFkMigration.includes("careon_facturatie_maillog (factuur_id)"),
+  );
   check(
     "maillog: alleen een select-policy — schrijven is service-role-only",
     mailMigration.includes("create policy careon_facturatie_maillog_select on") &&

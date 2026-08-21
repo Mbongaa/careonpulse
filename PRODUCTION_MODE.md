@@ -250,6 +250,9 @@ gebruikers dezelfde data.
      `careon_consume_assistant_quota` (CHECK-constraint én functie-allowlist).
      **Toepassen vóór de bijbehorende code uitrolt**; zonder de scope
      `mail` faalt de verzendroute met `invalid quota parameters`.
+   - `20260821213000_facturatie_fk_indexes.sql` — leidende indexes op de
+     nullable `contact_id`-FK van facturen en `factuur_id` van het maillog;
+     voorkomt volledige scans bij joins en `ON DELETE RESTRICT`-controles.
 
    Het oude sync-token is vervallen: toegang loopt via Supabase Auth-sessies.
 
