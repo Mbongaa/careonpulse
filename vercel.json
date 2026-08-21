@@ -6,6 +6,10 @@
     {
       "path": "/api/internal/maintenance",
       "schedule": "17 2 * * *"
+    },
+    {
+      "path": "/api/internal/entra-reconciliation",
+      "schedule": "17 * * * *"
     }
   ]
 }

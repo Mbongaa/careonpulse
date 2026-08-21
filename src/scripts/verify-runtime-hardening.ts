@@ -219,14 +219,15 @@ async function main() {
       !directorySource.includes("NEXT_PUBLIC_CAREON_ENTRA_DIRECTORY"),
   );
   check(
-    "Entra-directoryconnector leest alleen de ingestelde eligibility-bron via vaste Graph-origin",
+    "Entra-directoryconnector leest volledige inventaris plus ingestelde eligibility-bron via vaste Graph-origin",
     directorySource.includes('const GRAPH_ORIGIN = "https://graph.microsoft.com"') &&
+      directorySource.includes('const inventoryPath = "/v1.0/users"') &&
+      directorySource.includes("assignedLicenses") &&
       directorySource.includes("/appRoleAssignedTo") &&
       directorySource.includes("/members") &&
       directorySource.includes('config.source === "group"') &&
-      directorySource.includes("/v1.0/$batch") &&
       directorySource.includes("url.origin === GRAPH_ORIGIN") &&
-      directorySource.includes("url.pathname === graphCollectionPath(config)") &&
+      directorySource.includes("url.pathname === expectedPath") &&
       directorySource.includes('redirect: "error"') &&
       !directorySource.includes('method: "PATCH"') &&
       !directorySource.includes('method: "DELETE"'),
@@ -262,6 +263,60 @@ async function main() {
       yaazDirectorySource.includes("/microsoft-365/internal-directory") &&
       yaazDirectorySource.includes("MAX_RESPONSE_BYTES") &&
       yaazDirectorySource.includes("Authorization: `Bearer "),
+  );
+  const lifecycleMigration = fs.readFileSync(
+    path.resolve(process.cwd(), "supabase/migrations/20260821141805_entra_lifecycle_reconciliation.sql"),
+    "utf8",
+  );
+  const lifecycleSource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/lib/careon-entra/lifecycle.server.ts"),
+    "utf8",
+  );
+  const yaazLifecycleSource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/lib/careon-yaaz/lifecycle.server.ts"),
+    "utf8",
+  );
+  const lifecycleRouteSource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/app/api/internal/entra-reconciliation/route.ts"),
+    "utf8",
+  );
+  check(
+    "Entra-lifecycle bewaart service-only observaties en beschermt beheerders",
+    lifecycleMigration.includes("alter table public.careon_entra_lifecycle force row level security") &&
+      lifecycleMigration.includes("current_setting('request.jwt.claim.role', true)") &&
+      lifecycleMigration.includes("v_org_role = 'org_admin'") &&
+      lifecycleMigration.includes("public.platform_admins") &&
+      lifecycleMigration.includes("p_missing_threshold not between 2 and 24") &&
+      lifecycleMigration.includes("pg_advisory_xact_lock") &&
+      lifecycleMigration.includes("grant execute on function public.careon_reconcile_entra_snapshot") &&
+      lifecycleMigration.includes("to service_role"),
+  );
+  check(
+    "Reconciliatie blokkeert alleen na volledige Graph-snapshot en begrenst mutaties",
+    lifecycleSource.includes("listEntraDirectoryMembers()") &&
+      lifecycleSource.includes("MAX_ACTIONS_PER_RUN = 10") &&
+      lifecycleSource.includes('return { status: "guarded" }') &&
+      lifecycleSource.includes("careon_reconcile_entra_snapshot") &&
+      lifecycleSource.includes("careon_finalize_entra_lifecycle_action") &&
+      lifecycleSource.includes("BAN_FOREVER") &&
+      lifecycleSource.includes("applyYaazLifecycle"),
+  );
+  check(
+    "YAAZ-lifecycle gebruikt eigen server-only fail-closed write-boundary",
+    yaazLifecycleSource.includes('import "server-only"') &&
+      yaazLifecycleSource.includes('CAREON_YAAZ_LIFECYCLE_ENABLED !== "1"') &&
+      yaazLifecycleSource.includes("CAREON_YAAZ_LIFECYCLE_KEY") &&
+      yaazLifecycleSource.includes("/microsoft-365/internal-lifecycle") &&
+      yaazLifecycleSource.includes('redirect: "error"') &&
+      !yaazLifecycleSource.includes("CAREON_YAAZ_DIRECTORY_KEY"),
+  );
+  check(
+    "Uurlijkse lifecycle-route eist exact CRON_SECRET en blijft standaard uit",
+    lifecycleRouteSource.includes("timingSafeEqual") &&
+      lifecycleRouteSource.includes("reconcileEntraLifecycle()") &&
+      lifecycleRouteSource.includes('result.status === "disabled"') &&
+      environmentExample.includes("CAREON_ENTRA_LIFECYCLE_ENABLED=0") &&
+      environmentExample.includes("CAREON_YAAZ_LIFECYCLE_KEY="),
   );
   check(
     "OAuth-redirect vertrouwt in productie alleen de canonieke app-URL",

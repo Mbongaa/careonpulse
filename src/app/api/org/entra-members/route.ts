@@ -133,13 +133,16 @@ export async function GET() {
   });
 
   const summary = {
-    eligible: members.length,
-    active: members.filter((member) => member.careonStatus === "active").length,
+    directoryTotal: members.length,
+    eligible: members.filter((member) => member.eligible).length,
+    active: members.filter((member) => member.eligible && member.careonStatus === "active").length,
     pendingFirstLogin: members.filter(
-      (member) => member.careonStatus === "not_started" || member.careonStatus === "identity_only",
+      (member) => member.eligible && (member.careonStatus === "not_started" || member.careonStatus === "identity_only"),
     ).length,
-    blocked: members.filter((member) => member.careonStatus === "blocked").length,
+    blocked: members.filter((member) => member.eligible && member.careonStatus === "blocked").length,
     guests: members.filter((member) => member.userType === "Guest").length,
+    disabled: members.filter((member) => member.accountEnabled === false).length,
+    unlicensed: members.filter((member) => member.licensed === false).length,
   };
   return NextResponse.json(
     { configured: true, eligibilitySource: directory.config.source, yaazAvailable, members, summary },

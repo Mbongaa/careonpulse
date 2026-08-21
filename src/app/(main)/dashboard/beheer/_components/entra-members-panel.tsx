@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { RefreshCw, Search, ShieldAlert, UserCheck, UserRoundPlus, UsersRound } from "lucide-react";
+import { RefreshCw, Search, ShieldAlert, UserCheck, UserRoundPlus, Users, UsersRound } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,8 @@ interface EntraMemberRow {
   jobTitle: string;
   userType: "Member" | "Guest" | "Unknown";
   accountEnabled: boolean | null;
+  licensed: boolean | null;
+  eligible: boolean;
   matchEmail: string;
   careonStatus: CareonStatus;
   careonUserId: string | null;
@@ -39,11 +41,14 @@ interface EntraPayload {
   yaazAvailable: boolean;
   members: EntraMemberRow[];
   summary: {
+    directoryTotal: number;
     eligible: number;
     active: number;
     pendingFirstLogin: number;
     blocked: number;
     guests: number;
+    disabled: number;
+    unlicensed: number;
   };
 }
 
@@ -142,9 +147,14 @@ export function EntraMembersPanel() {
     const needle = query.trim().toLowerCase();
     if (!needle) return payload.members;
     return payload.members.filter((member) =>
-      [member.displayName, member.matchEmail, member.jobTitle, STATUS_LABEL[member.careonStatus]].some((value) =>
-        value.toLowerCase().includes(needle),
-      ),
+      [
+        member.displayName,
+        member.matchEmail,
+        member.jobTitle,
+        STATUS_LABEL[member.careonStatus],
+        member.eligible ? "Careon.User toegang" : "geen Careon toegang",
+        member.userType,
+      ].some((value) => value.toLowerCase().includes(needle)),
     );
   }, [payload, query]);
 
@@ -153,7 +163,7 @@ export function EntraMembersPanel() {
       <Card>
         <CardHeader>
           <CardTitle>Microsoft-medewerkers</CardTitle>
-          <CardDescription>De goedgekeurde Entra-toegang en Careon-accounts worden vergeleken.</CardDescription>
+          <CardDescription>De volledige Entra-directory en Careon-accounts worden vergeleken.</CardDescription>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">Medewerkers laden…</CardContent>
       </Card>
@@ -200,6 +210,7 @@ export function EntraMembersPanel() {
   }
 
   const summaryCards = [
+    { label: "Microsoft-identiteiten", value: payload.summary.directoryTotal, icon: Users },
     { label: "Toegelaten in Entra", value: payload.summary.eligible, icon: UsersRound },
     { label: "Actief in Careon", value: payload.summary.active, icon: UserCheck },
     { label: "Eerste login open", value: payload.summary.pendingFirstLogin, icon: UserRoundPlus },
@@ -207,7 +218,7 @@ export function EntraMembersPanel() {
 
   return (
     <section aria-labelledby="entra-members-title" className="flex flex-col gap-4">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {summaryCards.map((item) => (
           <Card key={item.label}>
             <CardContent className="flex items-center justify-between py-5">
@@ -226,8 +237,9 @@ export function EntraMembersPanel() {
           <div>
             <CardTitle id="entra-members-title">Microsoft-medewerkers</CardTitle>
             <CardDescription className="mt-1 max-w-3xl">
-              Entra bepaalt wie werknemerstoegang mag krijgen. De Careon-rol blijft apart beheerd; een eerste
-              Microsoft-login kan alleen de standaardrol Gebruiker aanmaken. Bron:{" "}
+              Alle Microsoft-identiteiten staan in dit overzicht. Alleen een actieve tenantmedewerker met Careon.User
+              mag inloggen; diens eerste Microsoft-login kan uitsluitend de standaardrol Gebruiker aanmaken.
+              Toegangsbron:{" "}
               {payload.eligibilitySource === "app_role_assignments"
                 ? "directe Careon.User-toewijzingen"
                 : "goedgekeurde Entra-groep"}
@@ -256,12 +268,13 @@ export function EntraMembersPanel() {
             <p className="py-6 text-center text-muted-foreground text-sm">Geen medewerkers gevonden.</p>
           ) : (
             <div className="overflow-x-auto">
-              <Table className="min-w-[1220px]">
+              <Table className="min-w-[1360px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Microsoft-medewerker</TableHead>
                     <TableHead>Functie</TableHead>
-                    <TableHead>Entra</TableHead>
+                    <TableHead>Microsoft-account</TableHead>
+                    <TableHead>Careon-toegang</TableHead>
                     <TableHead>Careon-status</TableHead>
                     <TableHead>Careon-rol</TableHead>
                     <TableHead>Laatste Careon-login</TableHead>
@@ -283,10 +296,16 @@ export function EntraMembersPanel() {
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
                           <Badge variant={member.accountEnabled === false ? "destructive" : "outline"}>
-                            {member.accountEnabled === false ? "Uitgeschakeld" : "Toegelaten"}
+                            {member.accountEnabled === false ? "Uitgeschakeld" : "Actief"}
                           </Badge>
                           {member.userType !== "Member" && <Badge variant="destructive">{member.userType}</Badge>}
+                          {member.licensed === false && <Badge variant="secondary">Geen licentie</Badge>}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={member.eligible ? "default" : "outline"}>
+                          {member.eligible ? "Careon.User" : "Niet toegelaten"}
+                        </Badge>
                       </TableCell>
                       <TableCell>
                         <Badge variant={statusVariant(member.careonStatus)}>{STATUS_LABEL[member.careonStatus]}</Badge>
@@ -315,10 +334,11 @@ export function EntraMembersPanel() {
             </div>
           )}
 
-          {(payload.summary.blocked > 0 || payload.summary.guests > 0) && (
+          {(payload.summary.blocked > 0 || payload.summary.guests > 0 || payload.summary.disabled > 0) && (
             <p className="text-muted-foreground text-xs">
-              Controle nodig: {payload.summary.blocked} geblokkeerd · {payload.summary.guests} gastaccount(s). Gasten
-              horen alleen in deze groep wanneer TGC-IT ze bewust de Careon-app-rol heeft toegekend.
+              Controle nodig: {payload.summary.blocked} Careon-account(s) geblokkeerd · {payload.summary.guests}{" "}
+              gastaccount(s) · {payload.summary.disabled} Microsoft-account(s) uitgeschakeld. Gasten en uitgeschakelde
+              accounts krijgen nooit automatisch Careon-toegang.
             </p>
           )}
           {!payload.yaazAvailable && (
