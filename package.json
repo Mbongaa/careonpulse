@@ -15,6 +15,7 @@
     "verify:careon": "ts-node -r tsconfig-paths/register -P tsconfig.scripts.json src/scripts/verify-careon.ts",
     "verify:assistant": "ts-node -P tsconfig.scripts.json src/scripts/verify-assistant-production.ts",
     "verify:runtime": "ts-node -r tsconfig-paths/register -P tsconfig.scripts.json src/scripts/verify-runtime-hardening.ts",
+    "verify:mobile": "ts-node -r tsconfig-paths/register -P tsconfig.scripts.json src/scripts/verify-mobile-shell.ts",
     "verify:assistant:live": "ts-node -P tsconfig.scripts.json src/scripts/e2e-assistant-live.ts",
     "verify:facturatie:live": "ts-node -P tsconfig.scripts.json src/scripts/e2e-facturatie-live.ts",
     "verify:data-hygiene": "ts-node -P tsconfig.scripts.json src/scripts/verify-data-hygiene.ts",
@@ -25,7 +26,7 @@
     "verify:tgc-sync": "ts-node -P tsconfig.scripts.json src/scripts/verify-tgc-sync.ts",
     "verify:tgc-queue": "ts-node -P tsconfig.scripts.json src/scripts/verify-tgc-queue.ts",
     "verify:tgc:live": "ts-node -P tsconfig.scripts.json src/scripts/verify-tgc-live.ts",
-    "verify:ci": "npm run check && npm run typecheck && npm run verify:data-hygiene && npm run verify:careon && npm run verify:production && npm run verify:assistant && npm run verify:runtime && npm run verify:tgc-sync && npm run verify:tgc-queue && npm run audit:production",
+    "verify:ci": "npm run check && npm run typecheck && npm run verify:data-hygiene && npm run verify:careon && npm run verify:production && npm run verify:assistant && npm run verify:runtime && npm run verify:mobile && npm run verify:tgc-sync && npm run verify:tgc-queue && npm run audit:production",
     "push:production": "ts-node -P tsconfig.scripts.json src/scripts/push-production.ts",
     "sync:tgc": "ts-node -P tsconfig.scripts.json src/scripts/sync-tgc-production.ts",
     "worker:tgc": "ts-node -P tsconfig.scripts.json src/scripts/process-tgc-sync-queue.ts"

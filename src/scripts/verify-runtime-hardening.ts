@@ -506,9 +506,14 @@ async function main() {
     !launcherSource.includes("CAREON_MODULES } from") && launcherSource.includes("modules: readonly CareonModule[]"),
   );
   const modulesPageSource = fs.readFileSync(path.resolve(process.cwd(), "src/app/(main)/modules/page.tsx"), "utf8");
+  const mobileRegistrySource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/lib/careon-mobile/module-registry.ts"),
+    "utf8",
+  );
   check(
-    "modulespagina filtert rolgebonden tegels server-side",
-    modulesPageSource.includes('mod.zichtbaarVoor !== "org_admin" || facturatieZichtbaar'),
+    "weblauncher en mobiele shell delen de server-side rolfilter",
+    modulesPageSource.includes("filterCareonModulesForSession(CAREON_MODULES, result.session)") &&
+      mobileRegistrySource.includes('module.zichtbaarVoor !== "org_admin" || magFacturatieZien(session)'),
   );
   const facturatieMigration = fs.readFileSync(
     path.resolve(process.cwd(), "supabase/migrations/0020_careon_facturatie.sql"),
