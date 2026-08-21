@@ -4,6 +4,12 @@ import {
   filterCareonModulesForSession,
   resolveCareonShellTarget,
 } from "../lib/careon-mobile/module-registry";
+import {
+  parseMobilePushDeviceInput,
+  parseMobilePushUnregisterInput,
+  protectMobilePushToken,
+  revealMobilePushToken,
+} from "../lib/careon-mobile/push-device";
 import type { CareonSession } from "../lib/supabase/session.server";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -195,6 +201,77 @@ check(
   handoffRoleGuardMigration.includes("grant execute on function public.careon_consume_mobile_handoff"),
   true,
 );
+
+const pushToken = "dGVzdC1tb2JpZWxlLXRva2VuLWZvci1jYXJlb24:APA91b_example-1234567890";
+const pushKey = Buffer.alloc(32, 7).toString("base64");
+const pushInput = parseMobilePushDeviceInput({
+  installationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  platform: "android",
+  token: pushToken,
+  appVersion: "0.1.0",
+  locale: "nl-NL",
+});
+check("geldige pushregistratie wordt strikt geparseerd", pushInput?.platform, "android");
+check(
+  "onverwachte pushvelden worden geweigerd",
+  parseMobilePushDeviceInput({
+    installationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    platform: "android",
+    token: pushToken,
+    appVersion: "0.1.0",
+    locale: null,
+    body: "mag niet mee",
+  }),
+  null,
+);
+check(
+  "uitschrijven vereist een v4-installatie-id",
+  parseMobilePushUnregisterInput({ installationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" })?.installationId,
+  "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+);
+const protectedPushA = protectMobilePushToken(pushToken, pushKey);
+const protectedPushB = protectMobilePushToken(pushToken, pushKey);
+if (!protectedPushA || !protectedPushB) throw new Error("push-testfixture kon niet worden beschermd");
+check("push-token wordt AES-GCM-versleuteld", protectedPushA.tokenCiphertext.startsWith("v1."), true);
+check("push-token-digest is stabiel voor deduplicatie", protectedPushA.tokenHash, protectedPushB.tokenHash);
+check(
+  "push-token-ciphertext gebruikt een unieke nonce",
+  protectedPushA.tokenCiphertext === protectedPushB.tokenCiphertext,
+  false,
+);
+check(
+  "versleutelde push-token kan server-side worden hersteld",
+  revealMobilePushToken(protectedPushA.tokenCiphertext, pushKey),
+  pushToken,
+);
+check(
+  "gemanipuleerde push-token faalt gesloten",
+  revealMobilePushToken(`${protectedPushA.tokenCiphertext}A`, pushKey),
+  null,
+);
+
+const pushRouteSource = readFileSync(resolve(repo, "src/app/api/mobile/v1/devices/route.ts"), "utf8");
+const pushServerSource = readFileSync(resolve(repo, "src/lib/careon-mobile/push-device.server.ts"), "utf8");
+const pushMigration = readFileSync(resolve(repo, "supabase/migrations/20260822230000_mobile_push_devices.sql"), "utf8");
+check(
+  "pushroute gebruikt dezelfde client-gebonden bearerlaag",
+  pushRouteSource.includes("getCareonShellSession(request)"),
+  true,
+);
+check("pushroute begrenst de request-body", pushRouteSource.includes("readJsonBodyLimited"), true);
+check("pushroute is no-store", pushRouteSource.includes('"Cache-Control": "private, no-store, max-age=0"'), true);
+check("push-audit bevat geen registratietoken", pushRouteSource.includes("detail: { platform: input.platform"), true);
+check(
+  "push-token wordt vóór Supabase beschermd",
+  pushServerSource.includes("protectMobilePushToken(input.token"),
+  true,
+);
+check("push-server logt geen ruwe token", pushServerSource.includes("console."), false);
+check("push-tabel forceert RLS", pushMigration.includes("force row level security"), true);
+check("push-tabel heeft geen ruwe tokencolom", pushMigration.includes("  token text"), false);
+check("pushfuncties zijn service-role-only", pushMigration.includes("auth.jwt() ->> 'role'"), true);
+check("pushregistratie trekt oude accountbinding in", pushMigration.includes("cross-account notification drift"), true);
+check("push-encryptiesleutel is gedocumenteerd", envExample.includes("CAREON_MOBILE_PUSH_TOKEN_ENCRYPTION_KEY"), true);
 
 console.log(`\n${checks - failures}/${checks} checks geslaagd.`);
 if (failures > 0) process.exit(1);
