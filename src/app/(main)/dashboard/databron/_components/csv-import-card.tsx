@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { parseKpiCsv, SAMPLE_CSV_CONTENT, SAMPLE_CSV_FILENAME } from "@/data/careon/careon-databron";
+import { saveBlobThroughCareon } from "@/lib/careon-mobile/native-file.client";
 import { cn } from "@/lib/utils";
 
 export function CsvImportCard() {
@@ -46,14 +47,16 @@ export function CsvImportCard() {
     }
   }
 
-  function downloadSample() {
+  async function downloadSample() {
     const blob = new Blob([SAMPLE_CSV_CONTENT], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = SAMPLE_CSV_FILENAME;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    try {
+      await saveBlobThroughCareon(blob, SAMPLE_CSV_FILENAME);
+    } catch (error) {
+      setMessage({
+        text: error instanceof Error ? error.message : "De voorbeeld-CSV kon niet veilig worden opgeslagen.",
+        ok: false,
+      });
+    }
   }
 
   return (
@@ -111,7 +114,7 @@ export function CsvImportCard() {
           </p>
         )}
 
-        <Button variant="outline" size="sm" className="self-start" onClick={downloadSample}>
+        <Button variant="outline" size="sm" className="self-start" onClick={() => void downloadSample()}>
           <Download className="size-3.5" />
           Voorbeeld-CSV downloaden
         </Button>

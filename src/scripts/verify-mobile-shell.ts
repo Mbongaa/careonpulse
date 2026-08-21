@@ -273,5 +273,38 @@ check("pushfuncties zijn service-role-only", pushMigration.includes("auth.jwt() 
 check("pushregistratie trekt oude accountbinding in", pushMigration.includes("cross-account notification drift"), true);
 check("push-encryptiesleutel is gedocumenteerd", envExample.includes("CAREON_MOBILE_PUSH_TOKEN_ENCRYPTION_KEY"), true);
 
+const nativeFileSource = readFileSync(resolve(repo, "src/lib/careon-mobile/native-file.client.ts"), "utf8");
+const factuurPreviewSource = readFileSync(
+  resolve(repo, "src/app/(main)/facturatie/_components/factuur-pdf-preview.tsx"),
+  "utf8",
+);
+const csvImportSource = readFileSync(
+  resolve(repo, "src/app/(main)/dashboard/databron/_components/csv-import-card.tsx"),
+  "utf8",
+);
+check(
+  "native bestandsbrug vereist de exacte shell user-agent",
+  nativeFileSource.includes('userAgent.startsWith("CareonPulseShell/")'),
+  true,
+);
+check(
+  "native bestandsbrug vereist het geïnjecteerde kanaal",
+  nativeFileSource.includes("CareonNativeFile?: unknown"),
+  true,
+);
+check(
+  "normale browsers behouden de lokale downloadfallback",
+  nativeFileSource.includes("downloadInBrowser(blob, fileName)"),
+  true,
+);
+check("native bestandsoverdracht is begrensd op twaalf MiB", nativeFileSource.includes("12 * 1024 * 1024"), true);
+check("native bestandsbericht bevat geen access token", nativeFileSource.includes("accessToken"), false);
+check(
+  "Facturatie gebruikt de gedeelde native bestandsbrug",
+  factuurPreviewSource.includes("saveBlobThroughCareon"),
+  true,
+);
+check("Databron gebruikt de gedeelde native bestandsbrug", csvImportSource.includes("saveBlobThroughCareon"), true);
+
 console.log(`\n${checks - failures}/${checks} checks geslaagd.`);
 if (failures > 0) process.exit(1);

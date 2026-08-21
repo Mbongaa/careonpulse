@@ -10,15 +10,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FactuurDocument } from "@/lib/careon-facturatie/pdf/factuur-document";
 import { registreerPdfFonts } from "@/lib/careon-facturatie/pdf/fonts.client";
 import type { Factuur } from "@/lib/careon-facturatie/types";
+import { hasCareonNativeFileBridge, saveBlobThroughCareon } from "@/lib/careon-mobile/native-file.client";
 
 // Live pdf-voorbeeld (handoff 15 §5.2): wat u ziet ís de pdf. De ENIGE module
 // die @react-pdf/renderer client-side importeert; de editor laadt haar met
 // dynamic({ ssr: false }). Debounce 400 ms — elke render draait Yoga + PDFKit.
 // De iframe-src wisselt pas wanneer de render klaar is (anders knippert de
 // native viewer wit); de vórige object-URL wordt ge-revoked, nooit de huidige.
-// Mobiel (iframe rendert geen pdf op iOS/Chrome-Android): knop die de blob in
-// een nieuw tabblad opent — enige, klant-goedgekeurde afwijking van
-// mobile-first (V21).
+// Mobiel (iframe rendert geen pdf op iOS/Chrome-Android): normale browsers
+// kunnen de blob openen/downloaden; de Careon-shell stuurt exact dezelfde
+// bytes via haar begrensde native opslag-/deelvenster.
 
 registreerPdfFonts();
 
@@ -48,7 +49,10 @@ export default function FactuurPdfPreview({ factuur, logoSrc }: Readonly<{ factu
   }, [traag, logoSrc, update]);
 
   const [zichtbareUrl, setZichtbareUrl] = useState<string | null>(null);
+  const [nativeBridge, setNativeBridge] = useState(false);
+  const [opslagFout, setOpslagFout] = useState<string | null>(null);
   const vorigeUrl = useRef<string | null>(null);
+  useEffect(() => setNativeBridge(hasCareonNativeFileBridge()), []);
   useEffect(() => {
     if (instance.loading || !instance.url) return;
     const vorige = vorigeUrl.current;
@@ -59,12 +63,22 @@ export default function FactuurPdfPreview({ factuur, logoSrc }: Readonly<{ factu
 
   const bestandsnaam = `${factuur.nummer ?? "concept"}.pdf`;
 
+  const slaPdfOp = async () => {
+    if (!instance.blob) return;
+    setOpslagFout(null);
+    try {
+      await saveBlobThroughCareon(instance.blob, bestandsnaam);
+    } catch (error) {
+      setOpslagFout(error instanceof Error ? error.message : "De pdf kon niet veilig worden opgeslagen.");
+    }
+  };
+
   return (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <p className="text-muted-foreground text-xs">Voorbeeld — dit is de definitieve pdf.</p>
         <span className="flex items-center gap-2">
-          {zichtbareUrl ? (
+          {zichtbareUrl && !nativeBridge ? (
             <Button asChild variant="outline" size="sm" className="lg:hidden">
               <a href={zichtbareUrl} target="_blank" rel="noreferrer">
                 <ExternalLink className="size-3.5" />
@@ -72,11 +86,9 @@ export default function FactuurPdfPreview({ factuur, logoSrc }: Readonly<{ factu
               </a>
             </Button>
           ) : null}
-          {zichtbareUrl ? (
-            <Button asChild variant="outline" size="sm">
-              <a href={zichtbareUrl} download={bestandsnaam}>
-                Pdf downloaden
-              </a>
+          {zichtbareUrl && instance.blob ? (
+            <Button variant="outline" size="sm" onClick={() => void slaPdfOp()}>
+              Pdf {nativeBridge ? "opslaan" : "downloaden"}
             </Button>
           ) : null}
         </span>
@@ -91,8 +103,14 @@ export default function FactuurPdfPreview({ factuur, logoSrc }: Readonly<{ factu
         <Skeleton className="hidden h-full min-h-[480px] w-full rounded-lg lg:block" />
       )}
       <p className="text-muted-foreground text-xs lg:hidden">
-        Het ingebouwde voorbeeld is beschikbaar op een groter scherm; open de pdf hierboven in een nieuw tabblad.
+        Het ingebouwde voorbeeld is beschikbaar op een groter scherm; {nativeBridge ? "sla" : "open"} de pdf hierboven{" "}
+        {nativeBridge ? "veilig op" : "in een nieuw tabblad"}.
       </p>
+      {opslagFout ? (
+        <p role="alert" className="text-destructive text-xs">
+          {opslagFout}
+        </p>
+      ) : null}
     </div>
   );
 }
