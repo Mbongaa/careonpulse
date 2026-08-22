@@ -1,6 +1,6 @@
 # Careon Pulse — Platform Blueprint
 
-**Version:** 2.8 · **Date:** 22 August 2026 · **Status:** Approved for implementation · **Reconciles:** D23 with the owner's explicit request for Microsoft-native Teams calling inside YAAZ and D21 with the production-accepted Teams conversation renderer · **Supersedes:** v2.7 (D21 production reconciliation) · v2.6 (D14 OAuth access-token/RLS and one-time shell handoff clarification) · v2.5 (D21 calendar-write amendment) · v2.4 (D22, Entra-gated employee lifecycle and JIT membership) · v2.3 (D21, delegated Microsoft 365 data plane in YAAZ) · v2.2 (D20, hybrid authentication / Entra ID federation) · v2.1 (D19, facturatie module) · v1.0 (single-app HumHub blueprint)
+**Version:** 2.8 · **Date:** 23 August 2026 · **Status:** Approved for implementation · **Reconciles:** D23 with the owner's explicit request for Microsoft-native Teams calling inside YAAZ and D21 with the production-accepted Teams conversation renderer; clarifies the official Microsoft recording boundary without changing D23 · **Supersedes:** v2.7 (D21 production reconciliation) · v2.6 (D14 OAuth access-token/RLS and one-time shell handoff clarification) · v2.5 (D21 calendar-write amendment) · v2.4 (D22, Entra-gated employee lifecycle and JIT membership) · v2.3 (D21, delegated Microsoft 365 data plane in YAAZ) · v2.2 (D20, hybrid authentication / Entra ID federation) · v2.1 (D19, facturatie module) · v1.0 (single-app HumHub blueprint)
 **Prepared by:** Bayaan Hub · **Product:** Careon Pulse · **Current organization:** TGC Groep (multi-org-ready)
 
 This document is the implementation source of truth for **Careon Pulse**: a multi-module employee platform in which users sign in once and open the modules their account is entitled to — the healthcare KPI dashboard (live today), the communication platform, and audio/video meetings with optional recording and AI meeting documentation. It is the **umbrella guide for AI agents and developers across all Careon Pulse repositories**; repository-local AGENTS.md files govern local conventions and defer to this document for platform-level decisions. Decisions marked **Confirmed** must not be changed silently; propose alternatives explicitly with consequences (Section 2).
@@ -203,7 +203,7 @@ Four repositories, one platform (Confirmed, D18):
 | `careonpulse` | Pulse dashboard (Next.js) + **umbrella platform docs** (`docs/platform/`) | Vercel | Existing CI gates (`verify:ci`, release gates) stay untouched; AGENTS.md gains a pointer section to the umbrella docs |
 | `careonpulse-shell` | Flutter shell app | App Store / Play (client accounts) | Own thin AGENTS.md deferring to the umbrella |
 | `humhub-meeting-modules` | `meeting-core`, `meeting-recordings`, `meeting-intelligence` | Installed into HumHub | Independent semver per module |
-| `platform-deploy` | Docker Compose, Nginx config, env templates, backup/restore scripts, `VERSIONS.md` | Hetzner via Coolify | `main` → production, `develop` → staging |
+| `platform-deploy` | Docker Compose, Caddy/TLS policy, env templates, backup/restore/health scripts, `VERSIONS.md` | Hetzner; direct SSH/Compose currently | `main` is canonical production source; Coolify and a separate `develop` staging plane remain deferred until operator self-service/staging is funded |
 
 **Version pinning.** Phase 0 records the compatibility matrix in `platform-deploy/VERSIONS.md`: HumHub/PHP/MariaDB, Flutter/Dart, Supabase/OIDC, the ACS Calling Web SDK and the matching first-party iOS/Android ACS SDKs. The dormant `jitsi_meet_flutter_sdk` proof remains pinned only as rollback evidence and is not linked into the shipping shell. Upstream security releases are applied under maintenance with the cross-platform call matrix rerun before activation.
 
@@ -226,6 +226,8 @@ The installed `meeting-core` 0.1.0 and shell Jitsi contract remain disabled, cre
 ### 9.3 Recording and intelligence
 
 `meeting-recordings` and `meeting-intelligence` remain Phase-3 concepts, not active dependencies of calling. The former JaaS-specific webhook/24-hour-download assumptions are historical and must not be implemented against ACS by analogy. A Microsoft-supported recording/export source, consent behavior, retention, data region, API permissions, cost and participant-notification contract must be documented and accepted before those modules resume.
+
+Microsoft's current Teams-user interoperability capability matrix explicitly marks **ACS recording as unsupported** for a custom client signed in as a Teams user. Such clients can observe that Teams recording or transcription started and must surface the real-time participant notice, but the current YAAZ Teams-user call cannot start ACS recording or use ACS recording as its archive source. Microsoft Graph cloud-communications media also cannot be used to record or otherwise persist media accessed by an application. The supported candidates are therefore (a) Teams-owned convenience recording under tenant policy, followed by a separately proven authorized export path, or (b) a Microsoft-certified compliance-recording solution where the legal requirement justifies it. ACS Call Automation recording is a different server-controlled interoperability model and is not a drop-in extension of the current employee Teams-user client.
 
 ## 10. Microsoft Teams Calling in YAAZ
 
@@ -252,7 +254,7 @@ Phase 2 includes Teams-user VoIP voice/video, scheduled/channel meeting join, ac
 ## 11. Recording Pipeline & Storage
 
 
-**Historical pre-D23 design — not approved for implementation against ACS.** The sequence below documents the dormant JaaS Phase-3 concept so earlier estimates and code can be understood. D23 requires a fresh Microsoft recording/export design before any recording credential, permission, webhook or worker is activated. The former $0.01/minute and 24-hour JaaS retrieval assumptions do not describe ACS/Teams.
+**Historical pre-D23 design — not approved for implementation against ACS.** The sequence below documents the dormant JaaS Phase-3 concept so earlier estimates and code can be understood. D23 requires a fresh Microsoft recording/export design before any recording credential, permission, webhook or worker is activated. The former $0.01/minute and 24-hour JaaS retrieval assumptions do not describe ACS/Teams. In particular, the active Teams-user Calling SDK path cannot use ACS recording; no recording code, credential, storage object or AI job may be activated until the selected Teams-owned export or certified compliance-recording contract passes legal, privacy, licensing and technical acceptance.
 
 <!-- diagram: sequence -->
 ```mermaid
@@ -549,7 +551,7 @@ Shell app configuration (Supabase URL, OIDC client id, tile-registry endpoint) i
 
 The former fixed total of €1,688/year is not an active TGC commitment. Active fixed platform hosting remains €500/year plus actual Microsoft ACS consumption.
 
-**Usage-based (Phase 3).** €0.04 per recorded **and** AI-processed minute (€2.40/hour), metered by the platform (Section 15, `meeting_usage`), invoiced monthly in arrears, no minimum.
+**Usage-based (Phase 3 — historical pre-D23 commercial assumption).** The former proposal was €0.04 per recorded **and** AI-processed minute (€2.40/hour), metered by the platform (Section 15, `meeting_usage`), invoiced monthly in arrears with no minimum. It is not an active TGC usage charge while the recording source is unselected. Reconfirm the rate against the accepted Microsoft export/compliance provider, licensing and EU processing costs before offering or invoicing Phase 3.
 
 | Monthly recorded volume | Usage charge |
 |---|---|
@@ -563,7 +565,7 @@ The former fixed total of €1,688/year is not an active TGC commitment. Active 
 
 **Scope addition (v2.0).** The shell app, identity integration, and dashboard-tile work are additional scope relative to this contracted structure and are quoted separately (TBD). The figures below are unchanged for the originally contracted scope.
 
-**Internal cost basis (not client-facing).** Infrastructure ≈ €11–17/month (Hetzner CX ~€5.49–10 + 20% backup add-on + Coolify ~$5) against the €500/year fee. Per processed hour: JaaS recording $0.60 (at $0.01/min) + Gemini Flash audio-first (low single-digit cents) + R2 storage (~$0.015/GB-month) against €2.40 charged. Reference point: 8x8's own transcription add-on lists at **$0.06/minute for a transcript alone** — our €0.04/minute includes the full AI report. Each additional resold installation adds roughly €9–14/month of infrastructure (one more Hetzner server + $3 Coolify).
+**Internal cost basis (not client-facing).** Core infrastructure remains approximately €11–17/month (Hetzner CX ~€5.49–10 + 20% backup add-on + Coolify ~$5) against the €500/year fee, and each additional resold installation adds roughly €9–14/month. The former per-processed-hour formula based on JaaS recording, Gemini and R2 is obsolete for TGC because no JaaS plan is active and the Microsoft recording/export provider is not selected. Produce a new cost model before Phase-3 commercial activation.
 
 ## 22. Implementation Roadmap
 
@@ -593,7 +595,8 @@ No calendar dates (Confirmed): phases are sequenced at Bayaan Hub's discretion, 
 ### Phase 3 — Recording & AI Module
 
 - **Objective:** recording archive plus approved AI meeting reports, fully metered, with healthcare-grade access defaults.
-- **Tasks:** `meeting-recordings`; R2 integration; pipeline jobs (Section 13); `meeting-intelligence`; report review/approval UI; usage metering and export; admin sections; retention automation; consent notice text (with client's counsel).
+- **Entry gate:** select and prove a Microsoft-supported source first. The current Teams-user ACS client cannot record. Teams-owned recording needs an authorized export/notification/retention contract; compliance recording requires a Microsoft-certified provider and a demonstrated compliance purpose. No Phase-3 implementation starts from Graph media capture or an assumed ACS recording API.
+- **Tasks after the entry gate:** `meeting-recordings`; R2 integration; pipeline jobs (Section 13); `meeting-intelligence`; report review/approval UI; usage metering and export; admin sections; retention automation; consent notice text (with client's counsel).
 - **Acceptance criteria:** end-to-end on staging — record → archive → transcript → report → edit → approve; failure paths tested (duplicate and out-of-order webhooks, malformed Gemini JSON, download retry, reconciliation); signed-URL authorization verified; retention deletion verified; usage export matches test meetings; a near-limit long recording processes; **access defaults verified: recordings, transcripts, and reports visible only to organizer + administrators until explicitly shared**.
 
 ## 23. Testing Plan
@@ -625,7 +628,7 @@ No calendar dates (Confirmed): phases are sequenced at Bayaan Hub's discretion, 
 |---|---|---|---|
 | Native ACS bridge or SDK support differs across web/iOS/Android | Medium | High | Web-first acceptance; thin Swift/Kotlin adapters; pinned SDK matrix; retain official Teams deep link and dormant JaaS code as recovery paths |
 | App-store review rejection | Medium | Medium | Client-owned accounts; Phase 1 build without mic/camera permissions; unlisted/private distribution option |
-| Phase-3 recording design incorrectly assumes JaaS behavior | Medium | High | Keep recording off; select and accept a Microsoft-supported recording/export contract before implementation |
+| Phase-3 recording design incorrectly assumes JaaS or ACS Teams-user recording support | Medium | High | Keep recording off; prohibit Graph media persistence; select and accept Teams-owned export or a certified compliance-recording contract before implementation |
 | Malformed / invalid Gemini output | Medium | Medium | Strict JSON schema; bounded retries; two-stage pipeline; human approval |
 | Speaker diarization inaccurate | High | Low | Editable speaker names; approval step; expectation set in UI |
 | ACS usage or Teams licensing differs from the pilot estimate | Medium | Medium | TGC-owned Azure cost alerts; metering dashboard; pilot with licensed internal users before broad activation |
@@ -676,6 +679,10 @@ No calendar dates (Confirmed): phases are sequenced at Bayaan Hub's discretion, 
 - Teams-user ACS permissions: https://learn.microsoft.com/en-us/azure/communication-services/concepts/interop/teams-user/azure-ad-api-permissions
 - Teams-user token exchange: https://learn.microsoft.com/en-us/azure/communication-services/quickstarts/manage-teams-identity
 - Teams-user Calling SDK operations: https://learn.microsoft.com/en-us/azure/communication-services/how-tos/cte-calling-sdk/manage-calls
+- Teams-user meeting/calling capability matrix (including recording support): https://learn.microsoft.com/en-us/azure/communication-services/concepts/interop/teams-user/meeting-capabilities
+- Microsoft Graph cloud communications usage restrictions: https://learn.microsoft.com/en-us/graph/api/resources/communications-api-overview
+- Teams meeting recording policies: https://learn.microsoft.com/en-us/microsoftteams/teams-recording-policy
+- Teams certified compliance recording: https://learn.microsoft.com/en-us/microsoftteams/teams-recording-compliance
 - ACS calling platform support: https://learn.microsoft.com/en-us/azure/communication-services/how-tos/calling-sdk/manage-calls
 - HumHub: https://github.com/humhub/humhub · docs: https://docs.humhub.org
 - Jitsi Flutter SDK: https://github.com/jitsi/jitsi-meet-flutter-sdk · pub.dev: https://pub.dev/packages/jitsi_meet_flutter_sdk
