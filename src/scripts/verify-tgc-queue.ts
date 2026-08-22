@@ -1,6 +1,13 @@
 /** Deterministic release gate for the AI-triggered TGC import queue. */
 
-import { isTgcImportUpdateRequest, resolveTgcWorkerAvailability } from "../lib/careon-production/tgc-sync-jobs";
+import {
+  isTgcImportUpdateRequest,
+  resolveTgcWorkerAgeBucket,
+  resolveTgcWorkerAvailability,
+  tgcWorkerMonitorAction,
+  tgcWorkerStateChanged,
+  tgcWorkerStateFromMonitorAction,
+} from "../lib/careon-production/tgc-sync-jobs";
 import { sanitizeTgcWorkerError, tgcProgressFromLog } from "../lib/careon-production/tgc-sync-progress";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -71,6 +78,25 @@ check(
   "onbetrouwbare toekomstige heartbeat is onbekend",
   resolveTgcWorkerAvailability("2026-08-22T12:01:00.000Z", now).state === "unknown",
 );
+check(
+  "recente heartbeat valt in veilige leeftijdsbucket",
+  resolveTgcWorkerAgeBucket("2026-08-22T11:59:00Z", now) === "under_2m",
+);
+check("oude heartbeat valt in kwartierbucket", resolveTgcWorkerAgeBucket("2026-08-22T11:50:00Z", now) === "2m_15m");
+check(
+  "zeer oude heartbeat lekt alleen een grove bucket",
+  resolveTgcWorkerAgeBucket("2026-08-22T10:00:00Z", now) === "1h_plus",
+);
+check("ongeldige heartbeat heeft onbekende leeftijd", resolveTgcWorkerAgeBucket("niet-een-datum", now) === "unknown");
+check("workerstatus krijgt een vaste auditactie", tgcWorkerMonitorAction("offline") === "tgc_worker.offline");
+check(
+  "auditactie wordt teruggelezen als workerstatus",
+  tgcWorkerStateFromMonitorAction("tgc_worker.available") === "available",
+);
+check("onbekende auditactie wordt niet vertrouwd", tgcWorkerStateFromMonitorAction("auth.login") === null);
+check("eerste monitorrun schrijft een overgang", tgcWorkerStateChanged(null, "unknown"));
+check("gelijke monitorstatus schrijft geen herhaling", !tgcWorkerStateChanged("tgc_worker.offline", "offline"));
+check("gewijzigde monitorstatus schrijft een overgang", tgcWorkerStateChanged("tgc_worker.offline", "available"));
 
 const migration = fs.readFileSync(
   path.join(ROOT, "supabase/migrations/20260820141215_careon_tgc_sync_jobs.sql"),
@@ -109,6 +135,15 @@ const importCard = fs.readFileSync(
   "utf8",
 );
 const worker = fs.readFileSync(path.join(ROOT, "src/scripts/process-tgc-sync-queue.ts"), "utf8");
+const monitorRoute = fs.readFileSync(path.join(ROOT, "src/app/api/internal/tgc-worker-monitor/route.ts"), "utf8");
+const monitorService = fs.readFileSync(
+  path.join(ROOT, "src/lib/careon-production/tgc-worker-monitor.server.ts"),
+  "utf8",
+);
+const adminService = fs.readFileSync(path.join(ROOT, "src/lib/careon-admin/admin.server.ts"), "utf8");
+const vercelConfig = JSON.parse(fs.readFileSync(path.join(ROOT, "vercel.json"), "utf8")) as {
+  crons?: { path?: string; schedule?: string }[];
+};
 check("jobroute vereist een Careon-sessie", route.includes("requireCareonSession()"));
 check(
   "jobroute is privé, no-store en nosniff",
@@ -130,6 +165,46 @@ check("worker gebruikt lokale credentialomgeving", worker.includes(".env.tgc.loc
 check("idle worker publiceert metadataheartbeat", worker.includes('rest("rpc/careon_tgc_worker_heartbeat"'));
 check("worker verifieert centrale data", worker.includes('runScript("verify-tgc-live.ts"'));
 check("wachtwoord staat niet in workerbron", !/TGC2025/i.test(worker));
+check(
+  "centrale workermonitor vereist het cronsecret met constante-tijdvergelijking",
+  monitorRoute.includes("process.env.CRON_SECRET") && monitorRoute.includes("timingSafeEqual"),
+);
+check(
+  "workermonitor is no-store en nosniff",
+  monitorRoute.includes('"Cache-Control": "no-store, max-age=0"') &&
+    monitorRoute.includes('"X-Content-Type-Options": "nosniff"'),
+);
+check(
+  "offline of onbekende worker faalt de cron zichtbaar",
+  monitorRoute.includes('result.state !== "available"') && monitorRoute.includes("}, 503)"),
+);
+check(
+  "workermonitor leest alleen organisatie-, heartbeat- en auditmetadata",
+  monitorService.includes("organizations?") &&
+    monitorService.includes("careon_tgc_sync_workers?") &&
+    monitorService.includes("audit_events?") &&
+    !monitorService.includes("careon_production_") &&
+    !monitorService.includes("careon_tgc_sync_jobs") &&
+    !monitorService.includes("TGC_PASSWORD"),
+);
+check(
+  "statusovergang wordt synchroon geaudit",
+  monitorService.includes("await writeAuditEvent") &&
+    monitorService.includes('resource: "careon_tgc_sync_workers"') &&
+    !monitorService.includes("scheduleAuditEvent"),
+);
+check(
+  "beheerfilter kent alle drie workerstatussen",
+  ["tgc_worker.available", "tgc_worker.offline", "tgc_worker.unknown"].every((action) =>
+    adminService.includes(`"${action}"`),
+  ),
+);
+check(
+  "Vercel controleert worker elke vijf minuten",
+  vercelConfig.crons?.some(
+    (cron) => cron.path === "/api/internal/tgc-worker-monitor" && cron.schedule === "*/5 * * * *",
+  ) === true,
+);
 
 console.log(`\nTGC queue verification: ${passes} passed, ${failures} failed.`);
 process.exit(failures === 0 ? 0 : 1);

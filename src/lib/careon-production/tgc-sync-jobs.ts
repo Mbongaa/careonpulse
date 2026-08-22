@@ -39,6 +39,11 @@ export interface TgcSyncJob {
 
 export type TgcSyncWorkerState = "available" | "offline" | "unknown";
 
+export const TGC_WORKER_MONITOR_ACTIONS = ["tgc_worker.available", "tgc_worker.offline", "tgc_worker.unknown"] as const;
+
+export type TgcWorkerMonitorAction = (typeof TGC_WORKER_MONITOR_ACTIONS)[number];
+export type TgcWorkerAgeBucket = "under_2m" | "2m_15m" | "15m_1h" | "1h_plus" | "unknown";
+
 export interface TgcSyncWorkerAvailability {
   state: TgcSyncWorkerState;
   lastSeenAt: string | null;
@@ -59,6 +64,33 @@ export function resolveTgcWorkerAvailability(
     state: nowMs - seenMs <= TGC_WORKER_ONLINE_WINDOW_MS ? "available" : "offline",
     lastSeenAt,
   };
+}
+
+export function tgcWorkerMonitorAction(state: TgcSyncWorkerState): TgcWorkerMonitorAction {
+  return `tgc_worker.${state}`;
+}
+
+export function tgcWorkerStateFromMonitorAction(action: string | null | undefined): TgcSyncWorkerState | null {
+  if (!action || !TGC_WORKER_MONITOR_ACTIONS.includes(action as TgcWorkerMonitorAction)) return null;
+  return action.slice("tgc_worker.".length) as TgcSyncWorkerState;
+}
+
+export function resolveTgcWorkerAgeBucket(
+  lastSeenAt: string | null | undefined,
+  nowMs = Date.now(),
+): TgcWorkerAgeBucket {
+  if (!lastSeenAt) return "unknown";
+  const seenMs = Date.parse(lastSeenAt);
+  if (!Number.isFinite(seenMs) || seenMs > nowMs + 30_000) return "unknown";
+  const ageMs = Math.max(0, nowMs - seenMs);
+  if (ageMs < 2 * 60_000) return "under_2m";
+  if (ageMs < 15 * 60_000) return "2m_15m";
+  if (ageMs < 60 * 60_000) return "15m_1h";
+  return "1h_plus";
+}
+
+export function tgcWorkerStateChanged(previousAction: string | null | undefined, state: TgcSyncWorkerState): boolean {
+  return tgcWorkerStateFromMonitorAction(previousAction) !== state;
 }
 
 const UPDATE_ACTION =

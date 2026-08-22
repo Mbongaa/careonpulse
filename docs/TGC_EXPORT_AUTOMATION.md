@@ -52,6 +52,22 @@ An unavailable worker never causes a queued refresh to disappear: the request
 remains safely queued and starts after the exact Windows task/workstation is
 available again.
 
+Vercel also calls the secret-protected `/api/internal/tgc-worker-monitor`
+endpoint every five minutes. It reads only the TGC organization ID, the latest
+heartbeat timestamp and the previous monitor audit action. A transition to
+`available`, `offline` or `unknown` is recorded in the existing audit log with
+only a coarse age bucket; no patient row, export content, Windows identifier or
+portal credential is read or logged. An `offline` or `unknown` result returns
+HTTP 503 on every check, so Vercel Cron/Observability exposes the ongoing
+failure even when no administrator opens Databron. With the 90-second online
+window and five-minute cadence, the worst-case detection time is approximately
+6.5 minutes.
+
+This monitor closes the silent-failure boundary, but it is not yet an owned
+external notification channel. TGC still needs to name the operational owner
+and escalation destination before an email, pager or Teams alert can be routed
+without inventing recipients.
+
 ## Portal inventory
 
 | # | Production source | Exact portal location | Route | Required settings | Result behavior |
@@ -176,6 +192,8 @@ Operational safeguards:
 - `push:production` refuses files older than the central Supabase state;
 - report polling fails closed after the configured timeout;
 - logs contain workflow and aggregate counts, not credentials or patient rows;
+- the central monitor is callable only with `CRON_SECRET`, never exposes the
+  Supabase service-role key, and records only state-transition metadata;
 - a portal field/route change fails validation instead of silently reducing the dashboard.
 
 The scheduled host must have Node.js dependencies and the Playwright Chromium

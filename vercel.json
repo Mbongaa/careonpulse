@@ -10,6 +10,10 @@
     {
       "path": "/api/internal/entra-reconciliation",
       "schedule": "17 * * * *"
+    },
+    {
+      "path": "/api/internal/tgc-worker-monitor",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
