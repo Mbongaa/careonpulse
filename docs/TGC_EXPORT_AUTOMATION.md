@@ -1,6 +1,7 @@
 # TGC export automation
 
-Last verified against TGC/ZSG version 3.11.0 on 20 August 2026.
+Portal routes were last verified against TGC/ZSG version 3.11.0 on 20 August
+2026. Worker availability was production-accepted on 22 August 2026.
 
 ## Outcome
 
@@ -27,6 +28,29 @@ Supabase key, reads the ignored `.env.tgc.local`, reports progress, runs the
 five-export refresh, and marks the job successful only after central read-back
 verification. The existing drag-and-drop/manual import controls remain in
 place.
+
+## Worker availability
+
+The queue worker publishes a metadata-only heartbeat when it starts and every
+30 seconds thereafter. The heartbeat contains only the Careon organization,
+worker version and Supabase server timestamp; it never contains the Windows
+hostname, process ID, portal credential, patient data or export contents.
+
+Databron converts that server-side heartbeat into three explicit states:
+
+- **TGC-worker beschikbaar** — the latest valid heartbeat is at most 90 seconds
+  old;
+- **TGC-worker niet bereikbaar** — a previously known worker has not reported
+  within 90 seconds;
+- **Workerstatus onbekend** — no trustworthy heartbeat exists yet or the
+  timestamp is invalid.
+
+The page reads this state under the signed-in employee's organization-scoped
+Supabase access. Only the local service-role worker can call the heartbeat RPC;
+authenticated employees and even direct service-role table writes are denied.
+An unavailable worker never causes a queued refresh to disappear: the request
+remains safely queued and starts after the exact Windows task/workstation is
+available again.
 
 ## Portal inventory
 
@@ -131,10 +155,12 @@ second trigger while a sync is already running. Its local log is
 
 The second task is the continuously available queue worker used by the page
 button and Careon AI. It starts at Windows sign-in, restarts after failure,
-polls only metadata, and writes `logs/tgc-sync-worker.log`. If the workstation
-is off, requests safely remain queued and start automatically at the next
-sign-in. The runner lock prevents a weekly and AI-triggered refresh from
-overlapping.
+polls only metadata, publishes the heartbeat described above, and writes
+`logs/tgc-sync-worker.log`. If the workstation is off, requests safely remain
+queued and start automatically at the next sign-in. The runner lock prevents a
+weekly and AI-triggered refresh from overlapping. The exact interactive task is
+`Careon TGC AI Import Worker`; check that it is `Running` before treating the
+workstation as an available ingestion host.
 
 Operational safeguards:
 
