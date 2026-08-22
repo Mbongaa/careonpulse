@@ -40,6 +40,11 @@ export function CareonLoginForm({
   }
   const [errorMessage, setErrorMessage] = useState(initialMessage);
   const [shake, setShake] = useState(false);
+  // Artboard 2c: met Microsoft-login aan staat het wachtwoordformulier op
+  // mobiel achter een ghost-knop. Is er al een melding, dan staat het meteen
+  // open — anders zou die melding onder een dichtgeklapt blok verdwijnen.
+  const [lokaalOpen, setLokaalOpen] = useState(initialMessage !== "");
+  const lokaalVerborgen = microsoftEnabled && !lokaalOpen;
 
   const canSubmit = username.trim() !== "" && password !== "" && !submitting;
   let submitLabel = microsoftEnabled ? "Inloggen met wachtwoord" : "Inloggen";
@@ -86,76 +91,96 @@ export function CareonLoginForm({
           </p>
           <div className="careon-auth-divider" aria-hidden="true">
             <span className="careon-auth-divider-rule" />
-            <span className="careon-auth-divider-label">BEHEER OF UITZONDERING</span>
+            <span className="careon-auth-divider-label">OF</span>
             <span className="careon-auth-divider-rule" />
           </div>
+          <Button
+            type="button"
+            variant="ghost"
+            className="careon-auth-btn careon-auth-btn-ghost careon-auth-reveal"
+            aria-expanded={lokaalOpen}
+            aria-controls="careon-lokale-login"
+            onClick={() => {
+              setLokaalOpen((open) => !open);
+              if (!lokaalOpen) {
+                window.requestAnimationFrame(() => document.getElementById("careon-username")?.focus());
+              }
+            }}
+          >
+            Inloggen met e-mail en wachtwoord
+          </Button>
         </>
       )}
-      <div className={cn("careon-auth-fields", shake && "careon-shake")}>
-        <div className="careon-auth-field">
-          <Label className="careon-auth-label" htmlFor="careon-username">
-            Gebruikersnaam
-          </Label>
-          <Input
-            id="careon-username"
-            placeholder="Gebruikersnaam"
-            autoComplete="username"
-            value={username}
-            onChange={(event) => {
-              setUsername(event.target.value);
-              setInvalid(false);
-              setErrorMessage("");
-            }}
-            aria-invalid={invalid}
-            className={cn("careon-auth-input", invalid && "careon-auth-input-invalid")}
-          />
-        </div>
-        <div className="careon-auth-field">
-          <Label className="careon-auth-label" htmlFor="careon-password">
-            Wachtwoord
-          </Label>
-          <div className="careon-auth-input-wrap">
+      <div
+        id="careon-lokale-login"
+        className={cn("careon-auth-local", lokaalVerborgen && "careon-auth-local-collapsed")}
+      >
+        <div className={cn("careon-auth-fields", shake && "careon-shake")}>
+          <div className="careon-auth-field">
+            <Label className="careon-auth-label" htmlFor="careon-username">
+              Gebruikersnaam
+            </Label>
             <Input
-              id="careon-password"
-              type={showPassword ? "text" : "password"}
-              placeholder="Wachtwoord"
-              autoComplete="current-password"
-              value={password}
+              id="careon-username"
+              placeholder="Gebruikersnaam"
+              autoComplete="username"
+              value={username}
               onChange={(event) => {
-                setPassword(event.target.value);
+                setUsername(event.target.value);
                 setInvalid(false);
                 setErrorMessage("");
               }}
               aria-invalid={invalid}
-              className={cn("careon-auth-input careon-auth-input-eye", invalid && "careon-auth-input-invalid")}
+              className={cn("careon-auth-input", invalid && "careon-auth-input-invalid")}
             />
-            <button
-              type="button"
-              aria-label={showPassword ? "Wachtwoord verbergen" : "Wachtwoord tonen"}
-              aria-pressed={showPassword}
-              onClick={() => setShowPassword((current) => !current)}
-              className="careon-auth-eye"
-            >
-              {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-            </button>
           </div>
+          <div className="careon-auth-field">
+            <Label className="careon-auth-label" htmlFor="careon-password">
+              Wachtwoord
+            </Label>
+            <div className="careon-auth-input-wrap">
+              <Input
+                id="careon-password"
+                type={showPassword ? "text" : "password"}
+                placeholder="Wachtwoord"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  setInvalid(false);
+                  setErrorMessage("");
+                }}
+                aria-invalid={invalid}
+                className={cn("careon-auth-input careon-auth-input-eye", invalid && "careon-auth-input-invalid")}
+              />
+              <button
+                type="button"
+                aria-label={showPassword ? "Wachtwoord verbergen" : "Wachtwoord tonen"}
+                aria-pressed={showPassword}
+                onClick={() => setShowPassword((current) => !current)}
+                className="careon-auth-eye"
+              >
+                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
+          </div>
+          {errorMessage && (
+            <p role="alert" className="careon-auth-error">
+              <span aria-hidden="true" className="careon-auth-error-dot" />
+              {errorMessage}
+            </p>
+          )}
         </div>
-        {errorMessage && (
-          <p role="alert" className="careon-auth-error">
-            <span aria-hidden="true" className="careon-auth-error-dot" />
-            {errorMessage}
-          </p>
-        )}
+        <Button
+          className={cn("careon-auth-btn", microsoftEnabled ? "careon-auth-btn-secondary" : "careon-auth-btn-primary")}
+          type="submit"
+          data-busy={submitting || undefined}
+          disabled={!canSubmit}
+        >
+          {submitting && <Loader2 className="size-4 animate-spin" />}
+          {submitLabel}
+        </Button>
       </div>
-      <Button
-        className={cn("careon-auth-btn", microsoftEnabled ? "careon-auth-btn-secondary" : "careon-auth-btn-primary")}
-        type="submit"
-        data-busy={submitting || undefined}
-        disabled={!canSubmit}
-      >
-        {submitting && <Loader2 className="size-4 animate-spin" />}
-        {submitLabel}
-      </Button>
     </form>
   );
 }

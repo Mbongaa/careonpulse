@@ -4,7 +4,6 @@ import type { Metadata } from "next";
 
 import { CareonLogo } from "@/app/(main)/dashboard/_components/careon/careon-logo";
 import { Button } from "@/components/ui/button";
-import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/supabase/config";
 import { getCareonSession } from "@/lib/supabase/session.server";
 
@@ -46,14 +45,28 @@ const VERTROUWDE_CLIENTS = new Set(
     .filter(Boolean),
 );
 
+// Zelfde authenticatie-vorm als login en wachtwoord instellen
+// (globals.css, .careon-auth-*).
 function Kader({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <div className="careon-login-shell flex min-h-dvh flex-col bg-background">
-      <header className="p-5 md:px-8 md:py-6">
-        <CareonLogo />
-      </header>
-      <main className="flex flex-1 items-center justify-center p-5 pb-16 md:p-8">
-        <div className="w-full max-w-md">{children}</div>
+    <div className="careon-auth-shell">
+      <aside className="careon-auth-brand">
+        <CareonLogo variant="hero" className="careon-auth-logo" />
+        <p className="careon-auth-brand-tagline">
+          Het beveiligde zorgdashboard van uw organisatie — KPI&apos;s, signaleringen en rapportages op één plek.
+        </p>
+        {/* Eén moduleregel op beide breekpunten (artboards 2c/2d tonen op mobiel
+            ook de product-identificatie); de klantnaam blijft achter de login. */}
+        <p className="careon-auth-eyebrow">Careon Pulse · Module 1</p>
+      </aside>
+      <main className="careon-auth-panel">
+        <div className="careon-auth-column">
+          {children}
+          <div className="careon-auth-foot">
+            <p>Toegang geldt alleen voor deze module en kan door uw beheerder worden ingetrokken.</p>
+            <p>Careon Group · beveiligde omgeving</p>
+          </div>
+        </div>
       </main>
     </div>
   );
@@ -83,14 +96,12 @@ export default async function Page({
     // meer mogelijk — opnieuw beginnen vanuit de module zelf.
     return (
       <Kader>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Aanvraag verlopen</CardTitle>
-            <CardDescription>
-              Dit toegangsverzoek is verlopen of al afgehandeld. Ga terug naar de module en probeer het opnieuw.
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <div className="careon-auth-card">
+          <h1 className="careon-auth-title">Aanvraag verlopen</h1>
+          <p className="careon-auth-sub">
+            Dit toegangsverzoek is verlopen of al afgehandeld. Ga terug naar de module en probeer het opnieuw.
+          </p>
+        </div>
       </Kader>
     );
   }
@@ -122,33 +133,33 @@ export default async function Page({
 
   return (
     <Kader>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Toegang verlenen</CardTitle>
-          <CardDescription>
-            <span className="font-medium text-foreground">{moduleNaam}</span> wil uw Careon Pulse-account gebruiken om u
-            aan te melden. U meldt zich aan als{" "}
-            <span className="font-medium text-foreground">{resultaat.session.email}</span>.
-          </CardDescription>
+      <div className="careon-auth-card">
+        <h1 className="careon-auth-title">Toegang verlenen</h1>
+        <p className="careon-auth-sub">
+          <span className="careon-auth-strong">{moduleNaam}</span> wil uw Careon Pulse-account gebruiken om u aan te
+          melden. U meldt zich aan als <span className="careon-auth-strong">{resultaat.session.email}</span>.
+        </p>
+        <div className="careon-auth-form">
           {error === "besluit" ? (
-            <CardDescription className="text-destructive">
+            <p role="alert" className="careon-auth-error">
+              <span aria-hidden="true" className="careon-auth-error-dot" />
               Het besluit kon niet worden verwerkt. Probeer het opnieuw.
-            </CardDescription>
+            </p>
           ) : null}
-        </CardHeader>
-        <CardFooter className="flex justify-end gap-2">
+          <form action={verleenToegang}>
+            <input type="hidden" name="authorization_id" value={authorizationId} />
+            <Button type="submit" className="careon-auth-btn careon-auth-btn-primary">
+              Toegang verlenen
+            </Button>
+          </form>
           <form action={weigerToegang}>
             <input type="hidden" name="authorization_id" value={authorizationId} />
-            <Button type="submit" variant="ghost">
+            <Button type="submit" variant="ghost" className="careon-auth-btn careon-auth-btn-ghost">
               Weigeren
             </Button>
           </form>
-          <form action={verleenToegang}>
-            <input type="hidden" name="authorization_id" value={authorizationId} />
-            <Button type="submit">Toegang verlenen</Button>
-          </form>
-        </CardFooter>
-      </Card>
+        </div>
+      </div>
     </Kader>
   );
 }

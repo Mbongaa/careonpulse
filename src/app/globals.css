@@ -1092,12 +1092,18 @@ html:not(.dark) .careon-mark-trace {
   --careon-auth-body: #475569;
   --careon-auth-muted: #475569;
   --careon-auth-soft: #64748b;
-  --careon-auth-input-bg: var(--background);
-  --careon-auth-input-edge: var(--input);
+  /* Lichte modus: het invoerveld en de secundaire knop krijgen een eigen,
+     koeler oppervlak dan de witte kaart plus een rand die 3:1 haalt (WCAG
+     1.4.11). De thematokens --background/--input leverden wit-op-wit met een
+     randcontrast van 1,26:1, waardoor lege velden vrijwel onzichtbaar waren.
+     Gemeten: rand #7d8aa1 = 3,49:1 op wit en 3,18:1 op #f1f5f9;
+     placeholder #606f85 = 4,66:1 op #f1f5f9. */
+  --careon-auth-input-bg: #f1f5f9;
+  --careon-auth-input-edge: #7d8aa1;
   --careon-auth-input-text: var(--foreground);
-  --careon-auth-placeholder: #64748b;
-  --careon-auth-secondary-bg: var(--card);
-  --careon-auth-secondary-edge: var(--border);
+  --careon-auth-placeholder: #606f85;
+  --careon-auth-secondary-bg: #f8fafc;
+  --careon-auth-secondary-edge: #7d8aa1;
   --careon-auth-secondary-text: var(--foreground);
   /* Merkblauw, maar donker genoeg voor WCAG AA: wit op de lichtste stop
      (#1179c9) meet 4,56:1, op de donkerste 5,75:1. De ontwerp-gradient
@@ -1148,7 +1154,11 @@ html:not(.dark) .careon-mark-trace {
   --careon-auth-placeholder: var(--muted-foreground);
   --careon-auth-card-shadow: 0 30px 70px -44px rgb(0 0 0 / 90%);
   --careon-auth-input-bg: rgb(255 255 255 / 5%);
+  /* De lichte modus zet deze twee randen op een literal; donker haalt weer de
+     thematokens op (zie dezelfde valkuil bij --careon-auth-page hierboven). */
+  --careon-auth-input-edge: var(--input);
   --careon-auth-secondary-bg: rgb(255 255 255 / 8%);
+  --careon-auth-secondary-edge: var(--border);
   --careon-auth-error-text: #ff8fae;
   --careon-auth-success: #38e0c8;
 }
@@ -1201,8 +1211,11 @@ html[data-theme-mode="careon"] .careon-auth-shell {
   display: none;
 }
 
-.careon-auth-desktop-only {
-  display: none;
+/* Merklockup op artboardmaat: 34px woordmerk mobiel (2c), 52px vanaf 1024px
+   (2d). De hero-lockup draagt zelf text-3xl; die utility zit in een @layer en
+   verliest daarom van deze regel. */
+.careon-auth-brand .careon-auth-logo .careon-wordmark {
+  font-size: 2.125rem;
 }
 
 .careon-auth-eyebrow {
@@ -1312,13 +1325,18 @@ html .careon-auth-shell .careon-auth-input:focus-visible {
   outline: none;
 }
 
+/* Eén ring (DESIGN-SPEC §3): in rust alleen een rode rand — de ring-3 van de
+   aria-invalid-utility wordt hier uitgezet. */
 html .careon-auth-shell .careon-auth-input-invalid {
   border-color: var(--careon-auth-error-dot);
+  box-shadow: none;
 }
 
+/* Bij focus even sterk als een geldig veld (25% blauw): 10% rood was op wit
+   praktisch onzichtbaar, juist op het veld dat correctie vraagt (WCAG 2.4.7). */
 html .careon-auth-shell .careon-auth-input-invalid:focus-visible {
   border-color: var(--careon-auth-error-dot);
-  box-shadow: 0 0 0 3px var(--careon-auth-error-bg);
+  box-shadow: 0 0 0 3px rgb(255 71 126 / 30%);
 }
 
 html .careon-auth-shell .careon-auth-input-eye {
@@ -1380,7 +1398,11 @@ html .careon-auth-shell .careon-auth-btn-primary:hover {
   filter: brightness(1.07);
 }
 
-html .careon-auth-shell .careon-auth-btn-primary:disabled {
+/* Uitgeschakeld geldt voor elke variant: met Microsoft aan draagt de
+   verzendknop careon-auth-btn-secondary, en zonder deze regel won shadcns
+   disabled:opacity-50 — een half doorzichtige knop in plaats van het
+   ontworpen recept. */
+html .careon-auth-shell .careon-auth-btn:disabled {
   border-color: var(--careon-auth-disabled-edge);
   background: var(--careon-auth-disabled-bg);
   box-shadow: none;
@@ -1390,12 +1412,19 @@ html .careon-auth-shell .careon-auth-btn-primary:disabled {
 }
 
 /* Bezig met inloggen: de knop is technisch uitgeschakeld (geen dubbele
-   verzending), maar blijft visueel de primaire actie met een draaiende ring. */
+   verzending), maar blijft visueel voluit de actie die hij was — primair
+   én secundair, met een draaiende ring. */
 html .careon-auth-shell .careon-auth-btn-primary[data-busy]:disabled {
   border-color: var(--careon-auth-primary-edge);
   background: var(--careon-auth-primary);
   box-shadow: var(--careon-auth-primary-glow);
   color: #ffffff;
+}
+
+html .careon-auth-shell .careon-auth-btn-secondary[data-busy]:disabled {
+  border-color: var(--careon-auth-secondary-edge);
+  background: var(--careon-auth-secondary-bg);
+  color: var(--careon-auth-secondary-text);
 }
 
 html .careon-auth-shell .careon-auth-btn-secondary {
@@ -1474,6 +1503,36 @@ html .careon-auth-shell .careon-auth-btn-secondary:hover {
   line-height: 1.55;
 }
 
+/* De hint hangt onder een veld en houdt daarom geen marge; de note staat los
+   onder de subkop en volgt het ritme van .careon-auth-form (18px). */
+.careon-auth-note {
+  margin-top: 1.125rem;
+}
+
+/* Het lokale formulier is één blok binnen .careon-auth-form en houdt zelf het
+   ritme van 12px vast. */
+.careon-auth-local {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Artboard 2c: op mobiel staat het wachtwoordformulier achter een ghost-knop,
+   zodat de aanbevolen Microsoft-route de kaart voert. Vanaf 1024px (2d) staan
+   de velden altijd open en verdwijnt de knop. Zonder Microsoft-login rendert
+   de knop niet en blijven de velden onvoorwaardelijk zichtbaar. */
+@media (max-width: 1023px) {
+  .careon-auth-local-collapsed {
+    display: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  html .careon-auth-shell .careon-auth-reveal {
+    display: none;
+  }
+}
+
 .careon-auth-notice {
   display: flex;
   flex-direction: column;
@@ -1522,7 +1581,7 @@ html .careon-auth-shell .careon-auth-btn-secondary:hover {
   }
 
   .careon-auth-brand .careon-auth-logo .careon-wordmark {
-    font-size: clamp(2.25rem, 3.2vw, 3rem);
+    font-size: clamp(2.5rem, 3.6vw, 3.25rem);
   }
 
   .careon-auth-brand-tagline {
@@ -1533,13 +1592,8 @@ html .careon-auth-shell .careon-auth-btn-secondary:hover {
     line-height: 1.55;
   }
 
-  .careon-auth-desktop-only {
-    display: block;
+  .careon-auth-eyebrow {
     letter-spacing: 0.14em;
-  }
-
-  .careon-auth-mobile-only {
-    display: none;
   }
 
   .careon-auth-panel {

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 
 import { CareonLogo } from "@/app/(main)/dashboard/_components/careon/careon-logo";
-import { CAREON_ORG } from "@/data/careon/careon-filters";
 import { isCareonDemoMode } from "@/lib/supabase/config";
 import { isMicrosoftLoginEnabled } from "@/lib/supabase/oauth.server";
 
@@ -43,8 +42,9 @@ export default async function LoginV1({ searchParams }: { searchParams: Promise<
         <p className="careon-auth-brand-tagline">
           Het beveiligde zorgdashboard van uw organisatie — KPI&apos;s, signaleringen en rapportages op één plek.
         </p>
-        <p className="careon-auth-eyebrow careon-auth-desktop-only">Careon Pulse · Module 1</p>
-        <p className="careon-auth-eyebrow careon-auth-mobile-only">{CAREON_ORG.tagline}</p>
+        {/* Eén moduleregel op beide breekpunten (artboards 2c/2d tonen op mobiel
+            ook de product-identificatie); de klantnaam blijft achter de login. */}
+        <p className="careon-auth-eyebrow">Careon Pulse · Module 1</p>
       </aside>
       <main className="careon-auth-panel">
         <div className="careon-auth-column">
