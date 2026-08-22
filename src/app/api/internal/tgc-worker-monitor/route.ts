@@ -1,3 +1,4 @@
+import { monitorFacturatieBackup } from "@/lib/careon-operations/facturatie-backup-monitor.server";
 import { dispatchOperationsAlert } from "@/lib/careon-operations/operations-alerts.server";
 import { monitorTgcWorker } from "@/lib/careon-production/tgc-worker-monitor.server";
 
@@ -33,20 +34,26 @@ export async function GET(request: Request) {
     return json(result, result.status === "not_configured" ? 503 : 502);
   }
 
+  const backup = await monitorFacturatieBackup();
+  if (backup.status !== "completed" && backup.status !== "disabled") {
+    console.error("Facturatie backup monitor unavailable", { status: backup.status });
+    return json({ ...result, backup: backup.status, timestamp: new Date().toISOString() }, 502);
+  }
+
   const alert = await dispatchOperationsAlert();
   if (alert.status === "misconfigured" || alert.status === "unavailable" || alert.status === "pending") {
     console.error("Operations alert delivery is not healthy", { status: alert.status });
-    return json({ ...result, alert: alert.status, timestamp: new Date().toISOString() }, 502);
+    return json({ ...result, backup, alert: alert.status, timestamp: new Date().toISOString() }, 502);
   }
 
-  if (result.state !== "available") {
-    console.error("TGC worker is not available", {
-      state: result.state,
-      changed: result.changed,
-      ageBucket: result.ageBucket,
+  const backupUnhealthy = backup.status === "completed" && backup.state !== "healthy";
+  if (result.state !== "available" || backupUnhealthy) {
+    console.error("Careon operational dependency is not available", {
+      workerState: result.state,
+      backupState: backup.status === "completed" ? backup.state : backup.status,
     });
-    return json({ ...result, alert: alert.status, timestamp: new Date().toISOString() }, 503);
+    return json({ ...result, backup, alert: alert.status, timestamp: new Date().toISOString() }, 503);
   }
 
-  return json({ ...result, alert: alert.status, timestamp: new Date().toISOString() }, 200);
+  return json({ ...result, backup, alert: alert.status, timestamp: new Date().toISOString() }, 200);
 }

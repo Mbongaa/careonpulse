@@ -4,6 +4,8 @@ import {
   operationsAlertPayload,
   operationsAlertWebhookDigest,
   parseOperationsAlert,
+  resolveFacturatieBackupMonitorConfiguration,
+  resolveFacturatieBackupObservation,
   resolveOperationsAlertConfiguration,
   serializedOperationsAlertPayload,
 } from "../lib/careon-operations/operations-alerts";
@@ -156,8 +158,9 @@ for (const [name, environment] of [
 
 const incidentAlert = parseOperationsAlert({
   id: "33333333-3333-4333-8333-333333333333",
+  source: "tgc_worker",
   eventType: "incident",
-  workerState: "offline",
+  state: "offline",
   previousState: "available",
   ageBucket: "2m_15m",
   observedAt: "2026-08-22T12:00:00.000Z",
@@ -179,7 +182,7 @@ const recoveryAlert = parseOperationsAlert({
   ...incidentAlert,
   id: "44444444-4444-4444-8444-444444444444",
   eventType: "recovery",
-  workerState: "available",
+  state: "available",
   previousState: "offline",
 });
 check(
@@ -188,17 +191,127 @@ check(
 );
 for (const [name, alert] of [
   ["niet-v4 incident-id", { ...incidentAlert, id: "11111111-1111-1111-8111-111111111111" }],
-  ["incident in beschikbare staat", { ...incidentAlert, workerState: "available" }],
+  ["incident in beschikbare staat", { ...incidentAlert, state: "available" }],
   [
     "herstel zonder storing",
-    { ...incidentAlert, eventType: "recovery", workerState: "available", previousState: "available" },
+    { ...incidentAlert, eventType: "recovery", state: "available", previousState: "available" },
   ],
+  ["onbekende bron", { ...incidentAlert, source: "algemeen" }],
   ["onbekende leeftijdsbucket", { ...incidentAlert, ageBucket: "exact_123_seconds" }],
   ["poging nul", { ...incidentAlert, attempt: 0 }],
   ["ongeldig tijdstip", { ...incidentAlert, observedAt: "geen-datum" }],
 ] as const) {
   check(`alertclaim weigert ${name}`, parseOperationsAlert(alert) === null);
 }
+
+check(
+  "Facturatie-backupmonitor is standaard bewust uitgeschakeld",
+  resolveFacturatieBackupMonitorConfiguration({}).status === "disabled",
+);
+const backupMonitorConfiguration = resolveFacturatieBackupMonitorConfiguration({
+  CAREON_FACTURATIE_BACKUP_MONITOR_ENABLED: "1",
+});
+check(
+  "complete backupmonitorconfiguratie gebruikt standaard 36 uur",
+  backupMonitorConfiguration.status === "ready" && backupMonitorConfiguration.maximumAgeHours === 36,
+);
+for (const [name, environment] of [
+  ["verplicht maar uitgeschakeld", { CAREON_FACTURATIE_BACKUP_MONITOR_REQUIRED: "1" }],
+  ["ongeldige vlag", { CAREON_FACTURATIE_BACKUP_MONITOR_ENABLED: "ja" }],
+  [
+    "fractionele maximale leeftijd",
+    { CAREON_FACTURATIE_BACKUP_MONITOR_ENABLED: "1", CAREON_FACTURATIE_BACKUP_MONITOR_MAX_AGE_HOURS: "1.5" },
+  ],
+  [
+    "te grote maximale leeftijd",
+    { CAREON_FACTURATIE_BACKUP_MONITOR_ENABLED: "1", CAREON_FACTURATIE_BACKUP_MONITOR_MAX_AGE_HOURS: "8761" },
+  ],
+] as const) {
+  check(
+    `Facturatie-backupmonitor weigert ${name}`,
+    resolveFacturatieBackupMonitorConfiguration(environment).status === "invalid",
+  );
+}
+
+const healthyBackup = resolveFacturatieBackupObservation(
+  {
+    lastResult: "healthy",
+    lastAttemptAt: "2026-08-22T11:00:00.000Z",
+    lastSuccessAt: "2026-08-22T11:00:00.000Z",
+  },
+  36,
+  now,
+);
+check("recente geslaagde backup is gezond", healthyBackup.state === "healthy" && healthyBackup.ageBucket === "1h_24h");
+const failedBackup = resolveFacturatieBackupObservation(
+  {
+    lastResult: "failed",
+    lastAttemptAt: "2026-08-22T11:30:00.000Z",
+    lastSuccessAt: "2026-08-21T12:00:00.000Z",
+  },
+  36,
+  now,
+);
+check("mislukte backup blijft failed met grove succesleeftijd", failedBackup.state === "failed");
+const staleBackup = resolveFacturatieBackupObservation(
+  {
+    lastResult: "healthy",
+    lastAttemptAt: "2026-08-20T12:00:00.000Z",
+    lastSuccessAt: "2026-08-20T12:00:00.000Z",
+  },
+  36,
+  now,
+);
+check("te oude geslaagde backup wordt stale", staleBackup.state === "stale" && staleBackup.ageBucket === "36h_plus");
+check(
+  "ontbrekende of toekomstige backupmetadata wordt unknown",
+  resolveFacturatieBackupObservation(null, 36, now).state === "unknown" &&
+    resolveFacturatieBackupObservation(
+      {
+        lastResult: "healthy",
+        lastAttemptAt: "2026-08-22T12:02:00.000Z",
+        lastSuccessAt: "2026-08-22T12:02:00.000Z",
+      },
+      36,
+      now,
+    ).state === "unknown",
+);
+
+const backupIncident = parseOperationsAlert({
+  id: "55555555-5555-4555-8555-555555555555",
+  source: "facturatie_backup",
+  eventType: "incident",
+  state: "stale",
+  previousState: "healthy",
+  ageBucket: "36h_plus",
+  observedAt: "2026-08-22T12:00:00.000Z",
+  attempt: 1,
+});
+check(
+  "Facturatie-backupalarm bevat alleen vaste operationele tekst",
+  backupIncident !== null &&
+    operationsAlertPayload(backupIncident).text.includes("off-site backup niet gezond") &&
+    operationsAlertPayload(backupIncident).text.includes("https://www.careonpulse.com/facturatie") &&
+    !/bucket|object|invoice|factuur-id|sleutel/i.test(operationsAlertPayload(backupIncident).text),
+);
+if (!backupIncident) throw new Error("Ongeldige Facturatie-backupalarmfixture.");
+check(
+  "Facturatie-herstel vereist een eerdere incidentstatus",
+  parseOperationsAlert({
+    ...backupIncident,
+    id: "66666666-6666-4666-8666-666666666666",
+    eventType: "recovery",
+    state: "healthy",
+    previousState: "stale",
+  }) !== null &&
+    parseOperationsAlert({
+      ...backupIncident,
+      id: "77777777-7777-4777-8777-777777777777",
+      eventType: "recovery",
+      state: "healthy",
+      previousState: "healthy",
+    }) === null,
+);
 
 const migration = fs.readFileSync(
   path.join(ROOT, "supabase/migrations/20260820141215_careon_tgc_sync_jobs.sql"),
@@ -219,6 +332,10 @@ const heartbeatMigration = fs.readFileSync(
 );
 const alertMigration = fs.readFileSync(
   path.join(ROOT, "supabase/migrations/20260823000000_operations_alert_outbox.sql"),
+  "utf8",
+);
+const backupMonitorMigration = fs.readFileSync(
+  path.join(ROOT, "supabase/migrations/20260823000500_facturatie_backup_monitor.sql"),
   "utf8",
 );
 check("workerheartbeat heeft geforceerde RLS", heartbeatMigration.includes("force row level security"));
@@ -288,6 +405,57 @@ check(
     !alertMigration.includes("detail jsonb") &&
     !alertMigration.includes("careon_tgc_sync_jobs"),
 );
+check(
+  "Facturatie-backupstatus heeft geforceerde RLS zonder clienttoegang of deletegrant",
+  backupMonitorMigration.includes("alter table public.careon_facturatie_backup_status force row level security") &&
+    backupMonitorMigration.includes(
+      "revoke all on table public.careon_facturatie_backup_status from public, anon, authenticated, service_role",
+    ) &&
+    backupMonitorMigration.includes(
+      "grant select, insert, update on table public.careon_facturatie_backup_status to service_role",
+    ) &&
+    !backupMonitorMigration.includes(
+      "grant select, insert, update, delete on table public.careon_facturatie_backup_status",
+    ),
+);
+check(
+  "backuppublisher accepteert alleen vaste minimale resultaatmetadata",
+  backupMonitorMigration.includes("p_org_slug text") &&
+    backupMonitorMigration.includes("p_success boolean") &&
+    backupMonitorMigration.includes("p_error_code text") &&
+    backupMonitorMigration.includes("last_result text not null") &&
+    backupMonitorMigration.includes("last_attempt_at timestamptz not null") &&
+    !/create table public\.careon_facturatie_backup_status[\s\S]*?(bucket|object_path|invoice_id|encryption_key)/i.test(
+      backupMonitorMigration.slice(
+        backupMonitorMigration.indexOf("create table public.careon_facturatie_backup_status"),
+        backupMonitorMigration.indexOf("alter table public.careon_facturatie_backup_status enable row level security"),
+      ),
+    ),
+);
+check(
+  "backuppublisher en overgangs-RPC's zijn invoker-only en service-role-only",
+  !backupMonitorMigration.includes("security definer") &&
+    backupMonitorMigration.includes("security invoker") &&
+    backupMonitorMigration.includes(
+      "revoke all on function public.careon_record_facturatie_backup_attempt(text, boolean, text)",
+    ) &&
+    backupMonitorMigration.includes(
+      "grant execute on function public.careon_record_facturatie_backup_transition(uuid, text, text) to service_role",
+    ),
+);
+check(
+  "generieke operations-overgang serialiseert bron per organisatie en dedupliceert de outbox",
+  backupMonitorMigration.includes("careon_operation_transition:' || p_source || ':' || p_org_id::text") &&
+    backupMonitorMigration.includes("on conflict (source_event_id) do nothing") &&
+    backupMonitorMigration.includes("'facturatie_backup.failed'") &&
+    backupMonitorMigration.includes("'facturatie_backup.stale'"),
+);
+check(
+  "claim en leveringsaudit dragen de gevalideerde bron zonder vaste worker-aanname",
+  backupMonitorMigration.includes("'source', v_alert.source") &&
+    backupMonitorMigration.includes("'state', v_alert.worker_state") &&
+    backupMonitorMigration.includes("'source', v_alert.source"),
+);
 
 const route = fs.readFileSync(path.join(ROOT, "src/app/api/careon/tgc-sync/route.ts"), "utf8");
 const assistant = fs.readFileSync(
@@ -305,6 +473,16 @@ const monitorService = fs.readFileSync(
   "utf8",
 );
 const alertService = fs.readFileSync(path.join(ROOT, "src/lib/careon-operations/operations-alerts.server.ts"), "utf8");
+const backupMonitorService = fs.readFileSync(
+  path.join(ROOT, "src/lib/careon-operations/facturatie-backup-monitor.server.ts"),
+  "utf8",
+);
+const backupPublisher = fs.readFileSync(path.join(ROOT, "src/scripts/lib/facturatie-backup-monitor.ts"), "utf8");
+const backupRunner = fs.readFileSync(path.join(ROOT, "scripts/run-facturatie-storage-backup.ps1"), "utf8");
+const backupTaskInstaller = fs.readFileSync(
+  path.join(ROOT, "scripts/install-facturatie-storage-backup-task.ps1"),
+  "utf8",
+);
 const adminService = fs.readFileSync(path.join(ROOT, "src/lib/careon-admin/admin.server.ts"), "utf8");
 const vercelConfig = JSON.parse(fs.readFileSync(path.join(ROOT, "vercel.json"), "utf8")) as {
   crons?: { path?: string; schedule?: string }[];
@@ -382,10 +560,58 @@ check(
     monitorRoute.includes("}, 502)"),
 );
 check(
-  "beheerfilter kent alle drie workerstatussen",
+  "Facturatie-backupmonitor leest uitsluitend resultaat- en tijdmetadata",
+  backupMonitorService.includes('select: "last_result,last_attempt_at,last_success_at"') &&
+    !backupMonitorService.includes("bucket_name") &&
+    !backupMonitorService.includes("storage_object") &&
+    !backupMonitorService.includes("object_path") &&
+    !backupMonitorService.includes("invoice") &&
+    !backupMonitorService.includes("encryption"),
+);
+check(
+  "centrale route faalt zichtbaar op backupmonitoruitval en ongezonde backup",
+  monitorRoute.includes("await monitorFacturatieBackup()") &&
+    monitorRoute.includes("backupUnhealthy") &&
+    monitorRoute.includes('backup.state !== "healthy"') &&
+    monitorRoute.includes("}, 503)"),
+);
+check(
+  "operator publiceert alleen vaste backupstatus via service-only RPC",
+  backupPublisher.includes("rpc/careon_record_facturatie_backup_attempt") &&
+    backupPublisher.includes("p_success: success") &&
+    backupPublisher.includes("p_error_code: errorCode") &&
+    !backupPublisher.includes("console.") &&
+    !backupPublisher.includes("response.text()"),
+);
+check(
+  "dagrunner gebruikt mutex, exacte versleutelde upload en metadata-only log",
+  backupRunner.includes("Local\\CareonFacturatieStorageBackup") &&
+    backupRunner.includes("backup:facturatie-storage:offsite -- --upload") &&
+    backupRunner.includes("facturatie-storage-backup.log") &&
+    !backupRunner.includes("CAREON_FACTURATIE_BACKUP_R2_SECRET_ACCESS_KEY") &&
+    !backupRunner.includes("SUPABASE_SERVICE_ROLE_KEY"),
+);
+check(
+  "taakinstaller is dagelijks, verborgen, beperkt en voorkomt overlap",
+  backupTaskInstaller.includes("New-ScheduledTaskTrigger -Daily -At $At") &&
+    backupTaskInstaller.includes("-WindowStyle Hidden") &&
+    backupTaskInstaller.includes("-RunLevel Limited") &&
+    backupTaskInstaller.includes("-MultipleInstances IgnoreNew") &&
+    backupTaskInstaller.includes("-StartWhenAvailable") &&
+    !backupTaskInstaller.includes("Start-ScheduledTask"),
+);
+check(
+  "beheerfilter kent worker-, backup- en leveringsstatussen",
   ["tgc_worker.available", "tgc_worker.offline", "tgc_worker.unknown"].every((action) =>
     adminService.includes(`"${action}"`),
-  ) && adminService.includes('"operations.alert.delivered"'),
+  ) &&
+    [
+      "facturatie_backup.healthy",
+      "facturatie_backup.failed",
+      "facturatie_backup.stale",
+      "facturatie_backup.unknown",
+    ].every((action) => adminService.includes(`"${action}"`)) &&
+    adminService.includes('"operations.alert.delivered"'),
 );
 check(
   "Vercel controleert worker elke vijf minuten",

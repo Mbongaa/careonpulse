@@ -14,6 +14,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 
+import { resolveFacturatieBackupMonitorConfiguration } from "../lib/careon-operations/operations-alerts";
 import {
   assertPrivateBucket,
   downloadObject,
@@ -27,6 +28,7 @@ import {
   type SnapshotManifest,
   writeObject,
 } from "./backup-facturatie-storage";
+import { publishFacturatieBackupAttempt } from "./lib/facturatie-backup-monitor";
 import {
   expectedBackupObjects,
   FACTURATIE_BUCKET,
@@ -66,6 +68,10 @@ import * as path from "node:path";
 
 const MAX_ENCRYPTED_OBJECT_BYTES = MAX_PDF_BYTES + 256;
 const REMOTE_BATCH_SIZE = 12;
+let activeMode: Mode | null = null;
+let activeEnvironment: Record<string, string | undefined> | null = null;
+let backupOperationSucceeded = false;
+let failureReported = false;
 
 type Mode = { kind: "upload" } | { kind: "verify" } | { kind: "fetch"; stamp: string; outputPath: string };
 type EnabledConfiguration = Extract<OffsiteConfiguration, { enabled: true }>;
@@ -451,18 +457,47 @@ async function fetchBackup(
 async function main(): Promise<void> {
   const mode = parseMode(process.argv.slice(2));
   const environment = mergedEnvironment();
+  activeMode = mode;
+  activeEnvironment = environment;
   const configuration = resolveOffsiteConfiguration(environment, mode.kind);
   const maximumAgeHours = maxAgeHours(environment);
   if (!configuration.enabled) {
+    const monitor = resolveFacturatieBackupMonitorConfiguration(environment);
+    if (monitor.status === "ready" && mode.kind !== "fetch") {
+      const publication = await publishFacturatieBackupAttempt(environment, false, "configuration");
+      failureReported = publication.status === "completed";
+      throw new Error("Facturatie-backupmonitor is actief terwijl off-site backup is uitgeschakeld.");
+    }
+    if (monitor.status === "invalid") {
+      throw new Error("Facturatie-backupmonitorconfiguratie is ongeldig.");
+    }
     console.log("FACTURATIE_STORAGE_OFFSITE=DISABLED required=0");
     return;
   }
-  if (mode.kind === "upload") return upload(configuration, maximumAgeHours);
-  if (mode.kind === "verify") return verify(configuration, maximumAgeHours);
-  return fetchBackup(configuration, maximumAgeHours, mode.stamp, mode.outputPath);
+  if (mode.kind === "fetch") return fetchBackup(configuration, maximumAgeHours, mode.stamp, mode.outputPath);
+  if (mode.kind === "upload") await upload(configuration, maximumAgeHours);
+  if (mode.kind === "verify") await verify(configuration, maximumAgeHours);
+  backupOperationSucceeded = true;
+  const publication = await publishFacturatieBackupAttempt(environment, true, null);
+  if (publication.status === "misconfigured" || publication.status === "unavailable") {
+    throw new Error("Centrale Facturatie-backupstatus kon niet veilig worden bijgewerkt.");
+  }
+  if (publication.status === "completed") {
+    console.log("FACTURATIE_STORAGE_MONITOR=OK state=healthy");
+  }
 }
 
-void main().catch((error: unknown) => {
+void main().catch(async (error: unknown) => {
+  if (activeEnvironment && activeMode && activeMode.kind !== "fetch" && !failureReported) {
+    const publication = await publishFacturatieBackupAttempt(
+      activeEnvironment,
+      false,
+      backupOperationSucceeded ? "network" : "backup_failed",
+    );
+    if (publication.status === "completed") {
+      console.error("FACTURATIE_STORAGE_MONITOR=FAIL state=failed");
+    }
+  }
   const message = error instanceof Error ? error.message : "Onbekende fout.";
   console.error(`FACTURATIE_STORAGE_OFFSITE=FAIL ${message}`);
   process.exitCode = 1;

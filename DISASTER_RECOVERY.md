@@ -94,6 +94,28 @@ With no client configuration it returns `FACTURATIE_STORAGE_OFFSITE=DISABLED req
 key itself must be held outside R2 in the approved secret manager; keep every historical key while its key ID remains in
 retained backups.
 
+After TGC has accepted the bucket/token, key custody and one manual non-empty upload, install the daily Windows task from
+the approved always-on operator account (time is configurable):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install-facturatie-storage-backup-task.ps1 -At "02:30"
+```
+
+The hidden limited-user task uses a named mutex, refuses overlapping runs, retries three times and records only the
+already-redacted command output in `logs/facturatie-storage-backup.log`. Its runner invokes the encrypted `--upload`
+path, which performs source and remote verification before success. The current installer deliberately uses the
+interactive operator identity so Windows never stores or prompts for an account password; that account must therefore
+remain signed in on an always-on managed host. Moving this task to a centrally owned service host remains preferable and
+is still part of G17 acceptance.
+
+With `CAREON_FACTURATIE_BACKUP_MONITOR_ENABLED=1` on both the operator and Vercel, each run publishes only
+healthy/failed, a fixed failure code and database timestamps through a service-only RPC. Vercel derives
+healthy/stale/failed/unknown using the configured maximum age and atomically adds incident/recovery transitions to the
+same durable operations outbox used by the TGC worker. Bucket names, object paths/counts, invoice fields, backup keys and
+credentials never enter the status table, audit detail or Teams body. Set `..._REQUIRED=1` only after the first
+status/age/offline/recovery acceptance. Teams delivery itself remains disabled until TGC names the exact channel and a
+service-principal or redundant TGC IT owner.
+
 Cloudflare references: [EU jurisdiction endpoint and residency](https://developers.cloudflare.com/r2/reference/data-location/)
 and [R2 S3 API compatibility](https://developers.cloudflare.com/r2/api/s3/api/).
 
