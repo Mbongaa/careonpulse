@@ -477,6 +477,15 @@ const backupMonitorService = fs.readFileSync(
   path.join(ROOT, "src/lib/careon-operations/facturatie-backup-monitor.server.ts"),
   "utf8",
 );
+const operationsStatusService = fs.readFileSync(
+  path.join(ROOT, "src/lib/careon-operations/operations-status.server.ts"),
+  "utf8",
+);
+const operationsStatusPanel = fs.readFileSync(
+  path.join(ROOT, "src/app/(main)/dashboard/signaleringen/_components/operations-status-panel.tsx"),
+  "utf8",
+);
+const signaleringenPage = fs.readFileSync(path.join(ROOT, "src/app/(main)/dashboard/signaleringen/page.tsx"), "utf8");
 const backupPublisher = fs.readFileSync(path.join(ROOT, "src/scripts/lib/facturatie-backup-monitor.ts"), "utf8");
 const backupRunner = fs.readFileSync(path.join(ROOT, "scripts/run-facturatie-storage-backup.ps1"), "utf8");
 const backupTaskInstaller = fs.readFileSync(
@@ -567,6 +576,23 @@ check(
     !backupMonitorService.includes("object_path") &&
     !backupMonitorService.includes("invoice") &&
     !backupMonitorService.includes("encryption"),
+);
+check(
+  "beheerstatus leest alleen metadata van de eigen organisatie",
+  operationsStatusService.includes('select: "last_result,last_attempt_at,last_success_at"') &&
+    operationsStatusService.includes("org_id: `eq." + "$" + "{orgId}`") &&
+    operationsStatusService.includes('session.orgRole !== "org_admin"') &&
+    !operationsStatusService.includes("invoice") &&
+    !operationsStatusService.includes("object_path") &&
+    !operationsStatusService.includes("encryption"),
+);
+check(
+  "Signaleringen toont worker- en backupstatus alleen via de servergrens",
+  signaleringenPage.includes("getCareonOperationsStatus") &&
+    operationsStatusPanel.includes('data-testid="operations-status-panel"') &&
+    operationsStatusPanel.includes(
+      "Operationele beschikbaarheid zonder patiënt-, factuur-, bestands- of credentialgegevens",
+    ),
 );
 check(
   "centrale route faalt zichtbaar op backupmonitoruitval en ongezonde backup",

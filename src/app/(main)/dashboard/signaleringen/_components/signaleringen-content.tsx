@@ -12,13 +12,17 @@ import { CAREON_PAGE_META } from "@/data/careon/careon-pages";
 import type { CareonAlert, CareonSeverity } from "@/data/careon/careon-types";
 import { filterFinancieleAlerts } from "@/lib/careon-financieel-rol";
 import { buildHrBigAlert, HR_BIG_ALERT_TITLE } from "@/lib/careon-hr/insights";
+import type { CareonOperationsStatus } from "@/lib/careon-operations/operations-status";
 import { widgetSource } from "@/lib/careon-production/provenance";
 
 import { useCareonSessionInfo } from "../../_components/careon/careon-session-provider";
+import { OperationsStatusPanel } from "./operations-status-panel";
 
 const SEVERITIES: CareonSeverity[] = ["kritiek", "hoog", "middel"];
 
-export function SignaleringenContent() {
+export function SignaleringenContent({
+  operationsStatus,
+}: Readonly<{ operationsStatus: CareonOperationsStatus | null }>) {
   const { production } = useCareon();
   const { state: hrState } = useCareonHr();
   // Financiële rolregel: signaleringen richting de financieel-pagina bestaan
@@ -66,6 +70,8 @@ export function SignaleringenContent() {
       />
 
       <CareonLiveBanner page="signaleringen" />
+
+      {operationsStatus && <OperationsStatusPanel status={operationsStatus} />}
 
       <div className="grid grid-cols-3 gap-4">
         {SEVERITIES.map((sev) => {
