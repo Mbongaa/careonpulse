@@ -26,6 +26,9 @@ For isolated local development and automated tests only, `CAREON_DEMO_MODE=1` en
 | `npm run verify:runtime` | Fault injection for provider-stream failures, fail-closed moderation, sensitive proxy inference and bounded request bodies |
 | `npm run verify:assistant:live` | Live Responses API evaluation against the running production build |
 | `npm run verify:data-hygiene` | Fails when a real-looking export is tracked outside the synthetic fixture folder |
+| `npm run verify:facturatie-storage` | Credential-free integrity, encryption, off-site completion and recovery failure matrix for private invoice PDFs/logos |
+| `npm run backup:facturatie-storage` | No-write production verifier or guarded local snapshot for the private `facturen` bucket |
+| `npm run backup:facturatie-storage:offsite` | Dormant client-side-encrypted R2 upload/verification/fetch boundary; activates only with complete client-owned EU configuration |
 | `npm run verify:ci` | Local equivalent of the deterministic CI quality gate |
 | `npm run push:production` | Server-side verversing van de centrale Supabase-opslag met de drie exports uit `Exports EPD/` (nieuwe import-run + agenda-/verwijzersaggregaat) |
 | `npm run test:e2e` | Playwright suite: functional flows + axe-core WCAG-AA audit in light, dark and Careon modes (desktop + mobile; run `npm run build` first) |

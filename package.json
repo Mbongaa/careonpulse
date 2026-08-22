@@ -19,6 +19,7 @@
     "verify:assistant:live": "ts-node -P tsconfig.scripts.json src/scripts/e2e-assistant-live.ts",
     "verify:facturatie:live": "ts-node -P tsconfig.scripts.json src/scripts/e2e-facturatie-live.ts",
     "backup:facturatie-storage": "ts-node -r tsconfig-paths/register -P tsconfig.scripts.json src/scripts/backup-facturatie-storage.ts",
+    "backup:facturatie-storage:offsite": "ts-node -r tsconfig-paths/register -P tsconfig.scripts.json src/scripts/backup-facturatie-storage-offsite.ts",
     "verify:facturatie-storage": "ts-node -r tsconfig-paths/register -P tsconfig.scripts.json src/scripts/verify-facturatie-storage-backup.ts",
     "verify:data-hygiene": "ts-node -P tsconfig.scripts.json src/scripts/verify-data-hygiene.ts",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
@@ -70,6 +71,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "3.1116.0",
     "@axe-core/playwright": "^4.12.1",
     "@biomejs/biome": "^2.5.2",
     "@playwright/test": "^1.61.1",

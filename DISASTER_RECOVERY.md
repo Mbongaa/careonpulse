@@ -59,8 +59,56 @@ Remove-Item Env:CAREON_FACTURATIE_BACKUP_ALLOW_PLAINTEXT
 The snapshot refuses overwrite, uses private directory/file modes where the operating system supports them, publishes
 only after every object verifies, and contains `manifest.json`, its SHA-256 sidecar and the exact object tree. The
 manifest is metadata-only; the object tree contains confidential invoice bytes. The command does not upload externally,
-delete Storage objects or invoke restore. Until the encrypted client-owned secondary destination, schedule and isolated
-restore acceptance exist, this is a recovery boundary—not proof that the Storage RPO is met.
+delete Storage objects or invoke restore.
+
+### Encrypted secondary-copy boundary
+
+The separate off-site command is build-ready and deliberately dormant until TGC supplies the operator-only variables
+documented in `.env.example`. It uses a **separate client-owned R2 bucket/token** for D19; it does not silently reuse the
+D8 recording/HumHub backup bucket. The endpoint is fixed to Cloudflare's EU jurisdiction. Logical object paths and file
+bytes are encrypted client-side with AES-256-GCM before upload; opaque per-run HMAC object keys prevent invoice paths or
+organization IDs from appearing in R2 keys. The logical manifest is encrypted too. The completion marker contains only
+the backup timestamp, key ID, object count, opaque keys, encrypted byte counts and encrypted SHA-256 values.
+
+Run an encrypted upload only from the approved backup operator after the source verifier passes:
+
+```powershell
+npm run backup:facturatie-storage -- --verify
+npm run backup:facturatie-storage:offsite -- --upload
+```
+
+Every upload uses conditional no-overwrite writes and publishes `complete.json` last. A failed partial prefix is never
+eligible for verification or restore. The R2 token needs only prefix-scoped Put/Get/List/Head capabilities; the tooling
+has no delete command. Configure a seven-year lifecycle for completed invoice backups in line with the statutory
+retention, and review incomplete prefixes operationally rather than granting the backup writer deletion rights.
+
+The recurring, decrypt-key-free health command checks the newest completion marker, age, every remote byte count,
+SHA-256 metadata and run/kind binding:
+
+```powershell
+npm run backup:facturatie-storage:offsite -- --verify
+```
+
+With no client configuration it returns `FACTURATIE_STORAGE_OFFSITE=DISABLED required=0`; after activation set
+`CAREON_FACTURATIE_BACKUP_OFFSITE_REQUIRED=1` so missing, partial, stale or corrupt state fails closed. The encryption
+key itself must be held outside R2 in the approved secret manager; keep every historical key while its key ID remains in
+retained backups.
+
+Cloudflare references: [EU jurisdiction endpoint and residency](https://developers.cloudflare.com/r2/reference/data-location/)
+and [R2 S3 API compatibility](https://developers.cloudflare.com/r2/api/s3/api/).
+
+Fetching is non-destructive: it verifies the exact completion index, decrypts and revalidates every original
+path/size/MIME/signature/SHA-256, then publishes a new local snapshot only on an approved encrypted volume. It never
+writes into Supabase and refuses overwrite or repository destinations:
+
+```powershell
+$env:CAREON_FACTURATIE_BACKUP_ALLOW_PLAINTEXT = "1"
+npm run backup:facturatie-storage:offsite -- --fetch 20260822-120000 "D:\approved-encrypted-recovery\facturatie-20260822"
+Remove-Item Env:CAREON_FACTURATIE_BACKUP_ALLOW_PLAINTEXT
+```
+
+Until the client-owned destination, schedule and isolated non-empty fetch/restore acceptance are active, this remains a
+tested fail-closed recovery boundary—not proof that the Storage RPO is met.
 
 ## Quarterly restore drill
 

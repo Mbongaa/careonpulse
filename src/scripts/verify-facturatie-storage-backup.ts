@@ -8,6 +8,22 @@ import {
   sha256,
   verifyObjectBytes,
 } from "./lib/facturatie-storage-backup";
+import {
+  backupStamp,
+  buildCompletion,
+  buildManifest,
+  completionKey,
+  decryptBackupPayload,
+  encryptBackupPayload,
+  encryptedDescriptor,
+  encryptedManifestKey,
+  encryptedObjectKey,
+  offsiteAgeSeconds,
+  parseCompletion,
+  parseManifest,
+  resolveOffsiteConfiguration,
+  serializeBackupJson,
+} from "./lib/facturatie-storage-offsite";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -184,7 +200,189 @@ function main(): void {
   }
   check("foutmeldingen redigeren het factuurobjectpad", !leakedPath);
 
+  const offsiteKey = Buffer.alloc(32, 0x2a);
+  const offsiteKeyBase64 = offsiteKey.toString("base64");
+  const offsiteStamp = "20260822-120000";
+  const offsiteCreatedAt = "2026-08-22T12:00:00.000Z";
+  const offsiteEnvironment = {
+    CAREON_FACTURATIE_BACKUP_R2_ACCOUNT_ID: "0123456789abcdef0123456789abcdef",
+    CAREON_FACTURATIE_BACKUP_R2_ACCESS_KEY_ID: "synthetic-access",
+    CAREON_FACTURATIE_BACKUP_R2_SECRET_ACCESS_KEY: "synthetic-secret",
+    CAREON_FACTURATIE_BACKUP_R2_BUCKET: "careon-facturatie-backups",
+    CAREON_FACTURATIE_BACKUP_R2_JURISDICTION: "eu",
+    CAREON_FACTURATIE_BACKUP_ENCRYPTION_KEY: offsiteKeyBase64,
+    CAREON_FACTURATIE_BACKUP_ENCRYPTION_KEY_ID: "tgc-2026-v1",
+  };
+  check(
+    "off-site verifier is bewust uitgeschakeld zonder clientconfiguratie",
+    resolveOffsiteConfiguration({}, "verify").enabled === false,
+  );
+  rejects("off-site upload weigert ontbrekende clientconfiguratie", () => resolveOffsiteConfiguration({}, "upload"));
+  rejects("off-site required weigert ontbrekende clientconfiguratie", () =>
+    resolveOffsiteConfiguration({ CAREON_FACTURATIE_BACKUP_OFFSITE_REQUIRED: "1" }, "verify"),
+  );
+  rejects("gedeeltelijke R2-configuratie faalt gesloten", () =>
+    resolveOffsiteConfiguration({ CAREON_FACTURATIE_BACKUP_R2_BUCKET: "careon-backups" }, "verify"),
+  );
+  rejects("niet-EU R2-jurisdictie faalt gesloten", () =>
+    resolveOffsiteConfiguration({ ...offsiteEnvironment, CAREON_FACTURATIE_BACKUP_R2_JURISDICTION: "auto" }, "upload"),
+  );
+  rejects("ongeldige off-site encryptiesleutel faalt gesloten", () =>
+    resolveOffsiteConfiguration({ ...offsiteEnvironment, CAREON_FACTURATIE_BACKUP_ENCRYPTION_KEY: "YQ==" }, "upload"),
+  );
+  const uploadConfiguration = resolveOffsiteConfiguration(offsiteEnvironment, "upload");
+  check(
+    "complete uploadconfiguratie dwingt het EU-endpoint en 32-byte sleutel af",
+    uploadConfiguration.enabled &&
+      uploadConfiguration.endpoint === "https://0123456789abcdef0123456789abcdef.eu.r2.cloudflarestorage.com" &&
+      uploadConfiguration.encryptionKey?.byteLength === 32,
+  );
+  const verifyConfiguration = resolveOffsiteConfiguration(
+    {
+      CAREON_FACTURATIE_BACKUP_R2_ACCOUNT_ID: offsiteEnvironment.CAREON_FACTURATIE_BACKUP_R2_ACCOUNT_ID,
+      CAREON_FACTURATIE_BACKUP_R2_ACCESS_KEY_ID: offsiteEnvironment.CAREON_FACTURATIE_BACKUP_R2_ACCESS_KEY_ID,
+      CAREON_FACTURATIE_BACKUP_R2_SECRET_ACCESS_KEY: offsiteEnvironment.CAREON_FACTURATIE_BACKUP_R2_SECRET_ACCESS_KEY,
+      CAREON_FACTURATIE_BACKUP_R2_BUCKET: offsiteEnvironment.CAREON_FACTURATIE_BACKUP_R2_BUCKET,
+    },
+    "verify",
+  );
+  check(
+    "recurring verificatie heeft geen decryptiesleutel nodig",
+    verifyConfiguration.enabled && !verifyConfiguration.encryptionKey,
+  );
+  check(
+    "UTC-backupstempel is deterministisch",
+    backupStamp(new Date(offsiteCreatedAt)) === offsiteStamp &&
+      offsiteAgeSeconds(offsiteStamp, Date.parse(offsiteCreatedAt)) === 0,
+  );
+  rejects("ongeldige kalenderstempel faalt gesloten", () => offsiteAgeSeconds("20260231-120000"));
+
+  const remoteObjectKey = encryptedObjectKey(offsiteStamp, PDF_PATH, offsiteKey);
+  check(
+    "R2-objectnaam is opaak en stabiel binnen één run",
+    remoteObjectKey === encryptedObjectKey(offsiteStamp, PDF_PATH, offsiteKey) &&
+      !remoteObjectKey.includes(PDF_PATH) &&
+      !remoteObjectKey.includes(ORG_A),
+  );
+  check(
+    "dezelfde bron krijgt per backuprun een andere opaque sleutel",
+    remoteObjectKey !== encryptedObjectKey("20260822-120001", PDF_PATH, offsiteKey),
+  );
+  const objectContext = {
+    stamp: offsiteStamp,
+    keyId: "tgc-2026-v1",
+    kind: "object" as const,
+    remoteKey: remoteObjectKey,
+  };
+  const encryptedPdf = encryptBackupPayload(PDF, offsiteKey, objectContext, Buffer.alloc(12, 0x07));
+  check(
+    "AES-GCM backup-envelop ontsleutelt exact",
+    decryptBackupPayload(encryptedPdf, offsiteKey, objectContext).equals(PDF),
+  );
+  check(
+    "versleuteld object bevat fixturetekst niet",
+    !encryptedPdf.includes(Buffer.from("synthetic-backup-policy-fixture")),
+  );
+  const tamperedPdf = Buffer.from(encryptedPdf);
+  tamperedPdf[tamperedPdf.length - 1] ^= 0x01;
+  rejects("gemanipuleerde AES-GCM backup faalt authentiek", () =>
+    decryptBackupPayload(tamperedPdf, offsiteKey, objectContext),
+  );
+  rejects("backup kan niet onder een andere objectsleutel worden afgespeeld", () =>
+    decryptBackupPayload(encryptedPdf, offsiteKey, { ...objectContext, remoteKey: encryptedManifestKey(offsiteStamp) }),
+  );
+
+  const pdfDescriptor = encryptedDescriptor(remoteObjectKey, encryptedPdf);
+  const manifestObject = {
+    ...(verifiedPdf as NonNullable<typeof verifiedPdf>),
+    remoteKey: remoteObjectKey,
+    encryptedBytes: pdfDescriptor.bytes,
+    encryptedSha256: pdfDescriptor.sha256,
+  };
+  const offsiteManifest = buildManifest(offsiteStamp, offsiteCreatedAt, "jdxvrczwelxlgtzyisea", [manifestObject]);
+  const manifestRemoteKey = encryptedManifestKey(offsiteStamp);
+  const manifestContext = {
+    stamp: offsiteStamp,
+    keyId: "tgc-2026-v1",
+    kind: "manifest" as const,
+    remoteKey: manifestRemoteKey,
+  };
+  const encryptedManifest = encryptBackupPayload(
+    serializeBackupJson(offsiteManifest),
+    offsiteKey,
+    manifestContext,
+    Buffer.alloc(12, 0x08),
+  );
+  const manifestDescriptor = encryptedDescriptor(manifestRemoteKey, encryptedManifest);
+  const completion = buildCompletion(offsiteStamp, offsiteCreatedAt, "tgc-2026-v1", manifestDescriptor, [
+    pdfDescriptor,
+  ]);
+  const completionText = serializeBackupJson(completion).toString("utf8");
+  check(
+    "completion-marker bevat geen logisch pad of organisatie-id",
+    !completionText.includes(PDF_PATH) && !completionText.includes(ORG_A),
+  );
+  const parsedCompletion = parseCompletion(JSON.parse(completionText), offsiteStamp);
+  const parsedManifest = parseManifest(
+    JSON.parse(decryptBackupPayload(encryptedManifest, offsiteKey, manifestContext).toString("utf8")),
+    parsedCompletion,
+    offsiteKey,
+  );
+  check(
+    "versleuteld manifest koppelt completion-index exact terug aan bronobject",
+    parsedManifest.objectCount === 1 &&
+      parsedManifest.objects[0]?.path === PDF_PATH &&
+      parsedManifest.objects[0]?.sha256 === sha256(PDF),
+  );
+  rejects("completion-marker met vervalste totalen faalt gesloten", () =>
+    parseCompletion({ ...completion, totalEncryptedBytes: completion.totalEncryptedBytes + 1 }, offsiteStamp),
+  );
+  rejects("completion-marker met afwijkend tijdstip faalt gesloten", () =>
+    parseCompletion({ ...completion, createdAt: "2026-08-22T12:00:01.000Z" }, offsiteStamp),
+  );
+  rejects("completion-marker met leesbare objectsleutel faalt gesloten", () =>
+    parseCompletion(
+      {
+        ...completion,
+        objects: [{ ...pdfDescriptor, key: `${completionKey(offsiteStamp)}/invoice.pdf` }],
+      },
+      offsiteStamp,
+    ),
+  );
+  rejects("ontsleuteld manifest met andere remote sleutel faalt gesloten", () =>
+    parseManifest(
+      { ...offsiteManifest, objects: [{ ...manifestObject, remoteKey: completionKey(offsiteStamp) }] },
+      parsedCompletion,
+      offsiteKey,
+    ),
+  );
+  rejects("ontsleuteld manifest met pad-traversal faalt gesloten", () =>
+    parseManifest(
+      { ...offsiteManifest, objects: [{ ...manifestObject, path: `${ORG_A}/2026/../secret.pdf` }] },
+      parsedCompletion,
+      offsiteKey,
+    ),
+  );
+  rejects("ontsleuteld manifest met MIME/type-verwisseling faalt gesloten", () =>
+    parseManifest(
+      { ...offsiteManifest, objects: [{ ...manifestObject, contentType: "image/png" }] },
+      parsedCompletion,
+      offsiteKey,
+    ),
+  );
+  rejects("ontsleuteld manifest met ongeldig Storage-tijdstip faalt gesloten", () =>
+    parseManifest(
+      { ...offsiteManifest, objects: [{ ...manifestObject, updatedAt: "geen-datum" }] },
+      parsedCompletion,
+      offsiteKey,
+    ),
+  );
+  rejects("manifestbouwer weigert dubbele bronobjecten", () =>
+    buildManifest(offsiteStamp, offsiteCreatedAt, "jdxvrczwelxlgtzyisea", [manifestObject, manifestObject]),
+  );
+
   const scriptSource = fs.readFileSync(path.resolve(__dirname, "backup-facturatie-storage.ts"), "utf8");
+  const offsiteScriptSource = fs.readFileSync(path.resolve(__dirname, "backup-facturatie-storage-offsite.ts"), "utf8");
   const migrationSource = fs.readFileSync(
     path.resolve(__dirname, "../../supabase/migrations/20260822234500_facturatie_storage_backup_boundary.sql"),
     "utf8",
@@ -229,6 +427,32 @@ function main(): void {
     migrationSource.includes("public = false") &&
       migrationSource.includes("26214400") &&
       migrationSource.includes("array['application/pdf', 'image/png']::text[]"),
+  );
+  check(
+    "off-site upload gebruikt conditionele no-overwrite S3-writes",
+    offsiteScriptSource.includes("PutObjectCommand") && offsiteScriptSource.includes('IfNoneMatch: "*"'),
+  );
+  check(
+    "completion-marker wordt expliciet als laatste gepubliceerd",
+    offsiteScriptSource.includes("Completion is deliberately the final write") &&
+      offsiteScriptSource.indexOf("completionKey(stamp), completionBytes") >
+        offsiteScriptSource.indexOf("manifestDescriptor = await putRemote"),
+  );
+  check(
+    "manifest en completion worden voor publicatie op grootte begrensd",
+    offsiteScriptSource.indexOf("encryptedManifest.byteLength > MAX_COMPLETION_BYTES") <
+      offsiteScriptSource.indexOf("manifestDescriptor = await putRemote") &&
+      offsiteScriptSource.indexOf("completionBytes.byteLength > MAX_COMPLETION_BYTES") <
+        offsiteScriptSource.indexOf("completionKey(stamp), completionBytes"),
+  );
+  check(
+    "off-site token heeft geen deletepad nodig",
+    !offsiteScriptSource.includes("DeleteObjectCommand") && !offsiteScriptSource.includes("DeleteObjectsCommand"),
+  );
+  check(
+    "off-site herstel vereist plaintext-erkenning en bestaand veilig snapshotdoel",
+    offsiteScriptSource.includes("CAREON_FACTURATIE_BACKUP_ALLOW_PLAINTEXT") &&
+      offsiteScriptSource.includes("prepareSnapshotTarget(outputPath)"),
   );
 
   console.log(`Facturatie Storage backup policy: ${passes}/${passes + failures} checks passed.`);

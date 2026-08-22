@@ -36,7 +36,7 @@ interface StorageListResponseEntry {
   updated_at?: unknown;
 }
 
-interface SnapshotManifest {
+export interface SnapshotManifest {
   schema: "careon-facturatie-storage-backup/v1";
   createdAt: string;
   sourceProjectRef: string;
@@ -58,7 +58,7 @@ function parseMode(argv: string[]): Mode {
   );
 }
 
-function readEnvLocal(): Record<string, string> {
+export function readEnvLocal(): Record<string, string> {
   const environment: Record<string, string> = {};
   const envPath = path.join(ROOT, ".env.local");
   if (!fs.existsSync(envPath)) return environment;
@@ -74,7 +74,7 @@ function readEnvLocal(): Record<string, string> {
   return environment;
 }
 
-function requiredEnvironment(): { supabaseUrl: string; serviceKey: string } {
+export function requiredEnvironment(): { supabaseUrl: string; serviceKey: string } {
   const local = readEnvLocal();
   const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? local.NEXT_PUBLIC_SUPABASE_URL ?? "")
     .trim()
@@ -104,7 +104,7 @@ async function jsonRequest<T>(url: string, serviceKey: string, init?: RequestIni
   return (await response.json()) as T;
 }
 
-async function pagedPostgrest<T>(
+export async function pagedPostgrest<T>(
   supabaseUrl: string,
   serviceKey: string,
   table: string,
@@ -138,7 +138,7 @@ function stringMetadata(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
 
-async function listStorageObjects(supabaseUrl: string, serviceKey: string): Promise<ListedStorageObject[]> {
+export async function listStorageObjects(supabaseUrl: string, serviceKey: string): Promise<ListedStorageObject[]> {
   const result: ListedStorageObject[] = [];
   const visited = new Set<string>();
 
@@ -197,7 +197,7 @@ function encodedStoragePath(objectPath: string): string {
     .join("/");
 }
 
-async function downloadObject(supabaseUrl: string, serviceKey: string, objectPath: string): Promise<Uint8Array> {
+export async function downloadObject(supabaseUrl: string, serviceKey: string, objectPath: string): Promise<Uint8Array> {
   const response = await fetch(
     `${supabaseUrl}/storage/v1/object/${FACTURATIE_BUCKET}/${encodedStoragePath(objectPath)}`,
     { headers: headers(serviceKey), cache: "no-store" },
@@ -212,7 +212,7 @@ async function downloadObject(supabaseUrl: string, serviceKey: string, objectPat
   return new Uint8Array(await response.arrayBuffer());
 }
 
-async function assertPrivateBucket(supabaseUrl: string, serviceKey: string): Promise<void> {
+export async function assertPrivateBucket(supabaseUrl: string, serviceKey: string): Promise<void> {
   const bucket = await jsonRequest<Record<string, unknown>>(
     `${supabaseUrl}/storage/v1/bucket/${FACTURATIE_BUCKET}`,
     serviceKey,
@@ -232,7 +232,7 @@ async function assertPrivateBucket(supabaseUrl: string, serviceKey: string): Pro
   }
 }
 
-function prepareSnapshotTarget(outputPath: string): { finalPath: string; partialPath: string } {
+export function prepareSnapshotTarget(outputPath: string): { finalPath: string; partialPath: string } {
   if (!path.isAbsolute(outputPath)) throw new Error("Snapshotpad moet absoluut zijn.");
   const requested = path.resolve(outputPath);
   const relativeToRepo = path.relative(ROOT, requested);
@@ -253,7 +253,7 @@ function prepareSnapshotTarget(outputPath: string): { finalPath: string; partial
   return { finalPath, partialPath };
 }
 
-function privateWrite(filePath: string, content: Uint8Array | string): void {
+export function privateWrite(filePath: string, content: Uint8Array | string): void {
   const descriptor = fs.openSync(filePath, "wx", 0o600);
   try {
     fs.writeFileSync(descriptor, content);
@@ -264,7 +264,7 @@ function privateWrite(filePath: string, content: Uint8Array | string): void {
   if (process.platform !== "win32") fs.chmodSync(filePath, 0o600);
 }
 
-function writeObject(partialPath: string, objectPath: string, bytes: Uint8Array): void {
+export function writeObject(partialPath: string, objectPath: string, bytes: Uint8Array): void {
   const objectsRoot = path.join(partialPath, "objects");
   const destination = path.resolve(objectsRoot, ...objectPath.split("/"));
   const relative = path.relative(objectsRoot, destination);
@@ -275,7 +275,7 @@ function writeObject(partialPath: string, objectPath: string, bytes: Uint8Array)
   privateWrite(destination, bytes);
 }
 
-function projectRef(supabaseUrl: string): string {
+export function projectRef(supabaseUrl: string): string {
   return new URL(supabaseUrl).hostname.split(".")[0];
 }
 
@@ -353,8 +353,10 @@ async function main(): Promise<void> {
   }
 }
 
-void main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : "Onbekende fout.";
-  console.error(`FACTURATIE_STORAGE=FAIL ${message}`);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  void main().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : "Onbekende fout.";
+    console.error(`FACTURATIE_STORAGE=FAIL ${message}`);
+    process.exitCode = 1;
+  });
+}

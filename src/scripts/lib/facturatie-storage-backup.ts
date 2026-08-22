@@ -92,6 +92,11 @@ function canonicalLogoPath(path: string, orgId: string): boolean {
   return Boolean(match && match[1] === orgId && TEMPLATE_ID_PATTERN.test(match[2]));
 }
 
+export function isCanonicalBackupObjectPath(path: string, orgId: string, kind: BackupObjectKind): boolean {
+  if (!UUID_PATTERN.test(orgId)) return false;
+  return kind === "invoice-pdf" ? canonicalPdfPath(path, orgId) : canonicalLogoPath(path, orgId);
+}
+
 function addExpected(target: Map<string, ExpectedBackupObject>, candidate: ExpectedBackupObject): void {
   const current = target.get(candidate.path);
   if (!current) {
