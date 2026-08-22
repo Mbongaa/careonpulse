@@ -19,6 +19,11 @@ const PRIVATE_HEADERS = {
   "X-Content-Type-Options": "nosniff",
 };
 
+function privateResponse<T extends Response>(response: T): T {
+  for (const [name, value] of Object.entries(PRIVATE_HEADERS)) response.headers.set(name, value);
+  return response;
+}
+
 function privateJson(body: unknown, init?: ResponseInit) {
   return NextResponse.json(body, {
     ...init,
@@ -34,7 +39,7 @@ function serviceError(status: "not_configured" | "unavailable") {
 
 export async function GET(request: Request) {
   const auth = await requireCareonSession();
-  if ("denied" in auth) return auth.denied;
+  if ("denied" in auth) return privateResponse(auth.denied);
   const jobId = new URL(request.url).searchParams.get("jobId")?.trim() || undefined;
   if (jobId && !/^[0-9a-f-]{36}$/i.test(jobId)) {
     return privateJson({ error: "Ongeldig import-ID." }, { status: 400 });
@@ -51,7 +56,7 @@ export async function POST(request: Request) {
   // Zelfde rolgrens als de bestaande handmatige productie-import: ieder lid
   // van de eigen organisatie mag een nieuwe volledige snapshot aanvragen.
   const auth = await requireCareonSession();
-  if ("denied" in auth) return auth.denied;
+  if ("denied" in auth) return privateResponse(auth.denied);
 
   let body: { requestedVia?: unknown };
   try {

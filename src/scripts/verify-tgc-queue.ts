@@ -113,7 +113,8 @@ check("jobroute vereist een Careon-sessie", route.includes("requireCareonSession
 check(
   "jobroute is privé, no-store en nosniff",
   route.includes('"Cache-Control": "private, no-store, max-age=0"') &&
-    route.includes('"X-Content-Type-Options": "nosniff"'),
+    route.includes('"X-Content-Type-Options": "nosniff"') &&
+    route.includes("privateResponse(auth.denied)"),
 );
 check("AI-chat start deterministisch een job", assistant.includes("isTgcImportUpdateRequest(text)"));
 check("AI-chat vraagt geen extra bevestiging", assistant.includes("u hoeft niets meer in te voeren"));
