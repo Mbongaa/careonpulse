@@ -16,7 +16,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const ROOT = path.join(__dirname, "../..");
-const EXPORTS_DIR = path.join(ROOT, "Exports EPD");
+const EXPORTS_DIR = process.env.CAREON_VERIFY_TGC_EXPORTS_DIR
+  ? path.resolve(process.env.CAREON_VERIFY_TGC_EXPORTS_DIR)
+  : path.join(ROOT, "Exports EPD");
+const CLIENT_FIXTURE = path.join(__dirname, "fixtures/zsg-clienten-fixture.csv");
+const IMPORTED_AT = "2026-08-20T12:00:00.000Z";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -52,9 +56,66 @@ function verifyConfiguration(): void {
   assert(formatDutchDate(addMonths(new Date(2026, 7, 31), 6)) === "28-02-2027", "Maandoptelling klopt niet.");
 }
 
+function verifySyntheticExports(): void {
+  const clients = parseClientExport("zsg-clienten-fixture.csv", fs.readFileSync(CLIENT_FIXTURE, "utf8"));
+  const agenda = parseAgendaExport(
+    "agenda-fixture.csv",
+    [
+      "Soort;Behandelaar;Datum;Client_ID;No_Show;Totale_tijd_minute(n)",
+      "Sessie;Fixture behandelaar;19-08-2026;fixture-client;Nee;45",
+    ].join("\n"),
+    IMPORTED_AT,
+  );
+  const referrers = parseVerwijzersExport(
+    "verwijzers-fixture.csv",
+    ["Cliënt ID;Naam;Rol", "fixture-client;Huisartsenpraktijk Fixture;Huisarts"].join("\n"),
+    IMPORTED_AT,
+  );
+  const surcharges = parseToeslagenExport(
+    "toeslagen-fixture.csv",
+    ["Cliënt;Code;Omschrijving;Prijs;Factuurdatum", "Fixture cliënt;TC001;Tolkdienst fixture;100,00;19-08-2026"].join(
+      "\n",
+    ),
+    IMPORTED_AT,
+  );
+  const declarations = parseDeclaratiesExport(
+    "declaraties-fixture.csv",
+    [
+      "Factuurnummer;Factuurdatum;Debiteurennaam;Totaal bedrag;Debet / credit",
+      "F-0001;19-08-2026;Zorgverzekeraar Fixture;100,00;D",
+    ].join("\n"),
+    IMPORTED_AT,
+  );
+
+  assert(clients.ok && clients.records.length > 0, `Synthetische cliëntfixture ongeldig: ${clients.error}.`);
+  assert(
+    clients.records.every((record) => record.dossierUrl === null || isTgcDossierUrl(record.dossierUrl)),
+    "Synthetische cliëntfixture bewaart een dossierlink buiten de exacte TGC CareCheck-boundary.",
+  );
+  assert(
+    clients.records.some((record) => isTgcDossierUrl(record.dossierUrl)),
+    "Synthetische cliëntfixture test geen toegestane TGC CareCheck-dossierdeeplink.",
+  );
+  assert(agenda.ok && agenda.facts?.totalRows === 1, `Synthetische agendafixture ongeldig: ${agenda.error}.`);
+  assert(
+    referrers.ok && referrers.facts?.totalRows === 1,
+    `Synthetische verwijzerfixture ongeldig: ${referrers.error}.`,
+  );
+  assert(
+    surcharges.ok && surcharges.facts?.totalRows === 1,
+    `Synthetische toeslagenfixture ongeldig: ${surcharges.error}.`,
+  );
+  assert(
+    declarations.ok && declarations.facts?.totalRows === 1,
+    `Synthetische declaratiefixture ongeldig: ${declarations.error}.`,
+  );
+}
+
 function verifyExistingExports(): void {
-  assert(fs.existsSync(EXPORTS_DIR), "Exports EPD-map ontbreekt.");
-  const importedAt = "2026-08-20T12:00:00.000Z";
+  if (!fs.existsSync(EXPORTS_DIR)) {
+    console.log("(privé Exports EPD-map niet aanwezig — aanvullende productie-exportcontrole overgeslagen)");
+    return;
+  }
   const clientPath = newest(/^cli_ntendata_export.*\.csv$/i);
   const agendaPath = newest(/^exporteer_agenda_afspraken_.*\.csv$/i);
   const referrerPath = newest(/^huisarts_verwijzer.*\.csv$/i);
@@ -62,21 +123,21 @@ function verifyExistingExports(): void {
   const declarationPath = newest(/^declaration_total.*\.csv$/i);
 
   const clients = parseClientExport(path.basename(clientPath), fs.readFileSync(clientPath, "utf8"));
-  const agenda = parseAgendaExport(path.basename(agendaPath), fs.readFileSync(agendaPath, "utf8"), importedAt);
+  const agenda = parseAgendaExport(path.basename(agendaPath), fs.readFileSync(agendaPath, "utf8"), IMPORTED_AT);
   const referrers = parseVerwijzersExport(
     path.basename(referrerPath),
     fs.readFileSync(referrerPath, "utf8"),
-    importedAt,
+    IMPORTED_AT,
   );
   const surcharges = parseToeslagenExport(
     path.basename(surchargePath),
     fs.readFileSync(surchargePath, "utf8"),
-    importedAt,
+    IMPORTED_AT,
   );
   const declarations = parseDeclaratiesExport(
     path.basename(declarationPath),
     fs.readFileSync(declarationPath, "utf8"),
-    importedAt,
+    IMPORTED_AT,
   );
 
   assert(clients.ok && clients.records.length > 0, `Cliëntfixture ongeldig: ${clients.error ?? "geen regels"}.`);
@@ -107,5 +168,6 @@ function verifyExistingExports(): void {
 }
 
 verifyConfiguration();
+verifySyntheticExports();
 verifyExistingExports();
-console.log("TGC sync-configuratie en alle vijf productieparsers geverifieerd.");
+console.log("TGC sync-configuratie en alle vijf productieparsers met synthetische fixtures geverifieerd.");
