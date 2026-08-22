@@ -46,6 +46,7 @@ import {
   widgetSource,
 } from "../lib/careon-production/provenance";
 import { redigeerAgendaFactsFinancieel } from "../lib/careon-production/redactie";
+import { isTgcDossierUrl, normalizeTgcDossierUrl } from "../lib/careon-production/tgc-dossier-url";
 import {
   isAgendaFacts,
   isDeclaratiesFacts,
@@ -98,7 +99,7 @@ const multiline = parseClientExport(
   `${EDGE_HEADER}\n1;Man;30;TGC Tilburg;15-01-2026;;01-01-2026;Nee;"Huisarts\nmet regeleinde";https://epd.example/1\n2;Vrouw;40;TGC Breda;10-02-2026;;;Nee;;https://epd.example/2`,
 );
 check("multiline quoted cel: beide rijen gelezen", multiline.records.length, 2);
-check("multiline quoted cel: kolommen erna intact", multiline.records[0]?.dossierUrl, "https://epd.example/1");
+check("multiline quoted cel: vreemde dossierorigin geweigerd", multiline.records[0]?.dossierUrl, null);
 check("multiline quoted cel: celinhoud samengevoegd", multiline.records[0]?.verwijzer, "Huisarts\nmet regeleinde");
 
 // Los aanhalingsteken (typfout): mag NIET de rest van het bestand in één cel
@@ -158,13 +159,34 @@ check(
   true,
 );
 
-// Dossier-deeplinks: alleen https wordt bewaard (CSV-waarde wordt href).
+// Dossier-deeplinks: alleen de twee geïnventariseerde TGC CareCheck-routes
+// worden bewaard; een generieke HTTPS-link is niet voldoende.
+const validZpmDossier = "https://tgc.zsg.nl/dossier/zpm/Client00000000000001/Episode000000000001";
+const validUninsuredDossier = "https://tgc.zsg.nl/dossier/uninsured/Client00000000000002";
+const goodUrl = parseClientExport(
+  "url-good.csv",
+  `${EDGE_HEADER}\n1;Man;30;TGC Tilburg;15-01-2026;;;Nee;;${validZpmDossier}\n2;Vrouw;40;TGC Breda;10-02-2026;;;Nee;;${validUninsuredDossier}`,
+);
+check("dossierUrl ZPM: exact TGC-pad geaccepteerd", goodUrl.records[0]?.dossierUrl, validZpmDossier);
+check("dossierUrl onverzekerd: exact TGC-pad geaccepteerd", goodUrl.records[1]?.dossierUrl, validUninsuredDossier);
+check("dossierUrl type guard: canonieke link", isTgcDossierUrl(validZpmDossier), true);
+
 const badUrl = parseClientExport(
   "url.csv",
-  `${EDGE_HEADER}\n1;Man;30;TGC Tilburg;15-01-2026;;;Nee;;javascript:alert(1)\n2;Vrouw;40;TGC Breda;10-02-2026;;;Nee;;http://epd.example/2`,
+  `${EDGE_HEADER}\n1;Man;30;TGC Tilburg;15-01-2026;;;Nee;;javascript:alert(1)\n2;Vrouw;40;TGC Breda;10-02-2026;;;Nee;;http://tgc.zsg.nl/dossier/zpm/Client00000000000001/Episode000000000001\n3;Man;50;TGC Tilburg;12-03-2026;;;Nee;;https://attacker.example/dossier/zpm/Client00000000000001/Episode000000000001\n4;Vrouw;60;TGC Breda;15-03-2026;;;Nee;;${validZpmDossier}?next=https://attacker.example\n5;Man;45;TGC Tilburg;20-03-2026;;;Nee;;${validZpmDossier}#fragment\n6;Vrouw;35;TGC Breda;25-03-2026;;;Nee;;https://user@tgc.zsg.nl/dossier/zpm/Client00000000000001/Episode000000000001\n7;Man;55;TGC Tilburg;30-03-2026;;;Nee;;https://tgc.zsg.nl/dossier/other/Client00000000000001`,
 );
 check("dossierUrl javascript: geweigerd", badUrl.records[0]?.dossierUrl, null);
 check("dossierUrl http (niet-https) geweigerd", badUrl.records[1]?.dossierUrl, null);
+check("dossierUrl andere host: geweigerd", badUrl.records[2]?.dossierUrl, null);
+check("dossierUrl query: geweigerd", badUrl.records[3]?.dossierUrl, null);
+check("dossierUrl fragment: geweigerd", badUrl.records[4]?.dossierUrl, null);
+check("dossierUrl userinfo: geweigerd", badUrl.records[5]?.dossierUrl, null);
+check("dossierUrl onbekend pad: geweigerd", badUrl.records[6]?.dossierUrl, null);
+check(
+  "dossierUrl host-suffix: geweigerd",
+  normalizeTgcDossierUrl("https://tgc.zsg.nl.attacker.example/dossier/uninsured/Client00000000000002"),
+  null,
+);
 
 // Verkeerde kaart: een cliëntendata-export in de demo-KPI-kaart verwijst naar
 // de productie-kaart i.p.v. het generieke voorbeeldbestand-advies.
@@ -737,12 +759,21 @@ for (const [id, expected] of drillCounts) {
   check(`drill rows ${id}`, PRODUCTION_DETAIL_ROWS[id](snap).length, expected);
 }
 check("drill actief telt als activeClients", PRODUCTION_DETAIL_ROWS.actief(snap).length, snap.meta.activeClients);
+const actiefDrillRows = PRODUCTION_DETAIL_ROWS.actief(snap);
 check(
-  "drill-rijen pseudoniem + https-deeplink",
-  PRODUCTION_DETAIL_ROWS.actief(snap).every(
-    (row) => String(row.naam).startsWith("Cliënt ") && String(row.dossierUrl).startsWith("https://"),
-  ),
+  "drill-rijen blijven gepseudonimiseerd",
+  actiefDrillRows.every((row) => String(row.naam).startsWith("Cliënt ")),
   true,
+);
+check(
+  "drill-rijen behouden alleen de exacte TGC-fixturelink",
+  actiefDrillRows.filter((row) => isTgcDossierUrl(row.dossierUrl)).length,
+  1,
+);
+check(
+  "drill-rijen verwijderen vreemde fixtureorigins",
+  actiefDrillRows.filter((row) => row.dossierUrl === null).length,
+  actiefDrillRows.length - 1,
 );
 const wachtKeys = PRODUCTION_DETAIL_ROWS["wachtlijst-totaal"](snap).map((row) => row.key);
 check("drill-rijen unieke keys", new Set(wachtKeys).size, wachtKeys.length);

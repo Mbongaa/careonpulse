@@ -3,6 +3,7 @@ import { parseDeclaratiesExport } from "../lib/careon-production/parse-declarati
 import { parseClientExport } from "../lib/careon-production/parse-export";
 import { parseToeslagenExport } from "../lib/careon-production/parse-toeslagen";
 import { parseVerwijzersExport } from "../lib/careon-production/parse-verwijzers";
+import { isTgcDossierUrl } from "../lib/careon-production/tgc-dossier-url";
 import {
   AGENDA_RESULT_FIELDS,
   addMonths,
@@ -41,6 +42,10 @@ function verifyConfiguration(): void {
   assert(TGC_ROUTES.surcharges.endsWith("declared-surcharges"), "Toeslagenroute is onverwacht gewijzigd.");
   assert(TGC_ROUTES.declarations.endsWith("declaration-total"), "Declaratieroute is onverwacht gewijzigd.");
   assert(new Set(CLIENT_RESULT_FIELDS).size === CLIENT_RESULT_FIELDS.length, "Dubbele cliënt-exportvelden.");
+  assert(
+    CLIENT_RESULT_FIELDS.includes("linkToEpisode"),
+    "Cliënt-export moet de allowlisted CareCheck-dossierdeeplink behouden.",
+  );
   assert(new Set(AGENDA_RESULT_FIELDS).size === AGENDA_RESULT_FIELDS.length, "Dubbele agenda-exportvelden.");
   assert(TGC_DATE_RANGES.agendaMonthsAhead >= 12, "Agenda-export moet minstens twaalf maanden vooruit kijken.");
   assert(formatDutchDate(new Date(2026, 7, 20)) === "20-08-2026", "Nederlandse datumnotatie klopt niet.");
@@ -75,6 +80,14 @@ function verifyExistingExports(): void {
   );
 
   assert(clients.ok && clients.records.length > 0, `Cliëntfixture ongeldig: ${clients.error ?? "geen regels"}.`);
+  assert(
+    clients.records.every((record) => record.dossierUrl === null || isTgcDossierUrl(record.dossierUrl)),
+    "Cliënt-export bevat een opgeslagen dossierlink buiten de exacte TGC CareCheck-boundary.",
+  );
+  assert(
+    clients.records.some((record) => isTgcDossierUrl(record.dossierUrl)),
+    "Cliënt-export bevat geen verifieerbare TGC CareCheck-dossierdeeplink.",
+  );
   assert(
     agenda.ok && agenda.facts && agenda.facts.totalRows > 0,
     `Agendafixture ongeldig: ${agenda.error ?? "geen regels"}.`,

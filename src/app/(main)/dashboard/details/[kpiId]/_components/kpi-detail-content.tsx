@@ -28,6 +28,7 @@ import {
   productionDetailTrend,
 } from "@/lib/careon-production/detail-rows";
 import { DETAIL_WAIT_NOTES } from "@/lib/careon-production/provenance";
+import { isTgcDossierUrl } from "@/lib/careon-production/tgc-dossier-url";
 
 import { demoKpiTrend, demoKpiWaarde } from "../../_lib/kpi-demo-waarde";
 import { KpiDetailTable } from "./kpi-detail-table";
@@ -147,10 +148,7 @@ export function KpiDetailContent({ kpiId }: Readonly<{ kpiId: string }>) {
     ];
   } else if (aggDetail) {
     columns = aggDetail.columns;
-  } else if (
-    liveRows &&
-    rows.some((row) => typeof row.dossierUrl === "string" && row.dossierUrl.startsWith("https://"))
-  ) {
+  } else if (liveRows && rows.some((row) => isTgcDossierUrl(row.dossierUrl))) {
     columns = [...entry.columns, DOSSIER_LINK_COLUMN];
   }
 

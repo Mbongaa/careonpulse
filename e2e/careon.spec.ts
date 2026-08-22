@@ -95,9 +95,9 @@ test.describe("auth", () => {
     // naar de comms-plane; zonder die URL blijft het bewust "binnenkort" zonder
     // link. De assertie leest de gebouwde staat (build-time inlined env), zodat
     // de suite in beide omgevingsvormen geldig blijft.
-    await expect(page.getByText("YAAZ", { exact: true })).toBeVisible();
     const yaazLink = page.getByRole("link", { name: /YAAZ/ });
     if ((await yaazLink.count()) > 0) {
+      await expect(yaazLink).toBeVisible();
       await expect(yaazLink).toHaveAttribute("href", /^https?:\/\//);
     } else {
       // Gescoped op de YAAZ-kaart: een pagina-brede tekstassertie breekt in
@@ -745,10 +745,14 @@ test.describe("facturatie (demo-pad, handoff 15)", () => {
     await expect(page.getByRole("heading", { name: "F2026-0003" })).toBeVisible();
     await expect(page.getByText("Deze factuur is uitgereikt", { exact: false })).toBeVisible();
     await expect(page.getByRole("button", { name: "Verzonden markeren" })).toBeVisible();
-    // Download loopt in demo via de client-blob van het voorbeeld.
-    await expect(page.getByRole("link", { name: "Pdf downloaden" })).toHaveAttribute("href", /^blob:/, {
-      timeout: 15_000,
-    });
+    // Download loopt in demo via de client-blob van het voorbeeld. De native
+    // bestandsbrug gebruikt nu één knop voor browserdownload en shell-opslag.
+    const pdfDownload = page.getByRole("button", { name: "Pdf downloaden" });
+    await expect(pdfDownload).toBeVisible({ timeout: 15_000 });
+    const downloadPromise = page.waitForEvent("download");
+    await pdfDownload.click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("F2026-0003.pdf");
   });
 
   test("factuur per e-mail versturen (fase B, demo-simulatie)", async ({ page }) => {

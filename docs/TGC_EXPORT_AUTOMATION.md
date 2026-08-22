@@ -94,6 +94,13 @@ appointment rows are discarded, client names in surcharge data are used only
 for unique counts, and private debtor names become `Particulier`. Raw CSV files
 stay only in the gitignored local export directory and are never committed.
 
+The client export's `Ga naar dossier` value is treated as untrusted navigation
+input. Careon retains it only when it is exactly HTTPS on `tgc.zsg.nl`, has no
+credentials, query or fragment, and matches one of the two inventoried
+CareCheck routes: `/dossier/zpm/<opaque-id>/<opaque-id>` or
+`/dossier/uninsured/<opaque-id>`. Every other URL is discarded before the
+snapshot reaches the browser.
+
 ## Configuration
 
 Create `.env.tgc.local` in the project root (it is ignored by `.gitignore`):

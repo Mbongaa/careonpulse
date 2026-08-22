@@ -6,6 +6,7 @@ import { CareonSourceBadge } from "@/app/(main)/dashboard/_components/careon/car
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { PATIENTEN_RISICO } from "@/data/careon/careon-patienten";
+import { isTgcDossierUrl } from "@/lib/careon-production/tgc-dossier-url";
 import { cn, getInitials } from "@/lib/utils";
 
 interface AandachtRij {
@@ -42,7 +43,7 @@ export function VraagtAandachtPanel({ className }: Readonly<{ className?: string
               <AvatarFallback className="text-foreground text-xs">{getInitials(client.naam)}</AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1">
-              {client.dossierUrl ? (
+              {isTgcDossierUrl(client.dossierUrl) ? (
                 <a
                   href={client.dossierUrl}
                   target="_blank"

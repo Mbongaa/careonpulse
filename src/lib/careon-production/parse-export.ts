@@ -1,3 +1,4 @@
+import { normalizeTgcDossierUrl } from "./tgc-dossier-url";
 import type { ClientRecord, ImportWarning, ParseExportResult } from "./types";
 
 // Parser voor de ZSG "Cliëntendata"-export (EPD). Formaat-eigenschappen uit de
@@ -327,10 +328,10 @@ export function parseClientExport(fileName: string, text: string): ParseExportRe
     const diagnoseCode = cell("Primaire diagnose code");
     const zorgvraagtypeRaw = cell("Geselecteerde ZorgVraagType");
     const voorgesteldRaw = cell("Voorgestelde Zorgtypering");
-    // Alleen https-links worden als klikbare deeplink bewaard: de waarde komt
-    // uit het CSV-bestand en wordt als href gerenderd (geen javascript:-schema's).
+    // Alleen de twee geïnventariseerde dossierpaden op de exacte TGC
+    // CareCheck-origin worden bewaard; deze CSV-waarde wordt later een href.
     const rawDossierUrl = cell("Ga naar dossier");
-    const dossierUrl = rawDossierUrl?.startsWith("https://") ? rawDossierUrl : null;
+    const dossierUrl = normalizeTgcDossierUrl(rawDossierUrl);
     // Wachtlijst- én pre-wachtlijstlabels samen: fase/taal-tags staan in beide
     // kolommen (pre-wachtenden dragen bijv. "Screening" in de pre-kolom).
     const wachtlijstLabels = `${cell("Wachtlijst Label") ?? ""},${cell("Pre Wachtlijst Label") ?? ""}`

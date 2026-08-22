@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { KpiDetailRow } from "@/data/careon/careon-detail-records";
 import type { KpiDetailColumn } from "@/data/careon/careon-kpi-details";
+import { isTgcDossierUrl } from "@/lib/careon-production/tgc-dossier-url";
 import { cn, getInitials } from "@/lib/utils";
 
 const nl = new Intl.NumberFormat("nl-NL");
@@ -81,7 +82,7 @@ function CellContent({ column, row }: Readonly<{ column: KpiDetailColumn; row: K
   }
   if (column.format === "link") {
     const href = row[column.key];
-    if (typeof href !== "string" || !href.startsWith("https://")) {
+    if (!isTgcDossierUrl(href)) {
       return <span className="text-muted-foreground">—</span>;
     }
     return (

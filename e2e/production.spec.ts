@@ -143,7 +143,10 @@ test.describe("productie-modus", () => {
     // Role query targets the visible desktop table; the hidden mobile card
     // list also carries the same client text.
     await expect(page.getByRole("cell", { name: /Cliënt 1\b/ }).first()).toBeVisible();
-    await expect(page.locator("table").getByRole("link", { name: "Dossier" }).first()).toBeVisible();
+    const dossierLink = page.locator("table").getByRole("link", { name: "Dossier" }).first();
+    await expect(dossierLink).toBeVisible();
+    await expect(dossierLink).toHaveAttribute("href", /^https:\/\/tgc\.zsg\.nl\/dossier\/zpm\//);
+    await expect(dossierLink).toHaveAttribute("target", "_blank");
 
     // Domein zonder gekoppelde export: demo-records + demo-badge + wachtnoot.
     await page.goto("/dashboard/details/omzetverz");
