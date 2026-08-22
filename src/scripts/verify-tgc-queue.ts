@@ -1,6 +1,6 @@
 /** Deterministic release gate for the AI-triggered TGC import queue. */
 
-import { isTgcImportUpdateRequest } from "../lib/careon-production/tgc-sync-jobs";
+import { isTgcImportUpdateRequest, resolveTgcWorkerAvailability } from "../lib/careon-production/tgc-sync-jobs";
 import { sanitizeTgcWorkerError, tgcProgressFromLog } from "../lib/careon-production/tgc-sync-progress";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -57,6 +57,21 @@ check(
   sanitizeTgcWorkerError("login hassan met geheim", ["hassan", "geheim"]) === "login [afgeschermd] met [afgeschermd]",
 );
 
+const now = Date.parse("2026-08-22T12:00:00.000Z");
+check(
+  "recente workerheartbeat is beschikbaar",
+  resolveTgcWorkerAvailability("2026-08-22T11:59:00.000Z", now).state === "available",
+);
+check(
+  "oude workerheartbeat is offline",
+  resolveTgcWorkerAvailability("2026-08-22T11:55:00.000Z", now).state === "offline",
+);
+check("ontbrekende workerheartbeat is onbekend", resolveTgcWorkerAvailability(null, now).state === "unknown");
+check(
+  "onbetrouwbare toekomstige heartbeat is onbekend",
+  resolveTgcWorkerAvailability("2026-08-22T12:01:00.000Z", now).state === "unknown",
+);
+
 const migration = fs.readFileSync(
   path.join(ROOT, "supabase/migrations/20260820141215_careon_tgc_sync_jobs.sql"),
   "utf8",
@@ -70,6 +85,20 @@ check(
   !migration.includes("grant select, insert, update on table public.careon_tgc_sync_jobs to authenticated"),
 );
 
+const heartbeatMigration = fs.readFileSync(
+  path.join(ROOT, "supabase/migrations/20260822233000_tgc_worker_heartbeat.sql"),
+  "utf8",
+);
+check("workerheartbeat heeft geforceerde RLS", heartbeatMigration.includes("force row level security"));
+check("leden mogen alleen heartbeatmetadata lezen", heartbeatMigration.includes("grant select on table"));
+check(
+  "heartbeatmutatie is alleen service-role RPC",
+  heartbeatMigration.includes(
+    "grant execute on function public.careon_tgc_worker_heartbeat(uuid, text) to service_role",
+  ) && heartbeatMigration.includes("coalesce(auth.role(), '') <> 'service_role'"),
+);
+check("heartbeat gebruikt de databaseklok", heartbeatMigration.includes("statement_timestamp()"));
+
 const route = fs.readFileSync(path.join(ROOT, "src/app/api/careon/tgc-sync/route.ts"), "utf8");
 const assistant = fs.readFileSync(
   path.join(ROOT, "src/app/(main)/dashboard/assistent/_components/assistent-content.tsx"),
@@ -81,6 +110,11 @@ const importCard = fs.readFileSync(
 );
 const worker = fs.readFileSync(path.join(ROOT, "src/scripts/process-tgc-sync-queue.ts"), "utf8");
 check("jobroute vereist een Careon-sessie", route.includes("requireCareonSession()"));
+check(
+  "jobroute is privé, no-store en nosniff",
+  route.includes('"Cache-Control": "private, no-store, max-age=0"') &&
+    route.includes('"X-Content-Type-Options": "nosniff"'),
+);
 check("AI-chat start deterministisch een job", assistant.includes("isTgcImportUpdateRequest(text)"));
 check("AI-chat vraagt geen extra bevestiging", assistant.includes("u hoeft niets meer in te voeren"));
 check("Databron-knop aanwezig", importCard.includes("Update imports through AI"));
@@ -89,7 +123,10 @@ check(
   importCard.includes("handmatige import hieronder blijft altijd beschikbaar"),
 );
 check("statuspaneel pollt de job", importCard.includes("readJob(job.id)"));
+check("Databron toont workerbeschikbaarheid", importCard.includes("TGC-worker beschikbaar"));
+check("offline aanvraag blijft expliciet veilig in wachtrij", importCard.includes("blijft veilig in de wachtrij"));
 check("worker gebruikt lokale credentialomgeving", worker.includes(".env.tgc.local"));
+check("idle worker publiceert metadataheartbeat", worker.includes('rest("rpc/careon_tgc_worker_heartbeat"'));
 check("worker verifieert centrale data", worker.includes('runScript("verify-tgc-live.ts"'));
 check("wachtwoord staat niet in workerbron", !/TGC2025/i.test(worker));
 

@@ -3,10 +3,12 @@ import type { CareonSession } from "@/lib/supabase/session.server";
 
 import {
   clampTgcSyncProgress,
+  resolveTgcWorkerAvailability,
   type TgcSyncEvent,
   type TgcSyncJob,
   type TgcSyncJobStatus,
   type TgcSyncRequestedVia,
+  type TgcSyncWorkerAvailability,
 } from "./tgc-sync-jobs";
 
 const CONNECTOR_ORG_SLUG = process.env.CAREON_TGC_ORG_SLUG?.trim() || "tgc";
@@ -42,6 +44,10 @@ interface JobRow {
   started_at: string | null;
   finished_at: string | null;
   updated_at: string;
+}
+
+interface WorkerRow {
+  last_seen_at: string;
 }
 
 export type TgcJobServiceResult<T> =
@@ -119,6 +125,27 @@ export async function getTgcSyncJob(
   if (!enabled) return { status: "not_configured" };
   const job = await findJob(session, jobId);
   return job === false ? { status: "unavailable" } : { status: "ok", value: job };
+}
+
+export async function getTgcSyncWorkerAvailability(
+  session: CareonSession,
+): Promise<TgcJobServiceResult<TgcSyncWorkerAvailability>> {
+  const enabled = await connectorEnabled(session);
+  if (enabled === null) return { status: "unavailable" };
+  if (!enabled) return { status: "not_configured" };
+
+  const params = new URLSearchParams({
+    select: "last_seen_at",
+    org_id: `eq.${session.orgId}`,
+    limit: "1",
+  });
+  const response = await userFetch(session, `careon_tgc_sync_workers?${params}`);
+  if (!response?.ok) return { status: "unavailable" };
+  const rows = (await response.json()) as WorkerRow[];
+  return {
+    status: "ok",
+    value: resolveTgcWorkerAvailability(rows[0]?.last_seen_at),
+  };
 }
 
 export async function createTgcSyncJob(

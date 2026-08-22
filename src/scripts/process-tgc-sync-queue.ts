@@ -28,6 +28,8 @@ const SUPABASE_URL = SCRIPT_ENV.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
 const SERVICE_KEY = SCRIPT_ENV.SUPABASE_SERVICE_ROLE_KEY;
 const ORG_SLUG = SCRIPT_ENV.CAREON_TGC_ORG_SLUG?.trim() || "tgc";
 const WORKER_ID = `${os.hostname()}:${process.pid}`.slice(0, 120);
+const WORKER_VERSION = "1.1.0";
+const WORKER_HEARTBEAT_MS = 30_000;
 const POLL_MS = Math.max(2_000, Number(SCRIPT_ENV.TGC_QUEUE_POLL_SECONDS ?? "5") * 1_000);
 const ONCE = process.argv.includes("--once");
 const ENQUEUE_SCHEDULED = process.argv.includes("--enqueue-scheduled");
@@ -113,6 +115,16 @@ async function organizationId(): Promise<string> {
   const rows = await readJson<{ id: string }[]>(await rest(`organizations?${params}`), "TGC-organisatie opvragen");
   if (!rows[0]?.id) throw new Error(`Organisatie '${ORG_SLUG}' bestaat niet.`);
   return rows[0].id;
+}
+
+async function publishWorkerHeartbeat(orgId: string): Promise<void> {
+  await readJson<string>(
+    await rest("rpc/careon_tgc_worker_heartbeat", {
+      method: "POST",
+      body: JSON.stringify({ p_org_id: orgId, p_worker_version: WORKER_VERSION }),
+    }),
+    "Workerbeschikbaarheid publiceren",
+  );
 }
 
 function appendEvent(job: WorkerJob, stage: string, progress: number, message: string): TgcSyncEvent[] {
@@ -394,15 +406,34 @@ function delay(ms: number): Promise<void> {
 async function main(): Promise<void> {
   assertConfiguration();
   const orgId = await organizationId();
-  await recoverStaleJob(orgId);
-  if (ENQUEUE_SCHEDULED) await enqueueScheduled(orgId);
+  await publishWorkerHeartbeat(orgId);
+  let heartbeatChain = Promise.resolve();
+  const heartbeatTimer = setInterval(() => {
+    heartbeatChain = heartbeatChain
+      .then(() => publishWorkerHeartbeat(orgId))
+      .catch((error: unknown) => {
+        console.error(
+          `[TGC worker] Beschikbaarheidsheartbeat mislukt: ${sanitizeTgcWorkerError(
+            error instanceof Error ? error.message : String(error),
+          )}`,
+        );
+      });
+  }, WORKER_HEARTBEAT_MS);
 
-  let keepRunning = true;
-  while (keepRunning) {
-    const job = await claimNext(orgId);
-    if (job) await processJob(job);
-    if (ONCE) keepRunning = false;
-    else await delay(POLL_MS);
+  try {
+    await recoverStaleJob(orgId);
+    if (ENQUEUE_SCHEDULED) await enqueueScheduled(orgId);
+
+    let keepRunning = true;
+    while (keepRunning) {
+      const job = await claimNext(orgId);
+      if (job) await processJob(job);
+      if (ONCE) keepRunning = false;
+      else await delay(POLL_MS);
+    }
+  } finally {
+    clearInterval(heartbeatTimer);
+    await heartbeatChain;
   }
 }
 

@@ -8,7 +8,7 @@ import { useCareonSessionInfo } from "@/app/(main)/dashboard/_components/careon/
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import type { TgcSyncJob } from "@/lib/careon-production/tgc-sync-jobs";
+import type { TgcSyncJob, TgcSyncWorkerAvailability } from "@/lib/careon-production/tgc-sync-jobs";
 import { cn } from "@/lib/utils";
 
 const ACTIVE = new Set<TgcSyncJob["status"]>(["queued", "running"]);
@@ -41,6 +41,14 @@ function eventTime(value: string): string {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" });
 }
 
+function workerTime(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? ""
+    : date.toLocaleString("nl-NL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 async function responseError(response: Response): Promise<string> {
   try {
     const body = (await response.json()) as { error?: unknown };
@@ -56,6 +64,7 @@ export function TgcAiImport() {
   const [open, setOpen] = useState(false);
   const [starting, setStarting] = useState(false);
   const [job, setJob] = useState<TgcSyncJob | null>(null);
+  const [worker, setWorker] = useState<TgcSyncWorkerAvailability | null>(null);
   const [error, setError] = useState<string | null>(null);
   const priorStatus = useRef<TgcSyncJob["status"] | null>(null);
 
@@ -63,8 +72,10 @@ export function TgcAiImport() {
     const query = jobId ? `?jobId=${encodeURIComponent(jobId)}` : "";
     const response = await fetch(`/api/careon/tgc-sync${query}`, { cache: "no-store" });
     if (!response.ok) throw new Error(await responseError(response));
-    const body = (await response.json()) as { job?: TgcSyncJob | null };
-    return body.job ?? null;
+    return (await response.json()) as {
+      job: TgcSyncJob | null;
+      worker: TgcSyncWorkerAvailability;
+    };
   }, []);
 
   // Recover an active request made from Careon AI or a previous page visit.
@@ -73,10 +84,12 @@ export function TgcAiImport() {
     let cancelled = false;
     const remembered = window.sessionStorage.getItem(JOB_SESSION_KEY) ?? undefined;
     void readJob(remembered)
-      .then((latest) => {
-        if (cancelled || !latest) return;
-        setJob(latest);
-        if (remembered || ACTIVE.has(latest.status)) setOpen(true);
+      .then((overview) => {
+        if (cancelled) return;
+        setWorker(overview.worker);
+        if (!overview.job) return;
+        setJob(overview.job);
+        if (remembered || ACTIVE.has(overview.job.status)) setOpen(true);
       })
       .catch(() => {
         // De knop blijft bruikbaar; een statusread is best-effort.
@@ -91,9 +104,10 @@ export function TgcAiImport() {
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void readJob(job.id)
-        .then((latest) => {
-          if (cancelled || !latest) return;
-          setJob(latest);
+        .then((overview) => {
+          if (cancelled) return;
+          setJob(overview.job);
+          setWorker(overview.worker);
           setError(null);
         })
         .catch((pollError: unknown) => {
@@ -127,9 +141,10 @@ export function TgcAiImport() {
         body: JSON.stringify({ requestedVia: "databron" }),
       });
       if (!response.ok) throw new Error(await responseError(response));
-      const body = (await response.json()) as { job: TgcSyncJob };
+      const body = (await response.json()) as { job: TgcSyncJob; worker: TgcSyncWorkerAvailability };
       window.sessionStorage.setItem(JOB_SESSION_KEY, body.job.id);
       setJob(body.job);
+      setWorker(body.worker);
     } catch (startError) {
       setError(startError instanceof Error ? startError.message : "De importupdate kon niet worden gestart.");
     } finally {
@@ -148,6 +163,19 @@ export function TgcAiImport() {
           Update imports through AI
         </Button>
         <span className="text-muted-foreground text-xs">De handmatige import hieronder blijft altijd beschikbaar.</span>
+        {worker && (
+          <Badge
+            variant="outline"
+            className={cn(
+              worker.state === "available" && "border-emerald-600/40 text-emerald-700 dark:text-emerald-400",
+              worker.state === "offline" && "border-red-600/40 text-red-700 dark:text-red-400",
+            )}
+          >
+            {worker.state === "available" && "TGC-worker beschikbaar"}
+            {worker.state === "offline" && "TGC-worker niet bereikbaar"}
+            {worker.state === "unknown" && "Workerstatus onbekend"}
+          </Badge>
+        )}
       </div>
 
       {open && (
@@ -239,7 +267,9 @@ export function TgcAiImport() {
           {job?.status === "queued" && (
             <p className="flex items-start gap-2 text-muted-foreground text-xs">
               <Clock3 className="mt-0.5 size-3.5 shrink-0" />
-              De opdracht start automatisch zodra de lokale TGC-worker beschikbaar is; u hoeft niets meer in te voeren.
+              {worker?.state === "offline"
+                ? `De opdracht blijft veilig in de wachtrij. De lokale worker meldde zich voor het laatst op ${workerTime(worker.lastSeenAt) || "een onbekend moment"}; beheer moet het werkstation en de geplande taak controleren.`
+                : "De opdracht start automatisch zodra de lokale TGC-worker beschikbaar is; u hoeft niets meer in te voeren."}
             </p>
           )}
         </div>

@@ -37,6 +37,30 @@ export interface TgcSyncJob {
   updatedAt: string;
 }
 
+export type TgcSyncWorkerState = "available" | "offline" | "unknown";
+
+export interface TgcSyncWorkerAvailability {
+  state: TgcSyncWorkerState;
+  lastSeenAt: string | null;
+}
+
+export const TGC_WORKER_ONLINE_WINDOW_MS = 90_000;
+
+export function resolveTgcWorkerAvailability(
+  lastSeenAt: string | null | undefined,
+  nowMs = Date.now(),
+): TgcSyncWorkerAvailability {
+  if (!lastSeenAt) return { state: "unknown", lastSeenAt: null };
+  const seenMs = Date.parse(lastSeenAt);
+  if (!Number.isFinite(seenMs) || seenMs > nowMs + 30_000) {
+    return { state: "unknown", lastSeenAt: null };
+  }
+  return {
+    state: nowMs - seenMs <= TGC_WORKER_ONLINE_WINDOW_MS ? "available" : "offline",
+    lastSeenAt,
+  };
+}
+
 const UPDATE_ACTION =
   /\b(update|updaten|bijwerk(?:en|t)?|werk\b.{0,60}\bbij|ververs(?:en|t)?|actualiseer|refresh|synchroniseer|sync)\b/i;
 const IMPORT_SOURCE =

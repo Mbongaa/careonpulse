@@ -1,16 +1,35 @@
 import { NextResponse } from "next/server";
 
 import { scheduleAuditEvent } from "@/lib/careon-audit/audit.server";
-import { createTgcSyncJob, getTgcSyncJob } from "@/lib/careon-production/tgc-sync-jobs.server";
+import type { TgcSyncWorkerAvailability } from "@/lib/careon-production/tgc-sync-jobs";
+import {
+  createTgcSyncJob,
+  getTgcSyncJob,
+  getTgcSyncWorkerAvailability,
+} from "@/lib/careon-production/tgc-sync-jobs.server";
 import { InvalidJsonBodyError, RequestPayloadTooLargeError, readJsonBodyLimited } from "@/lib/http/read-json.server";
 import { requireCareonSession } from "@/lib/supabase/session.server";
 
 export const runtime = "nodejs";
 
+const UNKNOWN_WORKER: TgcSyncWorkerAvailability = { state: "unknown", lastSeenAt: null };
+const PRIVATE_HEADERS = {
+  "Cache-Control": "private, no-store, max-age=0",
+  Vary: "Cookie",
+  "X-Content-Type-Options": "nosniff",
+};
+
+function privateJson(body: unknown, init?: ResponseInit) {
+  return NextResponse.json(body, {
+    ...init,
+    headers: { ...PRIVATE_HEADERS, ...Object.fromEntries(new Headers(init?.headers).entries()) },
+  });
+}
+
 function serviceError(status: "not_configured" | "unavailable") {
   return status === "not_configured"
-    ? NextResponse.json({ error: "De TGC-koppeling is niet voor deze organisatie geconfigureerd." }, { status: 404 })
-    : NextResponse.json({ error: "De importwachtrij is tijdelijk niet beschikbaar." }, { status: 502 });
+    ? privateJson({ error: "De TGC-koppeling is niet voor deze organisatie geconfigureerd." }, { status: 404 })
+    : privateJson({ error: "De importwachtrij is tijdelijk niet beschikbaar." }, { status: 502 });
 }
 
 export async function GET(request: Request) {
@@ -18,11 +37,14 @@ export async function GET(request: Request) {
   if ("denied" in auth) return auth.denied;
   const jobId = new URL(request.url).searchParams.get("jobId")?.trim() || undefined;
   if (jobId && !/^[0-9a-f-]{36}$/i.test(jobId)) {
-    return NextResponse.json({ error: "Ongeldig import-ID." }, { status: 400 });
+    return privateJson({ error: "Ongeldig import-ID." }, { status: 400 });
   }
-  const result = await getTgcSyncJob(auth.session, jobId);
+  const [result, workerResult] = await Promise.all([
+    getTgcSyncJob(auth.session, jobId),
+    getTgcSyncWorkerAvailability(auth.session),
+  ]);
   if (result.status !== "ok") return serviceError(result.status);
-  return NextResponse.json({ job: result.value }, { headers: { "Cache-Control": "no-store" } });
+  return privateJson({ job: result.value, worker: workerResult.status === "ok" ? workerResult.value : UNKNOWN_WORKER });
 }
 
 export async function POST(request: Request) {
@@ -36,14 +58,15 @@ export async function POST(request: Request) {
     body = await readJsonBodyLimited<{ requestedVia?: unknown }>(request, 2_000);
   } catch (error) {
     if (error instanceof RequestPayloadTooLargeError) {
-      return NextResponse.json({ error: "Aanvraag te groot." }, { status: 413 });
+      return privateJson({ error: "Aanvraag te groot." }, { status: 413 });
     }
     if (!(error instanceof InvalidJsonBodyError)) console.error("TGC sync request body failed", error);
-    return NextResponse.json({ error: "Ongeldige aanvraag." }, { status: 400 });
+    return privateJson({ error: "Ongeldige aanvraag." }, { status: 400 });
   }
   const requestedVia = body.requestedVia === "assistant" ? "assistant" : "databron";
   const result = await createTgcSyncJob(auth.session, requestedVia);
   if (result.status !== "ok") return serviceError(result.status);
+  const workerResult = await getTgcSyncWorkerAvailability(auth.session);
 
   if (!result.value.reused) {
     scheduleAuditEvent({
@@ -55,8 +78,8 @@ export async function POST(request: Request) {
       detail: { requestedVia },
     });
   }
-  return NextResponse.json(result.value, {
-    status: result.value.reused ? 200 : 202,
-    headers: { "Cache-Control": "no-store" },
-  });
+  return privateJson(
+    { ...result.value, worker: workerResult.status === "ok" ? workerResult.value : UNKNOWN_WORKER },
+    { status: result.value.reused ? 200 : 202 },
+  );
 }
