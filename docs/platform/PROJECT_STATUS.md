@@ -1,12 +1,14 @@
 # Careon Pulse — Project Status & Timeline
 
-**Last updated:** 22 August 2026 · **Companion to:** `docs/platform/PLATFORM_BLUEPRINT.md` (v2.6, authoritative) · **Delivery gaps:** `docs/platform/PLATFORM_GAP_REGISTER.md`
+**Last updated:** 22 August 2026 · **Companion to:** `docs/platform/PLATFORM_BLUEPRINT.md` (v2.7, authoritative) · **Delivery gaps:** `docs/platform/PLATFORM_GAP_REGISTER.md`
 
 This file tracks where the platform stands: what exists, what is in progress, and what comes next. Agents and developers update it when a milestone changes state. Section references (§) point into the blueprint.
 
 Legend: ✅ done · 🔵 current focus · ⬜ not started
 
 ---
+
+**22 Aug 2026 — D21 architecture source reconciled with accepted Microsoft 365 production state.** Blueprint v2.7 removes the stale metadata-only description left from the initial D21 approval. It now records `careon-m365` 0.13.2's accepted Outlook body/search/attachment, calendar write/Teams-join, Teams/channel navigation and canonical SharePoint browse/download boundaries, while preserving the exact default-off tenant gates for `Mail.Send`, `ChannelMessage.Read.All`, `ChannelMessage.Send` and `Files.ReadWrite.All`. The update explicitly keeps application permissions, Teams chats/rich-message mutations, mail HTML/MIME/drafts/forward/reply-all/outgoing attachments, calendar bodies/attendees, destructive/share/ACL file operations, transparent sync and embedded Office editing out of scope. This documentation reconciliation changes no Entra permission, consent, employee token, production flag or Microsoft content.
 
 **22 Aug 2026 — G03 cancelled Outlook occurrences are removed from employee work views.** Platform `ee9fa69` upgrades `careon-m365` to **0.13.2** and uses the already-selected authoritative `isCancelled` event flag to omit cancelled occurrences from both **Outlook · komende 14 dagen** and the combined YAAZ calendar. It performs no DELETE/PATCH and does not alter the source Outlook event; a direct event URL still re-reads Microsoft and remains fail-safe. The rollback suite is **426/426**. Verified pair `20260822-153907`, mode-600 pre-release archive `3c6f5e01...710c8` and exact release SHA `4af24654...691d` preceded rollout. After the activation retry restored exact source/runtime parity (`b4d5cda5...5d63`), capabilities are 21/21, four-worker health is green and the sanitized error count is zero. Authenticated acceptance found zero cancelled occurrences on both calendar surfaces, retained the active Teams join and produced no fresh browser logs.
 
