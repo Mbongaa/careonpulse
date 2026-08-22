@@ -40,10 +40,7 @@
     "minimumOperationalOwners": 2,
     "filesAuthority": "SharePoint All Company/Gedeelde documenten",
     "calendarAuthority": "Microsoft Outlook",
-    "excludeOptionalModulesByDefault": [
-      "files",
-      "calendar"
-    ],
+    "excludeOptionalModulesByDefault": ["files", "calendar"],
     "retentionPolicyValuesAreProposalsOnly": true
   },
   "teams": [
@@ -59,16 +56,9 @@
       "firstLoginRequiredCount": 5,
       "rolloutRecommendation": "phase_a_candidate",
       "confidentiality": "internal",
-      "proposedModules": [
-        "polls",
-        "tasks"
-      ],
+      "proposedModules": ["polls", "tasks"],
       "proposedRetentionClass": "internal-standard",
-      "blockers": [
-        "approved_retention_identifier",
-        "redundant_business_owner",
-        "member_first_login"
-      ]
+      "blockers": ["approved_retention_identifier", "redundant_business_owner", "member_first_login"]
     },
     {
       "name": "Behandelteam",
@@ -82,10 +72,7 @@
       "firstLoginRequiredCount": 11,
       "rolloutRecommendation": "phase_a_candidate",
       "confidentiality": "confidential",
-      "proposedModules": [
-        "polls",
-        "tasks"
-      ],
+      "proposedModules": ["polls", "tasks"],
       "proposedRetentionClass": "care-collaboration",
       "blockers": [
         "approved_retention_identifier",
@@ -106,16 +93,9 @@
       "firstLoginRequiredCount": 3,
       "rolloutRecommendation": "phase_a_candidate",
       "confidentiality": "confidential",
-      "proposedModules": [
-        "polls",
-        "tasks"
-      ],
+      "proposedModules": ["polls", "tasks"],
       "proposedRetentionClass": "quality-audit",
-      "blockers": [
-        "approved_retention_identifier",
-        "redundant_business_owner",
-        "member_first_login"
-      ]
+      "blockers": ["approved_retention_identifier", "redundant_business_owner", "member_first_login"]
     },
     {
       "name": "Bestuur TGC",
@@ -129,10 +109,7 @@
       "firstLoginRequiredCount": 1,
       "rolloutRecommendation": "phase_b_governance_review",
       "confidentiality": "confidential",
-      "proposedModules": [
-        "polls",
-        "tasks"
-      ],
+      "proposedModules": ["polls", "tasks"],
       "proposedRetentionClass": "board-governance",
       "blockers": [
         "board_content_policy",
@@ -153,10 +130,7 @@
       "firstLoginRequiredCount": 1,
       "rolloutRecommendation": "hold_single_member",
       "confidentiality": "internal",
-      "proposedModules": [
-        "polls",
-        "tasks"
-      ],
+      "proposedModules": ["polls", "tasks"],
       "proposedRetentionClass": "internal-standard",
       "blockers": [
         "team_membership_review",
