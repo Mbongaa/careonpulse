@@ -1,0 +1,268 @@
+{
+  "schemaVersion": 1,
+  "candidateId": "g11-tgc-teams-2026-08-22",
+  "state": "review_required",
+  "identityMinimized": true,
+  "observedOn": "2026-08-22",
+  "source": {
+    "system": "Microsoft Teams admin center",
+    "accessMode": "signed-in tenant administrator, read-only",
+    "rawTeamIdsPersisted": false,
+    "memberIdentifiersPersisted": false,
+    "tenantOrYaazMutationPerformed": false
+  },
+  "tenantInventory": {
+    "totalUsers": 66,
+    "internalUsers": 59,
+    "guestUsers": 7,
+    "activePrivateTeams": 9,
+    "uniqueTeamMembers": 19,
+    "uniqueTeamOwners": 1,
+    "teamGuests": 0,
+    "internalUsersOutsideTheseTeams": 40,
+    "activeYaazAccounts": 5,
+    "teamMembersWithActiveYaazAccount": 2,
+    "teamMembersRequiringFirstMicrosoftLogin": 17
+  },
+  "companyWideBoundary": {
+    "spaceName": "TGC Groep",
+    "action": "preserve_unmanaged",
+    "membershipAuthority": "entra_jit_eligibility",
+    "deriveFromTeams": false,
+    "reason": "The nine Teams cover 19 of 59 internal users and therefore are not a company-wide roster."
+  },
+  "proposedDefaults": {
+    "visibility": "private",
+    "joinPolicy": "invite_only",
+    "autoAddNewMembers": false,
+    "membershipMode": "exact",
+    "membersCanLeave": false,
+    "minimumOperationalOwners": 2,
+    "filesAuthority": "SharePoint All Company/Gedeelde documenten",
+    "calendarAuthority": "Microsoft Outlook",
+    "excludeOptionalModulesByDefault": [
+      "files",
+      "calendar"
+    ],
+    "retentionPolicyValuesAreProposalsOnly": true
+  },
+  "teams": [
+    {
+      "name": "Backoffice",
+      "memberCount": 6,
+      "ownerCount": 1,
+      "guestCount": 0,
+      "standardChannelCount": 1,
+      "privateChannelCount": 0,
+      "sharedChannelCount": 0,
+      "activeYaazAccountCount": 1,
+      "firstLoginRequiredCount": 5,
+      "rolloutRecommendation": "phase_a_candidate",
+      "confidentiality": "internal",
+      "proposedModules": [
+        "polls",
+        "tasks"
+      ],
+      "proposedRetentionClass": "internal-standard",
+      "blockers": [
+        "approved_retention_identifier",
+        "redundant_business_owner",
+        "member_first_login"
+      ]
+    },
+    {
+      "name": "Behandelteam",
+      "memberCount": 13,
+      "ownerCount": 1,
+      "guestCount": 0,
+      "standardChannelCount": 1,
+      "privateChannelCount": 0,
+      "sharedChannelCount": 0,
+      "activeYaazAccountCount": 2,
+      "firstLoginRequiredCount": 11,
+      "rolloutRecommendation": "phase_a_candidate",
+      "confidentiality": "confidential",
+      "proposedModules": [
+        "polls",
+        "tasks"
+      ],
+      "proposedRetentionClass": "care-collaboration",
+      "blockers": [
+        "approved_retention_identifier",
+        "redundant_business_owner",
+        "member_first_login",
+        "no_patient_record_content_in_yaaz"
+      ]
+    },
+    {
+      "name": "Kwaliteit&Audits",
+      "memberCount": 3,
+      "ownerCount": 1,
+      "guestCount": 0,
+      "standardChannelCount": 1,
+      "privateChannelCount": 0,
+      "sharedChannelCount": 0,
+      "activeYaazAccountCount": 0,
+      "firstLoginRequiredCount": 3,
+      "rolloutRecommendation": "phase_a_candidate",
+      "confidentiality": "confidential",
+      "proposedModules": [
+        "polls",
+        "tasks"
+      ],
+      "proposedRetentionClass": "quality-audit",
+      "blockers": [
+        "approved_retention_identifier",
+        "redundant_business_owner",
+        "member_first_login"
+      ]
+    },
+    {
+      "name": "Bestuur TGC",
+      "memberCount": 2,
+      "ownerCount": 1,
+      "guestCount": 0,
+      "standardChannelCount": 1,
+      "privateChannelCount": 0,
+      "sharedChannelCount": 0,
+      "activeYaazAccountCount": 1,
+      "firstLoginRequiredCount": 1,
+      "rolloutRecommendation": "phase_b_governance_review",
+      "confidentiality": "confidential",
+      "proposedModules": [
+        "polls",
+        "tasks"
+      ],
+      "proposedRetentionClass": "board-governance",
+      "blockers": [
+        "board_content_policy",
+        "approved_retention_identifier",
+        "redundant_business_owner",
+        "member_first_login"
+      ]
+    },
+    {
+      "name": "Zorgproces & Verbetering",
+      "memberCount": 1,
+      "ownerCount": 1,
+      "guestCount": 0,
+      "standardChannelCount": 1,
+      "privateChannelCount": 0,
+      "sharedChannelCount": 0,
+      "activeYaazAccountCount": 0,
+      "firstLoginRequiredCount": 1,
+      "rolloutRecommendation": "hold_single_member",
+      "confidentiality": "internal",
+      "proposedModules": [
+        "polls",
+        "tasks"
+      ],
+      "proposedRetentionClass": "internal-standard",
+      "blockers": [
+        "team_membership_review",
+        "approved_retention_identifier",
+        "redundant_business_owner",
+        "member_first_login"
+      ]
+    },
+    {
+      "name": "Bestuur Vurans",
+      "memberCount": 2,
+      "ownerCount": 1,
+      "guestCount": 0,
+      "standardChannelCount": 1,
+      "privateChannelCount": 0,
+      "sharedChannelCount": 0,
+      "activeYaazAccountCount": 1,
+      "firstLoginRequiredCount": 1,
+      "rolloutRecommendation": "separate_entity_review",
+      "confidentiality": "confidential",
+      "proposedModules": [],
+      "proposedRetentionClass": "pending-entity-decision",
+      "blockers": [
+        "vurans_platform_boundary",
+        "data_controller_decision",
+        "approved_retention_identifier",
+        "redundant_business_owner",
+        "member_first_login"
+      ]
+    },
+    {
+      "name": "Facturen & Betalingen TGC/Vurans",
+      "memberCount": 4,
+      "ownerCount": 1,
+      "guestCount": 0,
+      "standardChannelCount": 1,
+      "privateChannelCount": 0,
+      "sharedChannelCount": 0,
+      "activeYaazAccountCount": 1,
+      "firstLoginRequiredCount": 3,
+      "rolloutRecommendation": "mixed_entity_finance_review",
+      "confidentiality": "confidential",
+      "proposedModules": [],
+      "proposedRetentionClass": "pending-finance-and-entity-decision",
+      "blockers": [
+        "mixed_entity_authority",
+        "financial_records_policy",
+        "data_controller_decision",
+        "approved_retention_identifier",
+        "redundant_business_owner",
+        "member_first_login"
+      ]
+    },
+    {
+      "name": "Management TGC/Vurans",
+      "memberCount": 3,
+      "ownerCount": 1,
+      "guestCount": 0,
+      "standardChannelCount": 1,
+      "privateChannelCount": 0,
+      "sharedChannelCount": 0,
+      "activeYaazAccountCount": 1,
+      "firstLoginRequiredCount": 2,
+      "rolloutRecommendation": "mixed_entity_management_review",
+      "confidentiality": "confidential",
+      "proposedModules": [],
+      "proposedRetentionClass": "pending-management-and-entity-decision",
+      "blockers": [
+        "mixed_entity_authority",
+        "data_controller_decision",
+        "approved_retention_identifier",
+        "redundant_business_owner",
+        "member_first_login"
+      ]
+    },
+    {
+      "name": "Raad van Toezicht TGC groep",
+      "memberCount": 4,
+      "ownerCount": 1,
+      "guestCount": 0,
+      "standardChannelCount": 1,
+      "privateChannelCount": 0,
+      "sharedChannelCount": 0,
+      "activeYaazAccountCount": 1,
+      "firstLoginRequiredCount": 3,
+      "rolloutRecommendation": "independent_oversight_review",
+      "confidentiality": "confidential",
+      "proposedModules": [],
+      "proposedRetentionClass": "pending-oversight-decision",
+      "blockers": [
+        "oversight_independence_policy",
+        "data_controller_decision",
+        "approved_retention_identifier",
+        "redundant_business_owner",
+        "member_first_login"
+      ]
+    }
+  ],
+  "applyGate": {
+    "allowedNow": false,
+    "reasons": [
+      "This candidate deliberately contains no raw Team IDs or member identities.",
+      "Seventeen unique Team members do not yet have an active YAAZ account.",
+      "Every Team has one owner and all nine share one unique owner.",
+      "TGC IT has not approved retention identifiers or the cross-entity boundaries."
+    ],
+    "nextSafeAction": "Complete Microsoft first-login onboarding, add redundant business owners, approve Phase A scope and retention identifiers, then generate the private 0600 manifest and run the read-only live plan."
+  }
+}
