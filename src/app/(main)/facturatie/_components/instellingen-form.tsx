@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import Image from "next/image";
 
-import { ArrowLeft, Copy, Loader2, Plus, Save, Star, X } from "lucide-react";
+import { ArrowLeft, CheckCircle2, CircleAlert, Copy, FileText, Loader2, Mail, Plus, Save, Star, X } from "lucide-react";
 
 import { CareonPageHeader } from "@/app/(main)/dashboard/_components/careon/careon-page-header";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { BTW_TARIEF_LABELS, FACTURATIE_PAGE_META, VRIJSTELLING_PRESETS } from "@/data/careon/careon-facturatie";
+import { facturatieGereedheid } from "@/lib/careon-facturatie/gereedheid";
 import { formatFactuurnummer } from "@/lib/careon-facturatie/nummer";
 import {
   bewaarFacturatieInstellingen,
@@ -61,7 +62,31 @@ function vrijTemplateId(instellingen: FacturatieInstellingen, basis: string): st
   }
 }
 
-export function InstellingenForm() {
+function Gereedheidsrij({
+  klaar,
+  titel,
+  beschrijving,
+  pictogram: Pictogram,
+}: Readonly<{
+  klaar: boolean;
+  titel: string;
+  beschrijving: string;
+  pictogram: typeof FileText;
+}>) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border p-3">
+      <span className={klaar ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}>
+        {klaar ? <CheckCircle2 className="mt-0.5 size-4" /> : <Pictogram className="mt-0.5 size-4" />}
+      </span>
+      <div className="min-w-0">
+        <p className="font-medium text-sm">{titel}</p>
+        <p className="text-muted-foreground text-xs">{beschrijving}</p>
+      </div>
+    </div>
+  );
+}
+
+export function InstellingenForm({ mailVerzendingActief }: Readonly<{ mailVerzendingActief: boolean }>) {
   const [instellingen, setInstellingen] = useState<FacturatieInstellingen | null>(null);
   const [revision, setRevision] = useState(0);
   const [bron, setBron] = useState<FacturatieBron>("centraal");
@@ -102,6 +127,7 @@ export function InstellingenForm() {
   }
 
   const gekozen = instellingen.templates.find((template) => template.id === gekozenId) ?? null;
+  const gereedheid = facturatieGereedheid(instellingen, mailVerzendingActief);
 
   const wijzig = (patch: Partial<FacturatieInstellingen>) => {
     setInstellingen({ ...instellingen, ...patch });
@@ -218,6 +244,54 @@ export function InstellingenForm() {
             {fout}
           </p>
         ) : null}
+
+        <Card data-testid="facturatie-readiness">
+          <CardHeader className="flex-row items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">Klaar voor de eerste echte factuur?</CardTitle>
+              <CardDescription>
+                Careon controleert vooraf het standaardsjabloon en of e-mailverzending operationeel is.
+              </CardDescription>
+            </div>
+            <Badge variant={gereedheid.pdfKlaar ? "secondary" : "outline"}>
+              {gereedheid.pdfKlaar ? "PDF-klaar" : "Actie nodig"}
+            </Badge>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-2">
+              <Gereedheidsrij
+                klaar={gereedheid.pdfKlaar}
+                titel="Wettelijke afzender- en betaalgegevens"
+                beschrijving={
+                  gereedheid.pdfKlaar
+                    ? `Standaardsjabloon “${gereedheid.standaardTemplate.naam}” bevat de vereiste basisgegevens.`
+                    : `Nog invullen: ${gereedheid.ontbrekend.join(", ")}. Definitief maken blijft tot die tijd geblokkeerd.`
+                }
+                pictogram={CircleAlert}
+              />
+              <Gereedheidsrij
+                klaar={gereedheid.mailKlaar}
+                titel="Factuur per e-mail versturen"
+                beschrijving={
+                  gereedheid.mailKlaar
+                    ? "De transactionele afzender is geconfigureerd; iedere verzending blijft een expliciete beheeractie."
+                    : "Nog niet geactiveerd. PDF maken en downloaden blijft mogelijk; Careon weigert e-mailverzending zolang de provider ontbreekt."
+                }
+                pictogram={Mail}
+              />
+            </div>
+            {!gereedheid.pdfKlaar ? (
+              <Button variant="outline" size="sm" onClick={() => setGekozenId(gereedheid.standaardTemplate.id)}>
+                <FileText className="size-3.5" />
+                Vul het standaardsjabloon in
+              </Button>
+            ) : null}
+            <p className="text-muted-foreground text-xs">
+              De definitieve controle gebeurt opnieuw per factuur, inclusief afnemer, regels, factuurdatum en eventuele
+              btw-verplichtingen.
+            </p>
+          </CardContent>
+        </Card>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {instellingen.templates.map((template) => {

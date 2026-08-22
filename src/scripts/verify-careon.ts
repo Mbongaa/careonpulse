@@ -62,6 +62,7 @@ import {
   verwijderFinancieleContext,
 } from "../lib/careon-assistant/financieel-gate";
 import { redigeerFinancieleAssistentResponse } from "../lib/careon-assistant/financieel-redactie";
+import { facturatieGereedheid } from "../lib/careon-facturatie/gereedheid";
 import { bouwFactuurMail } from "../lib/careon-facturatie/mail.server";
 import {
   berekenVervaldatum,
@@ -1580,6 +1581,33 @@ check("seeds: demo-facturen valideren tegen isFactuur", DEMO_FACTUREN.every(isFa
 check("seeds: demo-contacten valideren", DEMO_CONTACTEN.every(isFacturatieContact), true);
 check("seeds: demo-instellingen valideren", isFacturatieInstellingen(DEMO_FACTURATIE_INSTELLINGEN), true);
 check("seeds: lege instellingen valideren", isFacturatieInstellingen(EMPTY_FACTURATIE_INSTELLINGEN), true);
+const legeFacturatieGereedheid = facturatieGereedheid(EMPTY_FACTURATIE_INSTELLINGEN, false);
+check("facturatie-gereedheid: leeg startsjabloon is niet PDF-klaar", legeFacturatieGereedheid.pdfKlaar, false);
+check(
+  "facturatie-gereedheid: leeg startsjabloon noemt de concrete ontbrekende basisgegevens",
+  legeFacturatieGereedheid.ontbrekend,
+  ["statutaire naam", "adres", "postcode", "plaats", "KvK-nummer", "IBAN", "rekeninghouder"],
+);
+const demoFacturatieGereedheid = facturatieGereedheid(DEMO_FACTURATIE_INSTELLINGEN, true);
+check("facturatie-gereedheid: compleet standaardsjabloon is PDF-klaar", demoFacturatieGereedheid.pdfKlaar, true);
+check(
+  "facturatie-gereedheid: mailstatus volgt uitsluitend serverconfiguratie",
+  demoFacturatieGereedheid.mailKlaar,
+  true,
+);
+const belastZonderBtwId: FacturatieInstellingenType = {
+  ...DEMO_FACTURATIE_INSTELLINGEN,
+  templates: DEMO_FACTURATIE_INSTELLINGEN.templates.map((template, index) =>
+    index === 0
+      ? { ...template, afzender: { ...template.afzender, btwId: "" }, btw: { ...template.btw, standaardTarief: "21" } }
+      : template,
+  ),
+};
+check(
+  "facturatie-gereedheid: belast standaardsjabloon vereist btw-identificatienummer",
+  facturatieGereedheid(belastZonderBtwId, false).ontbrekend.includes("btw-identificatienummer"),
+  true,
+);
 for (const factuur of DEMO_FACTUREN) {
   const herberekend = berekenTotalen(factuur.regels);
   check(`seeds: totalen van ${factuur.id} kloppen met berekenTotalen`, herberekend, {

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { FACTURATIE_PAGE_META } from "@/data/careon/careon-facturatie";
+import { mailBeschikbaar } from "@/lib/careon-facturatie/mail.server";
 import { requireFacturatiePage } from "@/lib/supabase/session.server";
 
 import { InstellingenForm } from "../_components/instellingen-form";
@@ -12,5 +13,5 @@ export const metadata: Metadata = {
 
 export default async function FacturatieInstellingenPage() {
   await requireFacturatiePage();
-  return <InstellingenForm />;
+  return <InstellingenForm mailVerzendingActief={mailBeschikbaar()} />;
 }
