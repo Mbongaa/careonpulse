@@ -8,6 +8,10 @@ Legend: ✅ done · 🔵 current focus · ⬜ not started
 
 ---
 
+**22 Aug 2026 — G14 canonical YAAZ domain is cutover-ready but intentionally unchanged live.** Platform `ec3eb36` prepares `https://yaaz.careonpulse.com`, exact legacy 308/path+query/no-cookie compatibility, drift checks, deterministic self-tests and the external smoke contract. A fresh verified DB/`data` pair `20260822-054010` and checksum-verified root-only code/environment archive precede the window. The existing confidential Supabase OAuth client transactionally retained localhost and sslip.io while appending the canonical Careon callback. Entra, DNS, HumHub base URL/environment and Careon/Vercel launcher are still untouched; the exact additive Entra Web callback is the remaining action-time-confirmed prerequisite before the backed-up one-window rollout and fresh-cookie acceptance.
+
+**22 Aug 2026 — G04 text-only Teams channel reader is source-ready and dormant.** Pushed branch `codex/g04-channel-messages` at `693f52f` prepares `careon-m365` 0.9.0 behind a production-pinned `M365_GRAPH_TEAMS_CONTENT_ENABLED=0`. It revalidates the current joined team/channel, reads only paged root posts/replies through fixed delegated Graph paths, renders bounded inert text and discards HTML, hosted content, reactions and attachment names/URLs/bytes; there are no message writes or persistence. PHP/Compose/parity/UI gates are green and the rollback-only M365 suite is **279/279**. The branch is not merged/deployed and no `ChannelMessage.Read.All` permission or consent changed; activation remains a separate tenant-admin consent, employee reconnect and live acceptance step.
+
 ## 1. Repository & infrastructure state (today)
 
 ### `careonpulse` (this repo) — Module 1: Pulse dashboard — ✅ live
