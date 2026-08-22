@@ -347,6 +347,10 @@ async function main() {
     path.resolve(process.cwd(), "supabase/migrations/0015_financieel_rls.sql"),
     "utf8",
   );
+  const securityInvokerMigration = fs.readFileSync(
+    path.resolve(process.cwd(), "supabase/migrations/20260822235000_security_invoker_boundaries.sql"),
+    "utf8",
+  );
   const financieleTabellen = ["careon_agenda_state", "careon_toeslagen_state", "careon_declaraties_state"];
   check(
     "financiële aggregaten verliezen de rolblinde policies uit 0010",
@@ -369,16 +373,21 @@ async function main() {
       financieelMigration.includes("m.role = 'org_admin'") &&
       financieelMigration.includes(`lower(btrim(u.email)) = '${CAREON_HOSTED_DEMO_EMAIL}'`),
   );
-  // De ledenview mag de RLS van de basistabel overslaan (die is nu financieel
-  // dicht), maar moet dan zélf op lidmaatschap filteren.
+  // De interne functie mag de strengere RLS van de basistabel overslaan, maar
+  // filtert zelf op lidmaatschap. PostgREST exposeert uitsluitend de invoker-
+  // view; daardoor is er geen publieke SECURITY DEFINER-view meer.
   check(
-    "ledenview op de agenda scheidt organisaties zelf",
-    financieelMigration.includes("create view public.careon_agenda_state_public") &&
-      !/with \(\s*security_invoker/i.test(financieelMigration) &&
+    "agenda-redactie gebruikt een invoker-view met intern zelf-filterend privilege",
+    securityInvokerMigration.includes("function app.careon_agenda_state_public_rows()") &&
+      securityInvokerMigration.includes("security definer") &&
+      securityInvokerMigration.includes("security_barrier = true, security_invoker = true") &&
       /from public\.careon_agenda_state s\s+where app\.is_org_member\(s\.org_id\) or app\.is_superadmin\(\)/.test(
-        financieelMigration,
+        securityInvokerMigration,
       ) &&
-      !/grant insert[^;]*careon_agenda_state_public/i.test(financieelMigration),
+      securityInvokerMigration.includes(
+        "revoke all on function app.careon_agenda_state_public_rows() from public, anon",
+      ) &&
+      !/grant insert[^;]*careon_agenda_state_public/i.test(securityInvokerMigration),
   );
   // Sleutelpariteit: de view nult exact wat redactie.ts nult. Loopt dit uiteen,
   // dan lekt de databank meer dan de route — of breekt de typeguard.
@@ -519,6 +528,10 @@ async function main() {
     path.resolve(process.cwd(), "supabase/migrations/0020_careon_facturatie.sql"),
     "utf8",
   );
+  const legacyRpcRevocationMigration = fs.readFileSync(
+    path.resolve(process.cwd(), "supabase/migrations/20260822235500_revoke_legacy_facturatie_rpc.sql"),
+    "utf8",
+  );
   check(
     "facturatie-RLS: elke policy eist het rolpredicaat (geen kale is_org_member-select)",
     (facturatieMigration.match(/app\.mag_facturatie_zien\(org_id\)/g) ?? []).length >= 10 &&
@@ -560,10 +573,39 @@ async function main() {
       facturatieMigration.includes("create trigger careon_facturatie_facturen_geen_delete"),
   );
   check(
-    "facturatie: nummer + statusovergang zijn één transactie (RPC met rijvergrendeling)",
-    facturatieMigration.includes("careon_factuur_definitief_maken") &&
-      facturatieMigration.includes("for update") &&
-      facturatieMigration.includes("on conflict (org_id, reeks, jaar)"),
+    "facturatie: service-only nummer-RPC herbevestigt actor en blijft atomair",
+    securityInvokerMigration.includes("careon_factuur_definitief_maken_service") &&
+      securityInvokerMigration.includes("p_actor uuid") &&
+      securityInvokerMigration.includes("m.user_id = p_actor") &&
+      securityInvokerMigration.includes("m.role = 'org_admin'") &&
+      securityInvokerMigration.includes("for update") &&
+      securityInvokerMigration.includes("on conflict (org_id, reeks, jaar)") &&
+      securityInvokerMigration.includes("from public, anon, authenticated") &&
+      securityInvokerMigration.includes("to service_role"),
+  );
+  const definitiefRouteSource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/app/api/careon/facturatie/facturen/[factuurId]/definitief/route.ts"),
+    "utf8",
+  );
+  const creditRouteSource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/app/api/careon/facturatie/facturen/[factuurId]/credit/route.ts"),
+    "utf8",
+  );
+  check(
+    "facturatie: alleen gevalideerde serverroutes roepen de service-RPC aan",
+    [definitiefRouteSource, creditRouteSource].every(
+      (source) =>
+        source.includes("requireOrgAdmin()") &&
+        source.includes("careon_factuur_definitief_maken_service") &&
+        source.includes("headers: serviceRestHeaders()") &&
+        source.includes("p_actor: session.userId") &&
+        !source.includes('/rpc/careon_factuur_definitief_maken"'),
+    ),
+  );
+  check(
+    "facturatie: legacy authenticated SECURITY DEFINER-RPC wordt verwijderd",
+    legacyRpcRevocationMigration.includes("from public, anon, authenticated, service_role") &&
+      legacyRpcRevocationMigration.includes("drop function public.careon_factuur_definitief_maken("),
   );
   check(
     "facturatie: teller is niet door clients beschrijfbaar",

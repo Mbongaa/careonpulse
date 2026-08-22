@@ -6,6 +6,8 @@ import {
   factuurVanRij,
   haalFactuurRij,
   haalInstellingen,
+  serviceRestHeaders,
+  storageBeschikbaar,
 } from "@/lib/careon-facturatie/facturatie.server";
 import { berekenVervaldatum } from "@/lib/careon-facturatie/nummer";
 import { genereerEnArchiveerPdf } from "@/lib/careon-facturatie/pdf-archief.server";
@@ -22,16 +24,20 @@ const ISO_DATUM = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * Definitief maken (handoff 15 §5.5): bevriezen + herrekenen + valideren via
- * het caller-JWT, daarna de atomaire RPC (nummer + statusovergang in één
- * transactie — geen nummergaten, geen verbrande nummers), en pas ná commit de
- * pdf. Faalt de pdf, dan blijft de factuur definitief mét nummer en toont de
- * UI "Pdf opnieuw genereren".
+ * het caller-JWT, daarna de service-only atomaire RPC (nummer + statusovergang
+ * in één transactie — geen nummergaten, geen verbrande nummers). De route heeft
+ * requireOrgAdmin() al afgedwongen en de RPC herbevestigt actor + organisatie.
+ * Pas ná commit volgt de pdf. Faalt die, dan blijft de factuur definitief mét
+ * nummer en toont de UI "Pdf opnieuw genereren".
  */
 export async function POST(request: Request, context: { params: Promise<{ factuurId: string }> }) {
   const auth = await requireOrgAdmin();
   if ("denied" in auth) return auth.denied;
   const session = auth.session;
   const { factuurId } = await context.params;
+  if (!storageBeschikbaar()) {
+    return NextResponse.json({ error: "Authenticatie is niet geconfigureerd." }, { status: 503 });
+  }
 
   let body: unknown = {};
   try {
@@ -115,10 +121,11 @@ export async function POST(request: Request, context: { params: Promise<{ factuu
     // Stap 2: atomaire RPC — teller + nummer + status in één transactie.
     const reeks = concept.soort === "creditfactuur" ? template.nummering.reeksCredit : template.nummering.reeksFactuur;
     const jaar = Number.parseInt(factuurdatum.slice(0, 4), 10);
-    const rpcResponse = await fetch(`${POSTGREST_URL}/rpc/careon_factuur_definitief_maken`, {
+    const rpcResponse = await fetch(`${POSTGREST_URL}/rpc/careon_factuur_definitief_maken_service`, {
       method: "POST",
-      headers: userRestHeaders(session),
+      headers: serviceRestHeaders(),
       body: JSON.stringify({
+        p_actor: session.userId,
         p_org: session.orgId,
         p_factuur: factuurId,
         p_reeks: reeks,

@@ -8,6 +8,7 @@ import {
   haalFactuurRij,
   haalInstellingen,
   serviceFactuurUpdate,
+  serviceRestHeaders,
   storageBeschikbaar,
 } from "@/lib/careon-facturatie/facturatie.server";
 import { berekenVervaldatum } from "@/lib/careon-facturatie/nummer";
@@ -125,10 +126,11 @@ export async function POST(_request: Request, context: { params: Promise<{ factu
     const creditId = inserted[0].id;
 
     // Direct uitreiken via de atomaire RPC (creditreeks).
-    const rpcResponse = await fetch(`${POSTGREST_URL}/rpc/careon_factuur_definitief_maken`, {
+    const rpcResponse = await fetch(`${POSTGREST_URL}/rpc/careon_factuur_definitief_maken_service`, {
       method: "POST",
-      headers: userRestHeaders(session),
+      headers: serviceRestHeaders(),
       body: JSON.stringify({
+        p_actor: session.userId,
         p_org: session.orgId,
         p_factuur: creditId,
         p_reeks: template.nummering.reeksCredit,
