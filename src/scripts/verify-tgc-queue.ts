@@ -1,6 +1,13 @@
 /** Deterministic release gate for the AI-triggered TGC import queue. */
 
 import {
+  operationsAlertPayload,
+  operationsAlertWebhookDigest,
+  parseOperationsAlert,
+  resolveOperationsAlertConfiguration,
+  serializedOperationsAlertPayload,
+} from "../lib/careon-operations/operations-alerts";
+import {
   isTgcImportUpdateRequest,
   resolveTgcWorkerAgeBucket,
   resolveTgcWorkerAvailability,
@@ -98,6 +105,101 @@ check("eerste monitorrun schrijft een overgang", tgcWorkerStateChanged(null, "un
 check("gelijke monitorstatus schrijft geen herhaling", !tgcWorkerStateChanged("tgc_worker.offline", "offline"));
 check("gewijzigde monitorstatus schrijft een overgang", tgcWorkerStateChanged("tgc_worker.offline", "available"));
 
+const workflowUrl =
+  "https://default.b5.environment.api.powerplatform.com/powerautomate/automations/direct/cu/20/workflows/11111111111111111111111111111111/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=synthetic-secret";
+function workflowConfig(url: string, host = "default.b5.environment.api.powerplatform.com") {
+  return {
+    CAREON_OPERATIONS_ALERT_TEAMS_ENABLED: "1",
+    CAREON_OPERATIONS_ALERT_TEAMS_REQUIRED: "1",
+    CAREON_OPERATIONS_ALERT_TEAMS_WEBHOOK_URL: url,
+    CAREON_OPERATIONS_ALERT_TEAMS_WEBHOOK_HOST: host,
+    CAREON_OPERATIONS_ALERT_TEAMS_WEBHOOK_SHA256: operationsAlertWebhookDigest(url),
+  };
+}
+const workflowEnvironment = workflowConfig(workflowUrl);
+check(
+  "complete Teams Workflows-configuratie wordt geaccepteerd",
+  resolveOperationsAlertConfiguration(workflowEnvironment).status === "ready",
+);
+check("alarmering is standaard bewust uitgeschakeld", resolveOperationsAlertConfiguration({}).status === "disabled");
+check(
+  "volledig voorbereide maar uitgeschakelde configuratie verstuurt niets",
+  resolveOperationsAlertConfiguration({
+    ...workflowEnvironment,
+    CAREON_OPERATIONS_ALERT_TEAMS_ENABLED: "0",
+    CAREON_OPERATIONS_ALERT_TEAMS_REQUIRED: "0",
+  }).status === "disabled",
+);
+for (const [name, environment] of [
+  ["verplicht maar uitgeschakeld", { ...workflowEnvironment, CAREON_OPERATIONS_ALERT_TEAMS_ENABLED: "0" }],
+  [
+    "gedeeltelijke configuratie",
+    { CAREON_OPERATIONS_ALERT_TEAMS_ENABLED: "1", CAREON_OPERATIONS_ALERT_TEAMS_WEBHOOK_URL: workflowUrl },
+  ],
+  ["ongeldige vlag", { ...workflowEnvironment, CAREON_OPERATIONS_ALERT_TEAMS_ENABLED: "ja" }],
+  ["afwijkende URL-digest", { ...workflowEnvironment, CAREON_OPERATIONS_ALERT_TEAMS_WEBHOOK_SHA256: "0".repeat(64) }],
+  ["onveilig protocol", workflowConfig(workflowUrl.replace("https://", "http://"))],
+  ["afwijkende host", { ...workflowEnvironment, CAREON_OPERATIONS_ALERT_TEAMS_WEBHOOK_HOST: "evil.example.com" }],
+  [
+    "verouderd Logic Apps-domein",
+    workflowConfig(
+      workflowUrl.replace("default.b5.environment.api.powerplatform.com", "prod-1.westeurope.logic.azure.com"),
+      "prod-1.westeurope.logic.azure.com",
+    ),
+  ],
+  ["ontbrekende SAS-signatuur", workflowConfig(workflowUrl.replace("&sig=synthetic-secret", ""))],
+  ["dubbele SAS-signatuur", workflowConfig(`${workflowUrl}&sig=tweede`)],
+  ["fragment in secret-URL", workflowConfig(`${workflowUrl}#fragment`)],
+] as const) {
+  check(`Teams Workflows weigert ${name}`, resolveOperationsAlertConfiguration(environment).status === "invalid");
+}
+
+const incidentAlert = parseOperationsAlert({
+  id: "33333333-3333-4333-8333-333333333333",
+  eventType: "incident",
+  workerState: "offline",
+  previousState: "available",
+  ageBucket: "2m_15m",
+  observedAt: "2026-08-22T12:00:00.000Z",
+  attempt: 1,
+});
+check("geldige metadata-only incidentclaim wordt geparseerd", incidentAlert !== null);
+if (!incidentAlert) throw new Error("Ongeldige operations-alertfixture.");
+const incidentPayload = operationsAlertPayload(incidentAlert);
+const incidentWire = serializedOperationsAlertPayload(incidentAlert);
+check(
+  "incidentpayload is begrensd Nederlands en bevat alleen operationele metadata",
+  incidentPayload.text.includes("niet bereikbaar") &&
+    incidentPayload.text.includes("2–15 minuten") &&
+    incidentPayload.text.includes("https://www.careonpulse.com/dashboard/databron") &&
+    Buffer.byteLength(incidentWire, "utf8") <= 2_048 &&
+    !/patient|client|queue|email|orgId|export/i.test(incidentWire),
+);
+const recoveryAlert = parseOperationsAlert({
+  ...incidentAlert,
+  id: "44444444-4444-4444-8444-444444444444",
+  eventType: "recovery",
+  workerState: "available",
+  previousState: "offline",
+});
+check(
+  "herstelpayload noemt de vorige operationele status",
+  recoveryAlert !== null && operationsAlertPayload(recoveryAlert).text.includes("vorige status: offline"),
+);
+for (const [name, alert] of [
+  ["niet-v4 incident-id", { ...incidentAlert, id: "11111111-1111-1111-8111-111111111111" }],
+  ["incident in beschikbare staat", { ...incidentAlert, workerState: "available" }],
+  [
+    "herstel zonder storing",
+    { ...incidentAlert, eventType: "recovery", workerState: "available", previousState: "available" },
+  ],
+  ["onbekende leeftijdsbucket", { ...incidentAlert, ageBucket: "exact_123_seconds" }],
+  ["poging nul", { ...incidentAlert, attempt: 0 }],
+  ["ongeldig tijdstip", { ...incidentAlert, observedAt: "geen-datum" }],
+] as const) {
+  check(`alertclaim weigert ${name}`, parseOperationsAlert(alert) === null);
+}
+
 const migration = fs.readFileSync(
   path.join(ROOT, "supabase/migrations/20260820141215_careon_tgc_sync_jobs.sql"),
   "utf8",
@@ -115,6 +217,10 @@ const heartbeatMigration = fs.readFileSync(
   path.join(ROOT, "supabase/migrations/20260822233000_tgc_worker_heartbeat.sql"),
   "utf8",
 );
+const alertMigration = fs.readFileSync(
+  path.join(ROOT, "supabase/migrations/20260823000000_operations_alert_outbox.sql"),
+  "utf8",
+);
 check("workerheartbeat heeft geforceerde RLS", heartbeatMigration.includes("force row level security"));
 check("leden mogen alleen heartbeatmetadata lezen", heartbeatMigration.includes("grant select on table"));
 check(
@@ -124,6 +230,64 @@ check(
   ) && heartbeatMigration.includes("coalesce(auth.role(), '') <> 'service_role'"),
 );
 check("heartbeat gebruikt de databaseklok", heartbeatMigration.includes("statement_timestamp()"));
+check(
+  "operations-outbox heeft geforceerde RLS en geen clienttoegang",
+  alertMigration.includes("alter table public.careon_operations_alert_outbox force row level security") &&
+    alertMigration.includes(
+      "revoke all on table public.careon_operations_alert_outbox from public, anon, authenticated",
+    ) &&
+    !alertMigration.includes("to authenticated"),
+);
+check(
+  "outbox geeft service-role geen deletebevoegdheid",
+  alertMigration.includes(
+    "grant select, insert, update on table public.careon_operations_alert_outbox to service_role",
+  ) && !alertMigration.includes("grant select, insert, update, delete on table public.careon_operations_alert_outbox"),
+);
+check(
+  "één auditovergang kan exact één alert opleveren",
+  alertMigration.includes("unique (source_event_id)") &&
+    alertMigration.includes("on conflict (source_event_id) do nothing"),
+);
+check(
+  "dubbele croninvocaties worden transactioneel geserialiseerd",
+  alertMigration.includes("pg_catalog.pg_advisory_xact_lock") &&
+    alertMigration.includes("v_previous is distinct from p_state"),
+);
+check(
+  "queueclaim gebruikt korte SKIP LOCKED-transactie en herstelbare lease",
+  alertMigration.includes("for update skip locked") &&
+    alertMigration.includes("interval '10 minutes'") &&
+    alertMigration.includes("p_lock_token"),
+);
+check(
+  "pending en sending wachtrijen hebben passende partiële indexen",
+  alertMigration.includes("careon_operations_alert_outbox_pending_idx") &&
+    alertMigration.includes("where status = 'pending'") &&
+    alertMigration.includes("careon_operations_alert_outbox_sending_idx") &&
+    alertMigration.includes("where status = 'sending'"),
+);
+check(
+  "outbox-RPC's blijven invoker-only en service-role-only",
+  !alertMigration.includes("security definer") &&
+    alertMigration.includes("security invoker") &&
+    alertMigration.includes("revoke all on function public.careon_record_tgc_worker_transition") &&
+    alertMigration.includes("grant execute on function public.careon_record_tgc_worker_transition"),
+);
+check(
+  "HTTP-fouten krijgen begrensde exponentiële herplanning",
+  alertMigration.includes("when item.attempts <= 1 then interval '1 minute'") &&
+    alertMigration.includes("when item.attempts = 4 then interval '1 hour'") &&
+    alertMigration.includes("else interval '6 hours'"),
+);
+check(
+  "geslaagde levering wordt metadata-only geaudit",
+  alertMigration.includes("'operations.alert.delivered'") &&
+    alertMigration.includes("'source', 'tgc_worker'") &&
+    !alertMigration.includes("payload jsonb") &&
+    !alertMigration.includes("detail jsonb") &&
+    !alertMigration.includes("careon_tgc_sync_jobs"),
+);
 
 const route = fs.readFileSync(path.join(ROOT, "src/app/api/careon/tgc-sync/route.ts"), "utf8");
 const assistant = fs.readFileSync(
@@ -140,6 +304,7 @@ const monitorService = fs.readFileSync(
   path.join(ROOT, "src/lib/careon-production/tgc-worker-monitor.server.ts"),
   "utf8",
 );
+const alertService = fs.readFileSync(path.join(ROOT, "src/lib/careon-operations/operations-alerts.server.ts"), "utf8");
 const adminService = fs.readFileSync(path.join(ROOT, "src/lib/careon-admin/admin.server.ts"), "utf8");
 const vercelConfig = JSON.parse(fs.readFileSync(path.join(ROOT, "vercel.json"), "utf8")) as {
   crons?: { path?: string; schedule?: string }[];
@@ -179,25 +344,48 @@ check(
   monitorRoute.includes('result.state !== "available"') && monitorRoute.includes("}, 503)"),
 );
 check(
-  "workermonitor leest alleen organisatie-, heartbeat- en auditmetadata",
+  "workermonitor leest alleen organisatie- en heartbeatmetadata",
   monitorService.includes("organizations?") &&
     monitorService.includes("careon_tgc_sync_workers?") &&
-    monitorService.includes("audit_events?") &&
+    !monitorService.includes("audit_events?") &&
     !monitorService.includes("careon_production_") &&
     !monitorService.includes("careon_tgc_sync_jobs") &&
     !monitorService.includes("TGC_PASSWORD"),
 );
 check(
-  "statusovergang wordt synchroon geaudit",
-  monitorService.includes("await writeAuditEvent") &&
-    monitorService.includes('resource: "careon_tgc_sync_workers"') &&
+  "statusovergang en alert-outbox worden synchroon door één RPC vastgelegd",
+  monitorService.includes("await recordTgcWorkerTransition") &&
+    !monitorService.includes("writeAuditEvent") &&
     !monitorService.includes("scheduleAuditEvent"),
+);
+const webhookFetchStart = alertService.indexOf("response = await fetch(configuration.webhookUrl");
+const webhookFetchEnd = alertService.indexOf("    });", webhookFetchStart);
+const webhookFetch = alertService.slice(webhookFetchStart, webhookFetchEnd);
+check(
+  "Teams-call heeft geen Microsoft- of servicecredentialheader",
+  webhookFetchStart >= 0 &&
+    !webhookFetch.includes("Authorization") &&
+    !webhookFetch.includes("SERVICE_KEY") &&
+    webhookFetch.includes('redirect: "error"') &&
+    webhookFetch.includes("AbortSignal.timeout(5_000)"),
+);
+check(
+  "webhookrespons wordt niet ingelezen of gelogd",
+  !webhookFetch.includes("response.text()") &&
+    !webhookFetch.includes("response.json()") &&
+    !alertService.includes("console."),
+);
+check(
+  "monitorroute behandelt een onbezorgde operations-alert als centrale fout",
+  monitorRoute.includes("await dispatchOperationsAlert()") &&
+    monitorRoute.includes('alert.status === "pending"') &&
+    monitorRoute.includes("}, 502)"),
 );
 check(
   "beheerfilter kent alle drie workerstatussen",
   ["tgc_worker.available", "tgc_worker.offline", "tgc_worker.unknown"].every((action) =>
     adminService.includes(`"${action}"`),
-  ),
+  ) && adminService.includes('"operations.alert.delivered"'),
 );
 check(
   "Vercel controleert worker elke vijf minuten",

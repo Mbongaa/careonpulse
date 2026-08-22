@@ -1,3 +1,4 @@
+import { dispatchOperationsAlert } from "@/lib/careon-operations/operations-alerts.server";
 import { monitorTgcWorker } from "@/lib/careon-production/tgc-worker-monitor.server";
 
 import { timingSafeEqual } from "node:crypto";
@@ -32,14 +33,20 @@ export async function GET(request: Request) {
     return json(result, result.status === "not_configured" ? 503 : 502);
   }
 
+  const alert = await dispatchOperationsAlert();
+  if (alert.status === "misconfigured" || alert.status === "unavailable" || alert.status === "pending") {
+    console.error("Operations alert delivery is not healthy", { status: alert.status });
+    return json({ ...result, alert: alert.status, timestamp: new Date().toISOString() }, 502);
+  }
+
   if (result.state !== "available") {
     console.error("TGC worker is not available", {
       state: result.state,
       changed: result.changed,
       ageBucket: result.ageBucket,
     });
-    return json({ ...result, timestamp: new Date().toISOString() }, 503);
+    return json({ ...result, alert: alert.status, timestamp: new Date().toISOString() }, 503);
   }
 
-  return json({ ...result, timestamp: new Date().toISOString() }, 200);
+  return json({ ...result, alert: alert.status, timestamp: new Date().toISOString() }, 200);
 }

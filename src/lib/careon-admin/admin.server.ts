@@ -305,6 +305,7 @@ const BEKENDE_AUDIT_ACTIES: readonly string[] = [
   "admin.user.set_name_partial",
   "maintenance.prune",
   "maintenance.prune_failed",
+  "operations.alert.delivered",
   "tgc_worker.available",
   "tgc_worker.offline",
   "tgc_worker.unknown",

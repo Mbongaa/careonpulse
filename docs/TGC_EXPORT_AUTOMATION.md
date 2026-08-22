@@ -53,20 +53,48 @@ remains safely queued and starts after the exact Windows task/workstation is
 available again.
 
 Vercel also calls the secret-protected `/api/internal/tgc-worker-monitor`
-endpoint every five minutes. It reads only the TGC organization ID, the latest
-heartbeat timestamp and the previous monitor audit action. A transition to
-`available`, `offline` or `unknown` is recorded in the existing audit log with
-only a coarse age bucket; no patient row, export content, Windows identifier or
-portal credential is read or logged. An `offline` or `unknown` result returns
-HTTP 503 on every check, so Vercel Cron/Observability exposes the ongoing
-failure even when no administrator opens Databron. With the 90-second online
-window and five-minute cadence, the worst-case detection time is approximately
-6.5 minutes.
+endpoint every five minutes. It reads only the TGC organization ID and latest
+heartbeat timestamp. One service-only, security-invoker RPC takes a short
+organization advisory lock and atomically deduplicates the state transition,
+audit row and durable alert-outbox row. This is required because Vercel Cron
+can invoke an event more than once. A transition to `available`, `offline` or
+`unknown` carries only a coarse age bucket; no patient row, export content,
+queue item, Windows identifier or portal credential is read or logged. An
+`offline` or `unknown` result returns HTTP 503 on every check, so Vercel
+Cron/Observability exposes the ongoing failure even when no administrator opens
+Databron. With the 90-second online window and five-minute cadence, the
+worst-case detection time is approximately 6.5 minutes.
 
-This monitor closes the silent-failure boundary, but it is not yet an owned
-external notification channel. TGC still needs to name the operational owner
-and escalation destination before an email, pager or Teams alert can be routed
-without inventing recipients.
+The dormant external-delivery boundary targets **Teams Workflows**, not the
+deprecated Microsoft 365 Connectors. It claims one row with `FOR UPDATE SKIP
+LOCKED`, reclaims a stale ten-minute lease, performs HTTP outside the database
+transaction and retries after 1 minute, 5 minutes, 15 minutes, 1 hour and then
+every 6 hours. Delivery is deliberately at-least-once: every message contains a
+stable opaque incident UUID so duplicate invocations remain recognizable. A
+successful delivery is written to the append-only audit log.
+
+The Teams body contains only incident/recovery, the coarse worker state and age
+bucket, observation time, opaque incident UUID and the fixed Databron link. It
+never contains an organization name, recipient, patient/client field, queue
+payload, export value, credential, remote HTML, attachment or arbitrary text.
+The callback URL is a server-side secret and is accepted only over HTTPS on its
+exact SHA-256-pinned `*.environment.api.powerplatform.com` host with the current
+Power Automate workflow path and SAS parameters. Redirects and the retired
+`logic.azure.com` URLs are rejected.
+
+Production remains disabled until TGC names the exact Teams channel and
+operational owner. For a mission-critical workflow, use service-principal
+ownership where the tenant supports it; otherwise assign at least two TGC IT
+co-owners so one departing employee cannot orphan the alert. Confirm the DLP
+policy, store the callback only in Vercel secrets, pin its host and digest, set
+`CAREON_OPERATIONS_ALERT_TEAMS_ENABLED=1`, and set `..._REQUIRED=1` only after a
+controlled offline-and-recovery acceptance test. Inspect the service-only
+outbox before enabling and explicitly reconcile any historical rows; the
+production acceptance baseline is zero unexpected rows. Microsoft references:
+[Teams webhook workflows](https://learn.microsoft.com/en-gb/connectors/teams/),
+[Microsoft 365 Connector retirement](https://learn.microsoft.com/en-us/microsoftteams/m365-custom-connectors),
+[flow ownership guidance](https://learn.microsoft.com/en-us/power-automate/guidance/coding-guidelines/understand-access-to-flows),
+and [service-principal ownership](https://learn.microsoft.com/en-us/power-automate/service-principal-support).
 
 ## Portal inventory
 

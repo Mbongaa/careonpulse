@@ -1,16 +1,12 @@
 import "server-only";
 
-import { writeAuditEvent } from "@/lib/careon-audit/audit.server";
+import { recordTgcWorkerTransition } from "@/lib/careon-operations/operations-alerts.server";
 
 import {
   resolveTgcWorkerAgeBucket,
   resolveTgcWorkerAvailability,
-  TGC_WORKER_MONITOR_ACTIONS,
   type TgcSyncWorkerState,
   type TgcWorkerAgeBucket,
-  tgcWorkerMonitorAction,
-  tgcWorkerStateChanged,
-  tgcWorkerStateFromMonitorAction,
 } from "./tgc-sync-jobs";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
@@ -25,10 +21,6 @@ interface WorkerRow {
   last_seen_at: string;
 }
 
-interface AuditRow {
-  action: string;
-}
-
 export type TgcWorkerMonitorResult =
   | {
       status: "completed";
@@ -36,7 +28,7 @@ export type TgcWorkerMonitorResult =
       changed: boolean;
       ageBucket: TgcWorkerAgeBucket;
     }
-  | { status: "not_configured" | "unavailable" | "audit_failed" };
+  | { status: "not_configured" | "unavailable" | "transition_failed" };
 
 async function serviceGet<T>(path: string): Promise<T | null> {
   if (!SUPABASE_URL || !SERVICE_KEY) return null;
@@ -78,31 +70,8 @@ export async function monitorTgcWorker(nowMs = Date.now()): Promise<TgcWorkerMon
   const { state } = resolveTgcWorkerAvailability(lastSeenAt, nowMs);
   const ageBucket = resolveTgcWorkerAgeBucket(lastSeenAt, nowMs);
 
-  const auditParams = new URLSearchParams({
-    select: "action",
-    org_id: `eq.${orgId}`,
-    action: `in.(${TGC_WORKER_MONITOR_ACTIONS.join(",")})`,
-    order: "created_at.desc,id.desc",
-    limit: "1",
-  });
-  const auditRows = await serviceGet<AuditRow[]>(`audit_events?${auditParams}`);
-  if (!auditRows) return { status: "unavailable" };
-  const previousAction = auditRows[0]?.action;
-  const changed = tgcWorkerStateChanged(previousAction, state);
+  const transition = await recordTgcWorkerTransition(orgId, state, ageBucket);
+  if (transition.status !== "completed") return { status: "transition_failed" };
 
-  if (changed) {
-    const recorded = await writeAuditEvent({
-      action: tgcWorkerMonitorAction(state),
-      orgId,
-      resource: "careon_tgc_sync_workers",
-      detail: {
-        state,
-        previous: tgcWorkerStateFromMonitorAction(previousAction),
-        ageBucket,
-      },
-    });
-    if (!recorded) return { status: "audit_failed" };
-  }
-
-  return { status: "completed", state, changed, ageBucket };
+  return { status: "completed", state, changed: transition.changed, ageBucket };
 }
