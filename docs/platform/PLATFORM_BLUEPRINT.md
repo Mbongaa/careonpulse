@@ -1,6 +1,6 @@
 # Careon Pulse — Platform Blueprint
 
-**Version:** 2.7 · **Date:** 22 August 2026 · **Status:** Approved for implementation · **Reconciles:** D21 with the production-accepted Outlook content/attachments, calendar, SharePoint-download and Teams-join boundaries plus the separately consent-gated dormant message/write capabilities · **Supersedes:** v2.6 (D14 OAuth access-token/RLS and one-time shell handoff clarification) · v2.5 (D21 calendar-write amendment) · v2.4 (D22, Entra-gated employee lifecycle and JIT membership) · v2.3 (D21, delegated Microsoft 365 data plane in YAAZ) · v2.2 (D20, hybrid authentication / Entra ID federation) · v2.1 (D19, facturatie module) · v1.0 (single-app HumHub blueprint)
+**Version:** 2.8 · **Date:** 22 August 2026 · **Status:** Approved for implementation · **Reconciles:** D23 with the owner's explicit request for Microsoft-native Teams calling inside YAAZ and D21 with the production-accepted Teams conversation renderer · **Supersedes:** v2.7 (D21 production reconciliation) · v2.6 (D14 OAuth access-token/RLS and one-time shell handoff clarification) · v2.5 (D21 calendar-write amendment) · v2.4 (D22, Entra-gated employee lifecycle and JIT membership) · v2.3 (D21, delegated Microsoft 365 data plane in YAAZ) · v2.2 (D20, hybrid authentication / Entra ID federation) · v2.1 (D19, facturatie module) · v1.0 (single-app HumHub blueprint)
 **Prepared by:** Bayaan Hub · **Product:** Careon Pulse · **Current organization:** TGC Groep (multi-org-ready)
 
 This document is the implementation source of truth for **Careon Pulse**: a multi-module employee platform in which users sign in once and open the modules their account is entitled to — the healthcare KPI dashboard (live today), the communication platform, and audio/video meetings with optional recording and AI meeting documentation. It is the **umbrella guide for AI agents and developers across all Careon Pulse repositories**; repository-local AGENTS.md files govern local conventions and defer to this document for platform-level decisions. Decisions marked **Confirmed** must not be changed silently; propose alternatives explicitly with consequences (Section 2).
@@ -11,23 +11,23 @@ This document is the implementation source of truth for **Careon Pulse**: a mult
 
 Careon Pulse is delivered as a **shell + modules** platform. A custom Flutter **shell app** (iOS/Android) provides native login, a tile launcher, push notifications, and deep links; each tile opens a module. Modules are independent applications behind one identity: users exist once, sign in once, and see only the tiles their account is entitled to.
 
-The **identity hub** is the existing Careon Pulse Supabase project (EU): Supabase Auth extended with its OAuth 2.1 / OIDC server, reusing the organization/member/role model already in production for the dashboard. **Module 1 — Pulse dashboard** is live: a Dutch healthcare KPI dashboard (Next.js on Vercel) with organization-scoped RLS and a hardened OpenAI-based assistant. **Module 2 — Communication** is HumHub (PHP 8 / Yii2 / MariaDB) on a Hetzner VPS deployed by Coolify: feeds, chat, Spaces, files, notifications — roughly 80% of a Speakap-class platform out of the box. **Module 3 — Meetings** adds JaaS (8x8) rooms through the custom `meeting-core` module, with a native Jitsi screen in the shell. The optional **recording + AI module** archives meeting recordings to Cloudflare R2 and produces transcripts, summaries, decisions, and action items via Gemini on Vertex AI (EU) — Gemini is used **only** for meeting intelligence; the dashboard assistant remains on its pinned OpenAI setup.
+The **identity hub** is the existing Careon Pulse Supabase project (EU): Supabase Auth extended with its OAuth 2.1 / OIDC server, reusing the organization/member/role model already in production for the dashboard. **Module 1 — Pulse dashboard** is live: a Dutch healthcare KPI dashboard (Next.js on Vercel) with organization-scoped RLS and a hardened OpenAI-based assistant. **Module 2 — Communication** is HumHub (PHP 8 / Yii2 / MariaDB) on a Hetzner VPS: feeds, chat, Spaces, files, notifications and the integrated Microsoft 365 work surfaces. **Module 3 — Meetings** now uses Microsoft Azure Communication Services (ACS) with Teams identity so employees can join scheduled Teams meetings and place or receive Teams calls inside YAAZ. The earlier JaaS/Jitsi implementation remains installed but disabled as a recoverable fallback; it is not the TGC production provider. The optional **recording + AI module** remains Phase 3 and must be redesigned against the eventual Microsoft recording/export contract before activation.
 
 The platform is **multi-organization by design**: TGC Groep is the current organization, and further organizations can be onboarded later (each with its own memberships, entitlements, and its own HumHub installation, while identity stays central). For Microsoft 365 organizations, YAAZ additionally presents Outlook, calendar, Teams, SharePoint and shared documents through delegated Microsoft Graph access; the employee's existing Microsoft permissions remain authoritative (D21).
 
-Delivery keeps the contracted phase structure — Phase 1 base platform, Phase 2 calling, Phase 3 recording & AI — extended in Phase 1 with the shell app and identity integration (additional scope, priced separately; Section 21). Hosting is heterogeneous by intent: Vercel for the dashboard, Supabase for identity and dashboard data, Hetzner + Coolify for HumHub and the processing pipeline, with JaaS, R2, and Vertex as managed external services.
+Delivery keeps the contracted phase structure — Phase 1 base platform, Phase 2 calling, Phase 3 recording & AI — extended in Phase 1 with the shell app and identity integration (additional scope, priced separately; Section 21). Hosting is heterogeneous by intent: Vercel for the dashboard, Supabase for identity and dashboard data, Hetzner for HumHub, and Microsoft ACS for Teams-interoperable media. R2 and Vertex remain candidate Phase-3 services only after the recording design is re-approved.
 
 ## 2. Confirmed Decisions (Decision Log)
 
-Any change to a Confirmed decision must be proposed as an explicit alternative with consequences (cost, scope, timeline) — never applied silently. D1–D12 originate in v1.0 (D4 revised); D13–D18 were added in v2.0; D19 was added in v2.1 (facturatie module); D20 was added in v2.2 (hybrid authentication — Entra ID federation, owner-confirmed 13 Aug 2026); D21 was added in v2.3 (delegated Microsoft 365 data plane in YAAZ, owner-confirmed 20 Aug 2026 following the client's explicit Office 365 request) and amended in v2.5 with the owner's explicit integrated-calendar request and autonomous delivery approval; D22 was added in v2.4 (group/app-role-gated JIT employee membership and lifecycle reconciliation, owner-confirmed 21 Aug 2026). v2.6 does not replace D14's identity-hub choice: it records Supabase's actual standard-scope/user-JWT behavior and the narrower client-bound API/session-handoff controls required to implement D14 safely. v2.7 does not broaden tenant consent: it records the later production-accepted D21 increments and the exact default-off permission boundaries that still require their own tenant acceptance.
+Any change to a Confirmed decision must be proposed as an explicit alternative with consequences (cost, scope, timeline) — never applied silently. D1–D12 originate in v1.0 (D4 revised); D13–D18 were added in v2.0; D19 was added in v2.1; D20 was added in v2.2; D21 was added in v2.3 and amended in v2.5/v2.7; D22 was added in v2.4. **D23 was owner-confirmed on 22 Aug 2026 and explicitly supersedes the JaaS/Jitsi provider path in D3/D4 plus the invitation-only limit in D5 for TGC:** the active provider becomes Microsoft ACS with Teams identity, while the prepared JaaS code stays disabled and recoverable until the ACS acceptance matrix passes. The consequences are a TGC-owned Azure resource and metered ACS minutes, two additional delegated ACS permissions, short-lived call tokens in client memory, and a separate Phase-3 recording redesign.
 
 | # | Decision | Choice (Confirmed) | Rationale | Rejected alternatives |
 |---|---|---|---|---|
 | D1 | Comms platform base | HumHub (PHP 8 / Yii2) | Mature module system; ~80% of the comms feature set out of the box | Building comms from scratch |
 | D2 | HumHub database | MariaDB in the Compose stack | Hard HumHub requirement — no PostgreSQL support | Supabase/PostgreSQL as HumHub's DB; managed MySQL |
-| D3 | Meetings | JaaS (8x8) | Complete meeting UI, WebRTC infra, recording, webhooks, web + Flutter SDKs | LiveKit (more custom work) |
-| D4 | Mobile apps — **revised v2.0** | Careon Pulse shell app: custom Flutter shell (login · launcher · WebView modules · native Jitsi screen) | A multi-module launcher cannot live inside HumHub's app; the shell owns identity, push, and deep links | HumHub-app fork (v1.0 choice); fully native apps per module |
-| D5 | Phase-2 calling scope | In-app invitation: push → tap → join | OS-level ringing (CallKit/PushKit, full-screen intents) each exceed the module budget; future enhancements | Carrier-style ringing; PSTN/SIP/RTMP |
+| D3 | Meetings — **superseded for TGC by D23** | JaaS (8x8), retained disabled as rollback only | The original provider foundation remains reproducible but is no longer the requested Microsoft-native experience | LiveKit |
+| D4 | Mobile apps — **revised v2.0/v2.8** | Careon Pulse Flutter shell with native iOS/Android ACS Calling SDK adapters in Phase 2 | Microsoft publishes first-party iOS/Android SDKs but no first-party Flutter SDK; narrow platform channels preserve the shell while avoiding a meeting WebView | Native Jitsi screen (superseded for TGC); HumHub-app fork; fully native apps per module |
+| D5 | Phase-2 calling scope — **expanded by D23** | WhatsApp-like in-app Teams voice/video calling and validated meeting join; active clients may receive/accept Teams calls | This is the owner-requested workplace experience. Native background ringing/CallKit/PushKit and PSTN remain separately accepted increments | Redirect-only Teams links; carrier/PSTN scope in the first release |
 | D6 | Meeting AI | Gemini Flash-class multimodal via **Vertex AI, EU region**; model configurable | Structured JSON, audio+video capable, EU processing | Consumer AI Studio endpoint; hard-coded model |
 | D7 | AI input strategy | Audio-first (ffmpeg); video frames only when JaaS reported screen sharing | ~10× cheaper and faster than full-MP4 uploads | Full MP4 by default |
 | D8 | Recording storage | Cloudflare R2 (S3-compatible), EU jurisdiction | No egress fees, lifecycle rules, signed private downloads | Media in the database or on VPS disk |
@@ -43,12 +43,13 @@ Any change to a Confirmed decision must be proposed as an explicit alternative w
 | D18 | Repositories | `careonpulse` stays a single-app repo and hosts the umbrella docs; shell, HumHub modules, and deploy live in sibling repos | The dashboard's CI gates are tuned to one Next.js app; Flutter + PHP would fight them | One physical monorepo |
 | D19 | Facturatie module (v2.1) | Invoicing is a standalone route section (`/facturatie`, own module shell + menu) with its own Supabase schema **inside Module 1**, not a fifth repo or OIDC client. Access limited to `org_admin` + superadmins **with** org membership, enforced on four layers (launcher filter, server page gate, `requireOrgAdmin()` per API route, RLS `app.mag_facturatie_zien`); tile visibility is a precursor of D13 entitlements, not a replacement. No AI tools on invoice data in phase A (privacy grounds; D17 unchanged). Final PDFs live immutably in the platform's **first Supabase Storage bucket** (`facturen`, private, EU) with its own backup regime — D8 (R2) stays recordings/HumHub-backups only. E-mail dispatch is phase B; the transactional mail provider will be **one platform-wide choice** (dashboard + HumHub `SMTP_*` in `platform-deploy`, same sender domain/DKIM/SPF), settled with a DPA before the first real send. **Amendment 13 Aug 2026 (owner decision): the provider is Resend (US)**, deviating from the EU-sovereign proposal (Brevo) in client answer V17. Consequences, explicitly accepted by the owner: US jurisdiction (CLOUD Act) and DPF/SCC reliance for the recipient address and the attached invoice PDF — which for private clients implies GGZ care. Mitigations: DPA incl. SCCs signed **before** activation, dispatch fail-closed until then, and the provider isolated in one file (`mail.server.ts`) so swapping back stays a small change. The platform-wide clause (same provider for HumHub `SMTP_*`) stays in force. Full spec: `agent-handoff/15-facturatie.md`. | The CI gates are tuned to one Next.js app (D18) and hosting/auth stay unchanged (D15); D14 stays intact because invoice data lives under the dashboard plane's first-party sessions and RLS | Separate first-party Supabase app (allowed by D14 §4 but fights D18) |
 | D20 | Authentication methods (v2.2, provisioning amended by D22) | **Hybrid authentication; login method is organization policy** (owner-confirmed 13 Aug 2026). The Supabase hub (D14) stays the single identity point for all modules; Microsoft **Entra ID federates into the hub as an upstream provider** (Supabase Azure provider; single-tenant app registration in the customer's tenant). Modules keep speaking OIDC to the hub and never see Entra. "Inloggen met Microsoft" is the primary path for TGC employees; e-mail/wachtwoord stays for platform administration, demo/e2e and break-glass. Identity linking requires verified-e-mail equality (UPN/primary mail must equal the account e-mail). Membership provisioning follows D22. Enforcement is phase 2: `sso_verplicht` per organization (exception: `platform_admins`), activated for TGC only after proven adoption. Full original spec: `agent-handoff/16-office365-yaaz-modules.md`. | Employees use the existing Microsoft work account and TGC's MFA/Conditional Access; ordinary employee passwords disappear from the Careon lifecycle while the Supabase hub and module OIDC contracts remain intact | Microsoft-only platform-wide (breaks superadmin outside the tenant, demo/e2e accounts, non-M365 organizations per D16, and break-glass); Entra as direct IdP per module (breaks D14, duplicates client registrations, loses the hook-0019 org/role claims) |
-| D21 | Microsoft 365 data inside YAAZ (v2.3; amendments v2.5/v2.7) | **A separate, single-tenant Entra app registration gives YAAZ delegated Microsoft Graph access per employee** (owner-confirmed 20 Aug 2026 after the client's explicit request for SharePoint, Outlook/mail, Office 365, Teams and shared documents). This remains a data plane, never login: D20's Entra→Supabase app is identity-only and is not reused. YAAZ uses authorization-code + PKCE and `offline_access`; server-side access/refresh tokens are AES-256-GCM encrypted in MariaDB with per-user associated data and never sent to the browser. The connected Graph mail/UPN must exactly match the HumHub account e-mail. Production has the original read profile plus tenant-consented `Mail.Read` and `Calendars.ReadWrite`: employees can page/search their inbox, read bounded inert-text bodies, download revalidated allow-listed attachments, view/create/edit/cancel conflict-safe calendar events, join validated scheduled Teams meetings, browse joined Teams/channels, search ACL-filtered Microsoft files and browse/download the canonical SharePoint subtree. Graph operates only as the signed-in employee and Microsoft ACLs remain authoritative; Outlook/file content is transient and is not copied into YAAZ tables. Mail send, Teams-channel content/send and canonical SharePoint upload/subfolder creation are implemented behind independent default-off flags and require only their named delegated permissions (`Mail.Send`, `ChannelMessage.Read.All`, `ChannelMessage.Send`, `Files.ReadWrite.All`), tenant consent, employee reconnect and separate acceptance before activation. No application permissions, tenant-directory reads, Teams chats, hosted content, message edit/delete/reactions/attachments, mail HTML/MIME/drafts/forward/reply-all/outgoing attachments, calendar bodies/attendees, file overwrite/move/delete/share/ACL controls, transparent two-way sync, drag/drop or embedded Office editor are included. Full delivery/runbook: `agent-handoff/17-microsoft365-yaaz-deliverable.md`; live evidence and remaining gates: `docs/platform/PLATFORM_GAP_REGISTER.md` G02–G05. | Delivers the client's requested working hub while retaining least privilege, tenant Conditional Access, per-user SharePoint/Teams rights, revocable consent and independent failure domains for login versus Office data. Capability-specific flags reduce consent blast radius; bounded transient rendering minimizes retained Microsoft content; ETag preconditions prevent lost calendar updates. | Reusing the D20 login registration; one all-writes switch; app-only Graph permissions; storing provider tokens in the browser; enabling permission-gated features before tenant and employee acceptance; transparent two-way sync or drag/drop; iframe embedding of Microsoft 365 |
+| D21 | Microsoft 365 data inside YAAZ (v2.3; amendments v2.5/v2.7/v2.8) | **A separate single-tenant Entra registration gives YAAZ delegated Microsoft access per employee.** The D20 login registration remains identity-only. YAAZ uses authorization code + PKCE and stores renewable tokens AES-256-GCM encrypted with per-user associated data; the Microsoft mail/UPN must exactly match the HumHub e-mail. Production `careon-m365` 0.14.0 provides Outlook mail/search/read/download and bounded send/reply, conflict-safe calendar writes plus validated Teams links, joined-team/channel navigation with corrected real-message rendering and bounded root/reply forms, ACL-aware Search, and canonical SharePoint browse/download/upload/subfolder controls. The exact capability-specific permissions and flags are active after TGC consent while the legacy all-writes switch stays off. Graph remains employee-delegated and ACL-authoritative; provider content is transient. Application permissions, tenant directory reads, Teams chats/hosted rich content/edit/delete/reactions, mail HTML/MIME/drafts/forward/reply-all/outgoing attachments, calendar bodies/attendees, file overwrite/move/delete/share/ACL changes, transparent sync and embedded Office remain excluded. | Delivers the requested workplace while preserving per-user ACLs, revocable consent and independent capability gates. | Reusing D20 login; app-only Graph; provider tokens in the browser; one all-writes switch; transparent sync; iframe embedding of Microsoft 365 |
 | D22 | Entra employee lifecycle and JIT membership (v2.4) | **Entra is authoritative for employee identity and Careon eligibility; Careon remains authoritative for organization role and module/data entitlements** (owner-confirmed 21 Aug 2026). The D20 enterprise app requires assignment. TGC-IT assigns approved employees—preferably through a dedicated `Careon Pulse — Users` group—to app role `Careon.User`. On first Microsoft login, Careon validates Azure provider, exact `tid`, optional account-type claim `acct=0` (tenant member, never guest), `xms_edov`, exact normalized e-mail and the app-role claim in both application code and a service-role-only database transaction; an eligible identity receives exactly one TGC `member` row and an audit event. JIT can never create `org_admin`, superadmin or confidential module entitlements. Missing/partial configuration, missing/wrong account type, wrong tenant, absent role, guest/mismatch and concurrent duplicates fail closed. Existing break-glass/platform-admin paths remain. Directory inventory and offboarding use a third, dedicated least-privilege provisioning connector; neither D20 identity nor D21 personal-data credentials are repurposed. | Scales onboarding from manual invitations to the eligible workforce while retaining least privilege, deterministic role ownership and auditability. Normal employees need no Careon password/invite; delegated D21 Microsoft 365 access still requires one personal authentication. Group-based assignment may require Entra ID P1/P2; direct user assignment is the safe fallback. | Authorize every tenant object or e-mail domain (guests/shared/service/dormant accounts); bulk-create local passwords; map Entra directory roles to Careon admin roles; reuse D21 delegated tokens or the identity registration for directory synchronization |
+| D23 | Microsoft-native Teams calling in YAAZ (v2.8) | **Use Azure Communication Services Calling SDK authenticated as the employee's Teams identity** (owner-confirmed 22 Aug 2026). A TGC-owned ACS resource performs the server-side Entra→ACS token exchange. The call client receives only a short-lived ACS token in memory and never the resource connection string/key or Microsoft refresh token. The existing D21 app may request the two Microsoft-required delegated scopes `Teams.ManageCalls` and `Teams.ManageChats` through a separately gated call consent path; no application permission exists. Web delivery starts with (1) join the already-validated Outlook `onlineMeeting.joinUrl` inside YAAZ and (2) one-to-one voice/video from Messenger contacts resolved to their Entra object IDs, followed by active-client incoming-call handling. The later shell uses Microsoft's native iOS/Android SDKs behind Flutter platform channels. The prepared JaaS/Jitsi code and flags stay disabled as fallback until the ACS matrix is accepted. | Keeps Teams identity, policies, call history and meetings authoritative while employees remain in the Careon/YAAZ experience. Microsoft officially supports Teams-user meeting join, one-to-one/group Teams calls, incoming calls, web/iOS/Android clients and customizable UI. Consequences: ACS usage is metered; every caller needs an applicable Teams license; PSTN requires Teams Phone; web incoming calls require an initialized active client; full Teams UI parity and force-closed native ringing are not implied. `Teams.ManageChats` is required by Microsoft's token exchange even when YAAZ messaging remains Graph/HumHub-based. Phase-3 recording/transcription is not inherited from JaaS and remains off until separately designed, consented and accepted. | Iframing the Teams client (unsupported); continuing redirect-only joins; activating the third-party JaaS provider against the owner's Microsoft-native request; exposing an ACS resource key or renewable Microsoft token to the browser |
 
 ## 3. System Architecture
 
-Live WebRTC media flows directly between clients and JaaS — **no Careon Pulse server carries call streams**. The Hetzner plane handles the comms application, webhooks, the recording pipeline, and AI processing; Vercel serves the dashboard; Supabase is the single identity authority and the dashboard's datastore.
+Live WebRTC media flows through Microsoft ACS/Teams between clients — **no Careon Pulse server carries call streams**. Hetzner authenticates the YAAZ employee, obtains a resource-authenticated short-lived ACS Teams-user token, and serves the call UI; the long-lived Microsoft refresh token and ACS resource credential remain server-side. Vercel serves the dashboard and Supabase remains the platform identity authority.
 
 <!-- diagram: architecture -->
 ```mermaid
@@ -60,7 +61,7 @@ flowchart LR
   SUPA["Supabase (EU)<br/>identity hub: OAuth 2.1/OIDC<br/>+ dashboard data (RLS)"]
   DASH["Module 1 — Pulse dashboard<br/>Next.js on Vercel"]
   HH["Module 2 — Comms (HumHub)<br/>Hetzner · MariaDB · Redis · workers"]
-  JAAS["JaaS (8x8)<br/>meetings · recording"]
+  ACS["Azure Communication Services<br/>Teams voice · video · meetings"]
   R2["Cloudflare R2 (EU)"]
   GEM["Vertex AI — Gemini (EU)"]
   PUSH["FCM / APNs"]
@@ -75,11 +76,12 @@ flowchart LR
   HH -.->|OIDC client · auto-provision| SUPA
   ENTRA -->|identity-only federation D20| SUPA
   HH -->|delegated per-user Graph D21| GRAPH
-  HH -->|rooms · JWTs| JAAS
-  SHELL -->|native Jitsi screen P2| JAAS
-  JAAS -->|signed webhooks| HH
-  HH -->|recordings| R2
-  HH -->|audio + JSON schema| GEM
+  ENTRA -->|delegated call scopes D23| ACS
+  HH -->|server-side Teams token exchange D23| ACS
+  WEB -->|ACS Calling Web SDK| ACS
+  SHELL -->|native iOS/Android ACS adapter P2| ACS
+  HH -.->|Phase 3 only after redesign| R2
+  HH -.->|Phase 3 only after redesign| GEM
   HH -->|notifications| PUSH --> SHELL
 ```
 
@@ -98,14 +100,15 @@ flowchart LR
 |---|---|---|---|---|
 | Supabase | Identity hub + dashboard datastore + facturatie (D19: schema + private Storage bucket) | OIDC tokens, identity claims; dashboard data (RLS); invoice PDFs | live | Plan-based, EU project |
 | Vercel | Dashboard hosting | HTTPS app traffic | live | Plan-based |
-| JaaS (8x8) | Meeting UI, WebRTC media, recording | JWTs out; signed webhooks in; temporary MP4 downloads | 2 | MAU tiers + $0.01/recorded minute |
+| Azure Communication Services | Microsoft-native Teams call/meeting media and SDKs | Short-lived Teams-user ACS token to the active client; WebRTC media/signaling | 2 | Metered ACS audio/video minutes; no separate interop fee |
+| JaaS (8x8) — dormant fallback | Recoverable pre-D23 provider only | No production credential, media or billing | none while D23 is active | No subscription to activate |
 | Cloudflare R2 | Recording archive; HumHub DB backups | MP4 files, SQL dumps | 1 (backups), 3 (media) | ~$0.015/GB-month; no egress fee |
 | Vertex AI (Gemini) | Meeting transcription + report | Audio segments out; validated JSON in | 3 | Per-token, model configurable |
 | FCM / APNs | Push to the shell app | Title + deep link only | 1 | Free |
 | GitHub + Coolify Cloud | CI/CD and orchestration (Hetzner plane) | Images, config | 1 | Coolify ~$5/month |
 | Hetzner | VPS + snapshots | — | 1 | ~€5.49–10/month + 20% backup add-on |
 | Transactional e-mail — **Resend** (facturatie phase B) | Invoice dispatch from the dashboard; later HumHub's `SMTP_*` on the same sender domain | Recipient address, invoice number, amount, due date; the PDF as attachment | phase B — built 13 Aug 2026, **fail-closed** | **Resend selected** (owner decision 13 Aug 2026, deviating from the EU-sovereign proposal — consequences recorded in D19). US jurisdiction: DPA **incl. SCCs** required. Still one platform-wide choice per D19. Build live but dispatch disabled (route answers 503) until the DPA is signed and the sender domain incl. DKIM/SPF is verified; free tier likely sufficient |
-| Microsoft Entra ID + Microsoft Graph | D20 upstream employee login; D21 delegated Outlook, calendar, Teams, SharePoint/shared-document access in YAAZ | Identity claims to Supabase; per-user Graph responses and encrypted OAuth tokens on the YAAZ server | D20/D22 identity and lifecycle live; D21 `careon-m365` 0.13.2 runs accepted mail read/search/download, calendar write/join, Teams/channel navigation and canonical SharePoint read/download surfaces; separately scoped mail-send, Teams-content/send and SharePoint-write flags remain off pending tenant acceptance | Included with applicable Microsoft 365 licenses; tenant app registrations and admin consent owned by TGC-IT |
+| Microsoft Entra ID + Microsoft Graph | D20 upstream employee login; D21 delegated Outlook/calendar/Teams/SharePoint; D23 Teams-user call authorization | Identity claims to Supabase; per-user Graph responses; encrypted renewable Microsoft tokens on the YAAZ server; ACS call token minted per active client | D20/D22 identity and lifecycle live; D21 `careon-m365` 0.14.0 includes accepted mail/calendar/files plus corrected Teams conversations; D23 calling is fail-closed pending ACS resource and call-scope activation | Included with applicable Microsoft 365/Teams licenses; tenant app registrations and consent owned by TGC-IT |
 
 ## 4. Identity & SSO
 
@@ -113,7 +116,9 @@ flowchart LR
 
 **Upstream provider (Confirmed, D20 + D22 — v2.4).** For organizations on Microsoft 365, **Entra ID federates into the hub as an upstream provider** (Supabase Azure provider; single-tenant app registration in the customer's tenant, redirect URI = the hub's `/auth/v1/callback`). The Entra optional claims `acct` and `xms_edov` are required before JIT activation so Careon can distinguish tenant members from guests and treat the returned e-mail as verified. The federation is invisible below the hub: modules keep speaking OIDC to the hub only. Login method is organization policy — hybrid by default (Microsoft primary for employees; e-mail/wachtwoord retained for platform administration, demo/e2e, break-glass), per-organization enforcement (`sso_verplicht`) is a later, explicit phase. D22 permits JIT creation of the least-privileged `member` row only for `acct=0`, the exact tenant and assigned `Careon.User` app role; identity linking still requires exact verified-e-mail equality. Original login spec: `agent-handoff/16-office365-yaaz-modules.md`; tracked rollout and acceptance: `docs/platform/PLATFORM_GAP_REGISTER.md` G01.
 
-**Microsoft 365 data plane (Confirmed, D21 — v2.3; amended v2.5/v2.7).** Office data is not an identity-token concern. YAAZ uses its own single-tenant Entra app and per-employee authorization-code + PKCE consent to call Microsoft Graph. The employee connects once after entering YAAZ; the server verifies that Graph `mail` or `userPrincipalName` exactly equals the HumHub account e-mail before storing an encrypted, renewable connection. The login registration remains identity-only, and Graph access can be revoked without breaking platform SSO. Production surfaces now include a paged/searchable inbox with bounded inert-text detail and guarded attachment downloads; a 14-day Outlook overview plus native calendar overlay with conflict-safe create/edit/cancel and validated Teams joins; joined Teams/channels; a canonical subtree-bound SharePoint browser/download; an explicitly labelled OneDrive fallback; and Microsoft Search results filtered by Microsoft's ACLs. Outlook and file content remain transient and are not synchronized into MariaDB. Mail send/direct reply, Teams channel content/send and canonical-folder upload/subfolder creation are present but fail closed behind independent flags while their exact delegated permissions and acceptance are absent. The implementation and tenant handoff are in `agent-handoff/17-microsoft365-yaaz-deliverable.md`; the current capability evidence is in G02–G05 of the gap register.
+**Microsoft 365 data plane (Confirmed, D21 — v2.3; amended v2.5/v2.7/v2.8).** Office data is not an identity-token concern. YAAZ uses its own single-tenant Entra app and per-employee authorization-code + PKCE consent to call Microsoft Graph. The employee connects once after entering YAAZ; the server verifies that Graph `mail` or `userPrincipalName` exactly equals the HumHub account e-mail before storing an encrypted, renewable connection. The login registration remains identity-only, and Graph access can be revoked without breaking platform SSO. Production `careon-m365` 0.14.0 includes paged/searchable Outlook mail with inert-text detail and guarded downloads; conflict-safe calendar writes and validated Teams links; joined-team/channel navigation with real conversation rendering and bounded plain-text root/reply forms; canonical SharePoint browse/download/upload/subfolder controls; and ACL-aware Microsoft Search. Capability-specific tenant-consented mail-send, Teams-content/send and file-write gates are active while the legacy all-writes switch remains off. Microsoft content stays transient; rich hosted Teams content, broad mail/calendar payloads and destructive/share/ACL file operations remain outside the boundary. The implementation and tenant handoff are in `agent-handoff/17-microsoft365-yaaz-deliverable.md`; current evidence is in G02–G05.
+
+**Microsoft Teams call plane (Confirmed, D23 — v2.8).** Calling is not implemented with Microsoft Graph and never uses the D20 Supabase login token. YAAZ obtains an Entra access token for the dedicated ACS resource scopes, proves tenant/user/client continuity against the existing D21 connection, and exchanges it server-side through the TGC-owned ACS resource. Only the returned short-lived Teams-user ACS token crosses to the active call page, under `no-store`; it is held in JavaScript memory and never written to MariaDB, browser storage, a URL or logs. The ACS resource credential stays in the deployment secret store. The web client uses `createTeamsCallAgent()` to join an exact validated Teams meeting link or call an exact server-authorized Entra object ID. Camera/microphone permission is requested only after the employee starts or accepts a call. Incoming-call handling is available while the call client is initialized; background-native ringing remains a later shell increment.
 
 **Authentication flows.**
 
@@ -125,7 +130,7 @@ flowchart LR
 | WebView tiles | The shell requests a short-lived, single-use handoff for the exact account + entitled module. The module consumes it server-to-server over HTTPS and establishes its own HttpOnly/Secure web session; access/refresh tokens never enter a URL, JavaScript, local storage, push payload or analytics. Modules never show a second login screen. |
 | Future modules | Register as an OIDC client (or first-party Supabase app); appear as a tile; done |
 
-**Claims & identifiers (v2.6 clarification).** The Supabase `sub` is the stable cross-module identity: HumHub stores it as the external identity key, and it becomes the JaaS `context.user.id`. Standard ID-token/userinfo fields supply subject, name and e-mail. Organization/role information lives in the namespaced `careon` claim added to access tokens by migration `0019`, while the versioned module-registry/entitlement endpoint remains authoritative for launcher visibility. Custom role or entitlement data must never be placed in user-writable metadata or assumed to appear in the closed ID-token structure.
+**Claims & identifiers (v2.6/v2.8 clarification).** The Supabase `sub` remains the stable cross-module identity and HumHub external identity key. D23 call routing uses the separately verified Entra `oid` only at the Microsoft boundary; the server must never infer it from an e-mail-shaped client parameter. Standard ID-token/userinfo fields supply subject, name and e-mail. Organization/role information lives in the namespaced `careon` claim added to access tokens by migration `0019`, while the versioned module-registry/entitlement endpoint remains authoritative for launcher visibility. Custom role or entitlement data must never be placed in user-writable metadata or assumed to appear in the closed ID-token structure.
 
 **Blast radius (technical clarification recorded 22 Aug 2026).** Supabase's OAuth 2.1 server currently exposes the standard OIDC scopes (`openid`, `email`, `profile`, `phone`) rather than custom resource scopes, and its access token is the normal signed user JWT for the project. It can therefore exercise only the rows/actions that the same user is allowed through RLS; a scope string is not an authorization boundary. The shell registry compensates explicitly: it validates JWT signature/expiry, confirms the current non-banned user, requires the exact registered public shell `client_id`, uses the anon key plus the caller's token, reads only the caller's own organization membership under RLS, returns no token and never imports the service-role key. Module APIs continue to authorize organization/role/entitlement server-side. The service-role key remains server-side in the dashboard plane only.
 
@@ -141,13 +146,13 @@ flowchart TD
   SHELL["Careon Pulse shell (Flutter) — Phase 1"] -->|authenticates| SUPA["Supabase identity hub (EU)"]
   SHELL --> DASH["Tile: Pulse dashboard (live)"]
   SHELL --> HH["Tile: Comms — HumHub (Phase 1)"]
-  SHELL --> MEET["Tile/native: Meetings — JaaS (Phase 2)"]
+  SHELL --> MEET["Native: Teams calling — ACS (Phase 2)"]
   REC["Recording + AI — Phase 3"] --> MEET
   DASH -.-> SUPA
   HH -.->|OIDC| SUPA
 ```
 
-**Shell responsibilities (build in progress, repo `careonpulse-shell`).** Native login (Section 4); secure token storage and refresh; the **launcher**; push notifications (FCM/APNs — the shell owns the Firebase project; module backends send through it with payloads limited to title + deep link); deep links (`careonpulse://<module>/<path>`) into module screens; the WebView module container; the native Jitsi meeting screen from Phase 2; sensible offline/empty/error states; a per-tile kill switch. Commit `516e2db` implements the branded Android/iOS projects, public-client PKCE, Keychain/Keystore storage, refresh/retry, launcher, registry parsing/version gate, entitlement-aware deep links, HTTPS-host-restricted WebViews and the memory-only POST session handoff without phase-1 media permissions. Push, native file handlers, signed device builds and store delivery remain.
+**Shell responsibilities (build in progress, repo `careonpulse-shell`).** Native login (Section 4); secure token storage and refresh; the **launcher**; push notifications (FCM/APNs); deep links (`careonpulse://<module>/<path>`); the WebView module container; and, from Phase 2, narrow native Swift/Kotlin adapters around Microsoft's ACS Calling SDK. The dormant Jitsi contract remains compile-time disabled until removed in a separately verified cleanup after ACS acceptance. The current branded Android/iOS foundation retains no media permission; microphone/camera declarations arrive only with the reviewed native ACS increment.
 
 **Module registry.** The launcher is server-driven: the shell fetches a tile registry from the identity plane — per tile: id, display name, icon, type (`webview` | `native`), URL or native route, required entitlement, minimum shell version, enabled flag. Shipping a new module is a registry entry plus an entitled account, not an app release. Careon commit `4873a67` puts schema v1 live at `GET /api/mobile/v1/modules`; it is bearer-only, exact-client-bound, RLS-backed, no-store and shares the web launcher's Facturatie role predicate. Careon `a2f9b7f` adds the companion one-time handoff contract for those exact registry targets. The first public shell client has no secret and permits only its exact app callback.
 
@@ -171,9 +176,9 @@ One row per capability: where it comes from and what we must do.
 | Private/group messaging + attachments | HumHub Mail module | Enable + configure | 1 |
 | Profiles, directory, groups, Spaces, files, search, notifications | HumHub core | Configure; OIDC auto-provisioning | 1 |
 | Branded comms web + PWA | HumHub theming | Custom theme (Careon brand) | 1 |
-| 1:1 + group audio/video, screen share, moderation, reconnection | JaaS | Integrate (web embed + native screen in shell) | 2 |
-| Meeting rooms, invitations, permissions, JWTs, sessions | — | **Build: `meeting-core`** | 2 |
-| Recording capture + consent indicator | JaaS recording add-on | Enable + controls | 3 |
+| Teams 1:1/group audio-video, meeting join, screen share, reconnection | Microsoft ACS Calling SDK | Integrate web client + native iOS/Android adapters | 2 |
+| Call authorization, contact routing, invitations and sessions | YAAZ + Entra + ACS | **Build: fail-closed D23 token/call boundary** | 2 |
+| Recording capture + consent indicator | Microsoft contract to be selected | Redesign and approve before activation | 3 |
 | Recording archive, playback, retention | — | **Build: `meeting-recordings`** | 3 |
 | Transcript, summary, decisions, action items + approval UI | Gemini (Vertex EU) | **Build: `meeting-intelligence`** | 3 |
 | Usage metering + monthly export | — | Build (meeting modules) | 3 |
@@ -200,59 +205,54 @@ Four repositories, one platform (Confirmed, D18):
 | `humhub-meeting-modules` | `meeting-core`, `meeting-recordings`, `meeting-intelligence` | Installed into HumHub | Independent semver per module |
 | `platform-deploy` | Docker Compose, Nginx config, env templates, backup/restore scripts, `VERSIONS.md` | Hetzner via Coolify | `main` → production, `develop` → staging |
 
-**Version pinning.** Phase 0 records the compatibility matrix in `platform-deploy/VERSIONS.md`: HumHub stable release, PHP 8.x, MariaDB LTS, Flutter SDK, `jitsi_meet_flutter_sdk` (actively maintained; iOS 15.1+), and the Supabase client/OIDC integration versions. The initial shell foundation is pinned to Flutter **3.47.1** / Dart **3.13.1**, `flutter_appauth` **12.0.2**, `flutter_secure_storage` **11.0.0**, `go_router` **17.5.0**, `http` **1.6.0** and `webview_flutter` **4.14.1**. Upstream security releases are applied under maintenance.
+**Version pinning.** Phase 0 records the compatibility matrix in `platform-deploy/VERSIONS.md`: HumHub/PHP/MariaDB, Flutter/Dart, Supabase/OIDC, the ACS Calling Web SDK and the matching first-party iOS/Android ACS SDKs. The dormant `jitsi_meet_flutter_sdk` proof remains pinned only as rollback evidence and is not linked into the shipping shell. Upstream security releases are applied under maintenance with the cross-platform call matrix rerun before activation.
 
 **Documentation rule for agents.** Platform-level decisions live in `careonpulse/docs/platform/PLATFORM_BLUEPRINT.md` (this document). Each repository's AGENTS.md governs local conventions only and links back here. The dashboard's existing conventions (Biome, co-location, shadcn rules, conventional commits) are unaffected.
 
 **Licensing.** Detailed license analysis remains deferred by instruction and must complete before production release (HumHub CE terms, marketplace items, Flutter/npm dependencies).
 
-## 9. Custom HumHub Modules (Meetings)
+## 9. Calling Integration Boundary
 
+### 9.1 Active provider — Microsoft ACS with Teams identity
 
-All meeting functionality is packaged as three internal HumHub modules with a strict dependency chain. Commercially, `meeting-recordings` and `meeting-intelligence` are sold to the client together as one optional module.
+The D23 implementation lives with the existing YAAZ Microsoft boundary because it already owns the verified per-user Entra connection and validated Outlook meeting links. The call feature is independently fail-closed. It requires the two ACS delegated scopes, a TGC-owned ACS endpoint and resource credential, an exact tenant, an employee connection whose Microsoft account still matches the HumHub account, and an explicitly enabled production capability. Missing any one condition renders a useful unavailable state and performs no token exchange or media operation.
 
-```mermaid
-graph TD
-  AI["meeting-intelligence (Phase 3)"] -->|depends on| REC["meeting-recordings (Phase 3)"]
-  REC -->|depends on| CORE["meeting-core (Phase 2)"]
-  CORE -->|depends on| HH["HumHub core (Phase 1)"]
-```
+The backend exchanges a call-scoped Entra access token through ACS using the employee's verified Entra object ID and the configured client ID. The browser receives `{token, expiresOn, mode, target}` only after revalidating the requested meeting or contact. Responses are `no-store`; secrets and tokens are excluded from logs and browser storage. The resource connection string/key never crosses the server boundary.
 
-### 9.1 `meeting-core` (Phase 2)
+### 9.2 Dormant `meeting-core` fallback
 
-JaaS configuration (App ID, key ID, private-key reference); secure room lifecycle — unique private room names associated with users or Spaces; participant invitations; **server-side generation of short-lived RS256 JWTs** with the moderator flag derived from role; meeting permissions (who may start calls, per Space); the JaaS webhook endpoint with signature verification and idempotency store; meeting/participant session persistence; meeting notifications (invitation, missed, started); raw usage-event tracking; shared REST endpoints consumed by the web UI and the Flutter app; feature flags returned by the server so mobile builds can enable/disable meeting UI.
+The installed `meeting-core` 0.1.0 and shell Jitsi contract remain disabled, credential-free and covered by their existing health/parity tests while ACS is implemented. They are rollback assets, not parallel production providers. No JaaS App ID, signing key, SDK artifact, media permission or billing account is activated. Removal is a later reversible-cleanup decision after the complete ACS web/mobile matrix passes.
 
-### 9.2 `meeting-recordings` (Phase 3, depends on core)
+### 9.3 Recording and intelligence
 
-Recording permissions; start/stop controls with recording-state indicators synchronized across clients; recording lifecycle webhooks; **immediate MP4 retrieval within the 24-hour JaaS window** with retries and a reconciliation job; checksum verification; upload to R2 plus a metadata row; playback and download through time-limited signed URLs behind permission checks; retention (12-month default) with automated deletion; a recording archive per meeting and Space.
+`meeting-recordings` and `meeting-intelligence` remain Phase-3 concepts, not active dependencies of calling. The former JaaS-specific webhook/24-hour-download assumptions are historical and must not be implemented against ACS by analogy. A Microsoft-supported recording/export source, consent behavior, retention, data region, API permissions, cost and participant-notification contract must be documented and accepted before those modules resume.
 
-### 9.3 `meeting-intelligence` (Phase 3, depends on recordings)
-
-Media preparation (ffmpeg audio extraction, 30–60-minute segments, compression as needed; frame sampling **only** for meetings where JaaS reported screen sharing); **Stage 1** transcription per segment with a strict JSON schema (timestamps, speaker labels, detected language), every segment persisted and validated; **Stage 2** aggregation into the final report — summary, key discussion points, decisions, action items with potential owner and mentioned deadline, important topics, open questions, and relevant screen-content observations; schema validation with bounded retries on malformed output; a processing-status state machine surfaced in the UI; human review — edit speaker names, transcript text, summary, and action items, with an explicit organizer **approval** step; usage metering (recorded seconds, processed seconds, Gemini usage, billable minutes per billing period); the model name and prompt/schema version stored on every report; the model is configurable in administration, never hard-coded.
-
-## 10. Meetings — JaaS Integration
-
+## 10. Microsoft Teams Calling in YAAZ
 
 ### 10.1 Web
 
-The meeting page embeds the JaaS iFrame API. The HumHub backend creates the room, determines moderator permissions, and returns a signed JWT to the browser. **The JaaS private signing key never reaches a client.**
+YAAZ hosts a dedicated call surface using the ACS Calling JavaScript SDK. It creates a `TeamsCallAgent` from a short-lived token, asks for microphone/camera only after an employee action, and renders pre-call, ringing, connected, reconnecting and ended states in the Careon theme. A scheduled meeting uses only the server-revalidated exact Teams join URL. A direct call uses only a server-authorized `microsoftTeamsUserId`; the browser cannot supply an arbitrary Entra ID.
 
-### 10.2 Flutter
+### 10.2 Messenger and contacts
 
-`jitsi_meet_flutter_sdk` is integrated into the Careon Pulse shell app (D4/D13). Module WebViews trigger a native join through the shell's bridge; the native meeting screen provides microphone and camera controls, camera switching, screen sharing where the platform supports it, leave, and emits meeting-state events back to the shell. This WebView-to-native bridge remains the most sensitive Phase-2 integration and is de-risked by Spike B in Phase 0.
+The existing **Open chats / Contacten** switch gains voice and video actions for coworkers who are both messageable in the shared Space and resolved to an enabled, licensed Entra member. The action opens the YAAZ call surface and starts a one-to-one Teams call. HumHub chat remains HumHub and Teams chat remains Graph; the Microsoft-required `Teams.ManageChats` consent is not used as permission to silently migrate or duplicate conversations.
 
-### 10.3 Calling flow (Phase 2 scope — Confirmed, D5)
+### 10.3 Outlook meetings
 
-Entry points: a colleague's profile, a messaging conversation, or a Space action. The backend checks permissions, creates the `meeting_session`, generates participant JWTs, and sends in-app plus push invitations; tapping the invitation joins the JaaS room; status updates flow back via webhooks. **Explicitly out of Phase 2 scope:** OS-level ringing (CallKit/PushKit, Android full-screen intents), guaranteed invitations when the app is force-closed beyond normal push behaviour, and any PSTN/SIP/RTMP telephony. These are future enhancements with their own budgets.
+The existing **Deelnemen via Teams** control becomes **Deelnemen in YAAZ**, with the official Teams link retained as a visible fallback. The backend re-reads the Outlook event, rejects cancelled/non-Teams/lookalike URLs, and passes the validated locator to `teamsCallAgent.join()`. This creates an embedded call experience without iframing or reproducing the Teams application.
 
-### 10.4 JWTs and MAU
+### 10.4 Incoming calls and mobile
 
-JWTs are short-lived (target ≤ 2 hours), RS256, signed server-side, with `context.user.id` set to the user's Supabase subject UUID (the platform-wide stable identity, Section 4). Note: available sources indicate JaaS may count an MAU **per device** a user joins from; this must be verified with 8x8 (Open Questions). It is commercially irrelevant at this size — even at two devices per employee, 40 employees ≈ 80 MAU against the Basic plan's 300.
+While the web call client is initialized, `incomingCall` exposes an in-YAAZ ringing panel with accept/reject and caller identity resolved server-side where available. Reliable background/force-closed ringing belongs to the native increment: Swift and Kotlin ACS SDK adapters, CallKit/PushKit on iOS, and the reviewed Android foreground/full-screen notification contract. Flutter invokes those adapters through narrow platform channels; no resource credential or renewable Microsoft token enters Dart.
+
+### 10.5 Supported boundary
+
+Phase 2 includes Teams-user VoIP voice/video, scheduled/channel meeting join, active-client incoming calls, mute/unmute, device selection, video, screen sharing where the chosen SDK/platform supports it, hang-up and reconnection. It does not promise the full Teams UI, live events, joining an already-running unscheduled Teams 1:1/group call, background-native ringing in the first web release, PSTN/Teams Phone, call queues, recording, transcription or AI. Microsoft Teams policies and licensing remain authoritative.
 
 ## 11. Recording Pipeline & Storage
 
 
-JaaS charges **$0.01 per recorded minute** and retains completed recordings only **~24 hours**, so retrieval is automated and immediate. A recording session can be up to six hours, and the MP4 reflects the **recorder's layout/perspective** — content not visible in that layout is not in the file, which bounds what Gemini can analyze.
+**Historical pre-D23 design — not approved for implementation against ACS.** The sequence below documents the dormant JaaS Phase-3 concept so earlier estimates and code can be understood. D23 requires a fresh Microsoft recording/export design before any recording credential, permission, webhook or worker is activated. The former $0.01/minute and 24-hour JaaS retrieval assumptions do not describe ACS/Teams.
 
 <!-- diagram: sequence -->
 ```mermaid
@@ -465,7 +465,7 @@ A meeting administration area provides: enabling/disabling the meeting modules g
 - Recording is always visible: the JaaS indicator plus a notice text shown before joining a recorded meeting (final wording: Open Questions, with client's counsel).
 - Data-processing agreements (verwerkersovereenkomsten) with 8x8, Cloudflare, and Google are the client's responsibility to execute; we supply the processing inventory (this document).
 - Data minimization: push payloads carry no content; Gemini receives extracted audio, not raw video, by default.
-- Microsoft 365 (D21): tenant-consented `Mail.Read` permits bounded inert-text message bodies plus guarded ordinary attachments; Exchange content is rendered or downloaded transiently and is not copied into Careon/YAAZ tables. Microsoft ACLs govern Teams, SharePoint, OneDrive and Search. Calendar-only `Calendars.ReadWrite` changes only the signed-in employee's event subject, location and timing, preserves bodies/attendees and rejects stale ETags. Mail send, Teams channel content/send and SharePoint writes remain separately disabled until their exact consent and acceptance. Mail text, attachment metadata, channel content, calendar subjects and filenames can reveal health or employment context, so TGC must keep YAAZ membership aligned with employment and include these enabled and proposed scopes in its privacy/security register.
+- Microsoft 365 (D21/D23): tenant-consented capability-specific scopes permit the accepted bounded Outlook, calendar, Teams-channel and canonical SharePoint operations while the legacy all-writes switch remains off. Microsoft content stays transient and ACL-authoritative. Short-lived ACS call tokens necessarily reach active client memory, but renewable Microsoft tokens and the ACS resource credential remain server-side. Mail text, channel content, calendar subjects, filenames and call metadata can reveal health or employment context, so TGC must align YAAZ membership/offboarding and its privacy/security register with every enabled scope.
 - Right to erasure: administrator deletion of recordings/reports plus automated retention deletion; deletions are audited.
 - Employees are informed through the client's internal policy; the platform is an internal tool, not public.
 - Facturatie (D19): storing invoice contacts **including e-mail addresses** is a new processing activity (client-approved 9 Aug 2026) — a deliberate exception to the dashboard's data-minimization line (referrer e-mails are not stored; private debtors are reduced to a label). Abandoned invoice drafts are pruned after 180 days; issued invoices are retention-locked. The AI assistant gets no read or write tools on invoice data. **Phase B (e-mail dispatch, built 13 Aug 2026):** the recipient address of every send attempt is logged in `careon_facturatie_maillog` — same processing activity as the invoice contacts (contact details incl. e-mail, client-approved V18), readable only under RLS, excluded from every prune (7-year administration), and deliberately kept **out of** the `facturatie.factuur.send` audit event. **Resend (US) is the new sub-processor — DPA incl. SCCs PENDING**, to be signed by the owner (owner decision 13 Aug 2026 deviating from the EU-sovereign proposal; transfer-risk analysis recorded in D19). Until the credentials are set the dispatch route is fail-closed (503), so no personal data reaches the provider.
@@ -496,9 +496,12 @@ A meeting administration area provides: enabling/disabling the meeting modules g
 | M365_GRAPH_WRITE_ENABLED | Backwards-compatible all-writes switch; default `0` and not used for the calendar-only rollout |
 | M365_GRAPH_SHARED_DRIVE_ID / M365_GRAPH_SHARED_FOLDER_ID | Optional SharePoint target |
 | M365_GRAPH_TIMEZONE / M365_GRAPH_IANA_TIMEZONE | Matching Windows Graph-response zone and IANA PHP/YAAZ rendering zone |
+| M365_ACS_CALLING_ENABLED / M365_ACS_ENDPOINT | Independent D23 kill switch and public ACS resource endpoint |
+| M365_ACS_CONNECTION_STRING or managed-identity equivalent | Server-only credential for Teams-user token exchange; never returned to a client |
+| M365_ACS_CALL_SCOPES | Exact `Teams.ManageCalls Teams.ManageChats` scope set; no Graph or application permission implied |
 | SMTP_HOST / SMTP_USER / SMTP_PASS / SMTP_FROM | Transactional email |
 | REDIS_HOST | Queue/cache |
-| JAAS_APP_ID / JAAS_KEY_ID / JAAS_PRIVATE_KEY_PATH / JAAS_WEBHOOK_SECRET | JaaS identity, signing, webhooks |
+| JAAS_* | Dormant D23 rollback configuration; remains unset/disabled for TGC |
 | R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET | Object storage |
 | VERTEX_PROJECT_ID / VERTEX_LOCATION / GEMINI_MODEL / GEMINI_MAX_RETRIES | Meeting AI (EU region; configurable model) |
 | RECORDING_RETENTION_MONTHS | Default 12 |
@@ -509,16 +512,16 @@ Shell app configuration (Supabase URL, OIDC client id, tile-registry endpoint) i
 
 **Backups & restore (Hetzner plane).** Nightly `mysqldump` + uploaded files to R2 (`backups/`), 30 daily + 12 monthly; weekly Hetzner snapshots (backup add-on, +20% of server price); the restore procedure lives in `platform-deploy` and is rehearsed once before Phase-1 acceptance.
 
-**Operations.** Docker log rotation; health endpoints (`/health` app+DB+Redis, `/health/queue`) monitored by Coolify plus an external uptime monitor; processing failures notify administrators; migrations run on deploy. Deployment checklist per environment: DNS → SSL → env set → migrations → cron verified → queue verified → OIDC discovery reachable and login tested → JaaS webhook reachable and signature-tested → push tested → backup verified → restore drill (production, once).
+**Operations.** Docker log rotation; health endpoints (`/health` app+DB+Redis, `/health/queue`) plus explicit ACS readiness; processing failures notify administrators; migrations run on deploy. D23 activation checklist: exact Azure subscription/resource/region and budget alert → call permissions/admin consent → personal reconnect → backend token exchange with no secret leakage → authorized contact lookup → meeting/call acceptance → revocation/offboarding → production flag. Mobile activation additionally requires native push/ringing, signed-device and store acceptance. Backup/restore gates remain unchanged.
 
 ## 20. User Journeys
 
 
 **Signing in.** An employee opens the Careon Pulse app, signs in once against the identity hub, and lands on the launcher showing exactly the tiles their account is entitled to; opening a tile enters that module with no second login.
 
-**Starting a call.** An employee opens a colleague's profile or a Space, taps the call action, and the platform checks permissions, creates the room, and issues JWTs; invitees receive in-app and push notifications; tapping joins the JaaS meeting in the app or browser; availability/session status updates via webhooks.
+**Starting a call.** An employee opens a Messenger contact or conversation and taps voice or video. YAAZ revalidates that the contact is an enabled, licensed, messageable coworker, resolves the server-held Entra object ID, mints a short-lived ACS Teams-user token and opens the themed in-YAAZ call surface. The target rings in Teams or an initialized YAAZ client. A scheduled Outlook event follows the same surface with its revalidated Teams meeting locator.
 
-**Recording a meeting.** An authorized organizer starts recording; all participants see the indicator; on stop or meeting end, JaaS finalizes the file and fires webhooks; the platform downloads, verifies, and archives the MP4 to R2; the recording appears on the meeting page for authorized users.
+**Recording a meeting.** Not active under D23. This journey resumes only after the Microsoft recording/export source, participant notice, permissions, retention, region and archive pipeline are separately approved and accepted.
 
 **Receiving the AI report.** After archiving, processing starts automatically with visible status; on completion, authorized participants are notified; the report shows summary, decisions, and action items alongside the timestamped transcript; the organizer edits speaker names or text where needed and approves the final version.
 
@@ -530,11 +533,11 @@ Shell app configuration (Supabase URL, OIDC client id, tile-registry endpoint) i
 | Phase | Deliverable | Price |
 |---|---|---|
 | 1 | Base platform — client fully live (web, PWA, branded mobile apps) | €4,000 |
-| 2 | Calling module (JaaS meetings, web + mobile) | €1,000 |
+| 2 | Calling module (Microsoft Teams via ACS, web + mobile) | €1,000 |
 | 3 | Recording + AI documentation module | €1,000 |
 | | **Total** | **€6,000** |
 
-**Recurring (client-facing).** Application hosting: **€500/year**. JaaS subscription (starts at Phase 2 go-live), passed through at the € equivalents of 8x8's list prices:
+**Recurring (client-facing, amended by D23).** Application hosting remains **€500/year**. The JaaS subscription table below is historical and no JaaS plan is to be purchased for TGC. ACS is billed on the client's Azure subscription by metered audio/video usage; the exact forecast follows the pilot's real minute/device data.
 
 | JaaS plan | Monthly active users | Price |
 |---|---|---|
@@ -544,7 +547,7 @@ Shell app configuration (Supabase URL, OIDC client id, tile-registry endpoint) i
 | Business | up to 3,000 | €999/month |
 | Enterprise | 3,000+ | Custom |
 
-Overage on paid plans: €0.99 per additional MAU. Fixed recurring total: €500 + 12 × €99 = **€1,688/year**.
+The former fixed total of €1,688/year is not an active TGC commitment. Active fixed platform hosting remains €500/year plus actual Microsoft ACS consumption.
 
 **Usage-based (Phase 3).** €0.04 per recorded **and** AI-processed minute (€2.40/hour), metered by the platform (Section 15, `meeting_usage`), invoiced monthly in arrears, no minimum.
 
@@ -569,7 +572,7 @@ No calendar dates (Confirmed): phases are sequenced at Bayaan Hub's discretion, 
 ### Phase 0 — Audit & Foundations
 
 - **Objective:** eliminate the two integration risks and stand up the delivery pipeline before feature code.
-- **Tasks:** compatibility matrix in `VERSIONS.md`; create `careonpulse-shell`, `humhub-meeting-modules`, `platform-deploy`; provision Hetzner + Coolify; deploy a skeleton HumHub to staging; **Spike A — identity:** Supabase OAuth server end-to-end (shell PKCE login, HumHub OIDC login, auto-provisioning, role claim, deactivation, logout; Keycloak fallback decision); **Spike B — meetings:** shell WebView ↔ native Jitsi bridge; start the client's Apple/Google developer-account enrollment immediately (legal entity per Open Questions).
+- **Tasks:** compatibility matrix in `VERSIONS.md`; create the sibling repositories; provision Hetzner; deploy HumHub; complete identity acceptance. The historical Jitsi spike remains evidence for the dormant fallback; D23 adds an ACS web/native SDK spike and secure Teams-user token exchange before call activation.
 - **Acceptance:** both spikes pass or the fallback is invoked; pinned versions install cleanly; push-to-deploy works on both planes.
 - **Recorded exception (9 Aug 2026):** the facturatie module (D19) was built in parallel with Phase 0 on explicit owner instruction — Module 1 is live and the work touches neither spike; "gates before feature code" continues to apply to the shell/comms planes.
 - **Recorded exception (20 Aug 2026):** the D20 dashboard login path and D21 YAAZ Microsoft 365 module were built fail-closed on explicit owner instruction while TGC-IT tenant configuration is outstanding. No external permission or production secret was fabricated: activation remains an acceptance step after both Entra registrations and admin consent arrive.
@@ -583,9 +586,9 @@ No calendar dates (Confirmed): phases are sequenced at Bayaan Hub's discretion, 
 
 ### Phase 2 — Calling Module
 
-- **Objective:** reliable 1:1 and group meetings on web and mobile within the confirmed scope (D5).
-- **Tasks:** `meeting-core`; JaaS web embed; JWT service on Supabase `sub`; invitations and notifications; native Jitsi screen in the shell (per Spike B); webhook endpoint (session events); permissions; admin configuration; shell update release.
-- **Acceptance criteria:** call matrix passes (web↔iOS, web↔Android, iOS↔Android, group of 4+); screen share on web; reconnection after a network drop; non-invited users cannot join; moderator controls; JaaS billing active on the client's account.
+- **Objective:** Microsoft Teams voice/video calls and meetings inside YAAZ on web and later the Careon Pulse mobile shell (D23).
+- **Tasks:** provision a TGC-owned ACS resource; add/admin-consent `Teams.ManageCalls` and Microsoft's required `Teams.ManageChats`; implement separately gated call OAuth/token exchange; ship the themed web call surface; wire validated Outlook meeting join; map authorized Messenger contacts to Entra object IDs; add active-client incoming calls; then add native Swift/Kotlin adapters, push/ringing and reviewed media declarations.
+- **Acceptance criteria:** web employee A↔B voice and video in both directions; incoming accept/reject; mute/camera/device/hang-up; scheduled Teams meeting join without redirect; unauthorized/arbitrary target rejection; revocation/offboarding; expired-token refresh; Graph/ACS throttling; network drop/reconnect; no renewable token or resource key in logs, HTML, URL or browser storage. The mobile increment adds signed web↔iOS, web↔Android, iOS↔Android and background-ringing acceptance before store activation.
 
 ### Phase 3 — Recording & AI Module
 
@@ -620,13 +623,13 @@ No calendar dates (Confirmed): phases are sequenced at Bayaan Hub's discretion, 
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| WebView ↔ native Jitsi bridge proves fragile | Medium | High | Phase 0 spike; strict Phase 2 scope; fallback = open meeting via full native screen only |
+| Native ACS bridge or SDK support differs across web/iOS/Android | Medium | High | Web-first acceptance; thin Swift/Kotlin adapters; pinned SDK matrix; retain official Teams deep link and dormant JaaS code as recovery paths |
 | App-store review rejection | Medium | Medium | Client-owned accounts; Phase 1 build without mic/camera permissions; unlisted/private distribution option |
-| Recording missed within the 24 h JaaS window | Low–Medium | High | Immediate download on webhook; hourly reconciliation; admin alert on failure |
+| Phase-3 recording design incorrectly assumes JaaS behavior | Medium | High | Keep recording off; select and accept a Microsoft-supported recording/export contract before implementation |
 | Malformed / invalid Gemini output | Medium | Medium | Strict JSON schema; bounded retries; two-stage pipeline; human approval |
 | Speaker diarization inaccurate | High | Low | Editable speaker names; approval step; expectation set in UI |
-| JaaS MAU counted per device | Medium | Low (at 40 users) | Verify with 8x8; Basic plan headroom (300 MAU) |
-| Phase 2 scope creep toward "real telephony" | Medium | High | D5 scope is contractual; ringing/PSTN priced separately as future work |
+| ACS usage or Teams licensing differs from the pilot estimate | Medium | Medium | TGC-owned Azure cost alerts; metering dashboard; pilot with licensed internal users before broad activation |
+| Phase 2 scope creep toward PSTN/full Teams parity | Medium | High | D23 capability boundary; Teams Phone, queues, live events and recording remain separate increments |
 | Single-server outage | Low | Medium | Nightly dumps + weekly snapshots; documented restore; acceptable RTO for an internal tool |
 | Hosting price changes (Hetzner raised prices June 2026) | Medium | Low | Provider-portable Compose; Coolify re-points to any server |
 | GDPR complaint about recordings | Low | High | Consent indicator + notice; retention automation; DPAs; EU processing regions |
@@ -646,8 +649,8 @@ No calendar dates (Confirmed): phases are sequenced at Bayaan Hub's discretion, 
 4. Recording-consent notice wording (with client's counsel; healthcare context).
 5. Confirm the 12-month recording retention with the client, explicitly in the healthcare context.
 6. Who may record (default: organizers/management), and who may view transcripts and AI reports beyond the organizer + administrators default?
-7. Ownership of the JaaS account and the Gemini/Vertex account (client vs Bayaan Hub reselling).
-8. Verify with 8x8 whether MAU is counted per user or per device, and confirm the 8x8 processing region.
+7. *(Superseded by D23 for Phase 2.)* No JaaS account is to be activated for TGC. Gemini/Vertex ownership remains a Phase-3 decision only.
+8. *(Superseded by D23.)* Replace the 8x8 MAU question with ACS subscription ownership, resource region, budget alert and monthly-minute reporting on the TGC Azure subscription.
 9. Is SSO federation to an external IdP (Azure AD, etc.) needed later for any organization? — *Answered for TGC Groep by D20 (13 Aug 2026): yes, Entra ID as upstream provider via the hub. Remains open for future organizations.*
 10. Should action items later sync into HumHub task modules (future enhancement)?
 11. Preferred Hetzner location (default: Falkenstein, Germany).
@@ -656,9 +659,10 @@ No calendar dates (Confirmed): phases are sequenced at Bayaan Hub's discretion, 
 14. *(M365, added 13 Aug 2026)* Which Microsoft 365 license tier do frontline/care staff have (E vs F) — determines whether every employee can use Entra login.
 15. *(M365, added 13 Aug 2026; product direction answered 20 Aug 2026)* Teams must be reachable from YAAZ; confirm which Teams/channels are actually used so the acceptance group reflects real work rather than demo memberships.
 16. *(M365 data, added 20 Aug 2026)* Which SharePoint site/document-library is the shared-document home? TGC-IT must provide the Graph drive ID (and optional folder item ID); until then YAAZ falls back to each employee's OneDrive root and disables shared-library upload.
-17. *(M365 data, added 20 Aug 2026; partially answered 21 Aug 2026)* Production launched read-only. The owner subsequently approved calendar-only create/edit/cancel; delegated `Calendars.ReadWrite` and `M365_GRAPH_CALENDAR_WRITE_ENABLED=1` are active. Mail send and document upload remain separate, unanswered acceptance decisions; `M365_GRAPH_WRITE_ENABLED`, mail-write and file-write stay `0`.
+17. *(M365 data, answered 22 Aug 2026)* Calendar, mail-send/direct-reply, Teams channel read/send and canonical SharePoint upload/subfolder capabilities are separately consented and active; the legacy `M365_GRAPH_WRITE_ENABLED` remains `0`. Real disposable send/upload transactions retain their individual acceptance gates.
 18. *(M365 data, added 20 Aug 2026)* Who owns the two Entra app registrations, secret-expiry reminders, Conditional Access policy and incident revocation procedure at TGC-IT?
 19. *(Employee lifecycle, D22 — added 21 Aug 2026)* Does TGC's Entra licence include P1/P2 group-based enterprise-app assignment? If not, use direct employee assignment for G01-A until licensing is added; do not broaden eligibility to the whole tenant.
+20. *(Teams calling, D23 — added 22 Aug 2026)* Which TGC Azure subscription/resource group owns ACS, which cost center receives metered charges, and which two licensed employees are approved for the first live bidirectional call acceptance?
 
 ## 26. References
 
@@ -668,6 +672,11 @@ No calendar dates (Confirmed): phases are sequenced at Bayaan Hub's discretion, 
 - Microsoft identity-platform authorization-code + PKCE flow: https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow
 - Microsoft Graph delegated-permissions reference: https://learn.microsoft.com/en-us/graph/permissions-reference
 - Microsoft Search ACL behavior: https://learn.microsoft.com/en-us/graph/api/resources/search-api-overview
+- Microsoft ACS Teams interoperability: https://learn.microsoft.com/en-us/azure/communication-services/concepts/teams-interop
+- Teams-user ACS permissions: https://learn.microsoft.com/en-us/azure/communication-services/concepts/interop/teams-user/azure-ad-api-permissions
+- Teams-user token exchange: https://learn.microsoft.com/en-us/azure/communication-services/quickstarts/manage-teams-identity
+- Teams-user Calling SDK operations: https://learn.microsoft.com/en-us/azure/communication-services/how-tos/cte-calling-sdk/manage-calls
+- ACS calling platform support: https://learn.microsoft.com/en-us/azure/communication-services/how-tos/calling-sdk/manage-calls
 - HumHub: https://github.com/humhub/humhub · docs: https://docs.humhub.org
 - Jitsi Flutter SDK: https://github.com/jitsi/jitsi-meet-flutter-sdk · pub.dev: https://pub.dev/packages/jitsi_meet_flutter_sdk
 - JaaS developer docs: https://developer.8x8.com/jaas · pricing: https://jaas.8x8.vc/#/pricing

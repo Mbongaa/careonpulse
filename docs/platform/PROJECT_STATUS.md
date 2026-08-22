@@ -1,12 +1,14 @@
 # Careon Pulse — Project Status & Timeline
 
-**Last updated:** 22 August 2026 · **Companion to:** `docs/platform/PLATFORM_BLUEPRINT.md` (v2.7, authoritative) · **Delivery gaps:** `docs/platform/PLATFORM_GAP_REGISTER.md`
+**Last updated:** 22 August 2026 · **Companion to:** `docs/platform/PLATFORM_BLUEPRINT.md` (v2.8, authoritative) · **Delivery gaps:** `docs/platform/PLATFORM_GAP_REGISTER.md`
 
 This file tracks where the platform stands: what exists, what is in progress, and what comes next. Agents and developers update it when a milestone changes state. Section references (§) point into the blueprint.
 
 Legend: ✅ done · 🔵 current focus · ⬜ not started
 
 ---
+
+**22 Aug 2026 — G04 Teams conversations repaired and production-accepted; D23 Microsoft-native calling direction confirmed.** A signed-in browser audit traversed all seven joined-team channels available to Zairo. Graph returned 64 rows, of which 55 were non-conversation system/activity or rich-card rows; the former UI rendered 55 identical unsafe-text placeholders and constrained the conversation area on desktop. Platform releases `1c2267a`, `c8c61a6`, `446c8eb` and final `5a60542` upgrade `careon-m365` to **0.14.0**: documented `systemEventMessage` rows are counted but hidden, real text survives safe normalization, nested/legacy attachment markers are removed, rich Teams cards receive an honest fallback with the exact sanitized message link, list previews are bounded, threads remain internal, and the desktop workspace is compact/full-width. The Microsoft rollback suite is **429/429**, UI **17/17**, production capability parity **21/21** and full-plane health pass. A second seven-channel browser audit found zero unsafe placeholders, literal attachment tags or access errors; real posts and direct Teams-card fallbacks remain visible. No real Teams message was posted, so the send/reply transaction remains the only G04 acceptance item. The owner also explicitly replaced the active JaaS/Jitsi provider direction with Microsoft Azure Communication Services using Teams identity. Blueprint v2.8 records D23, its permissions/cost/client-token consequences, the web-first Outlook/Messenger call surfaces, native iOS/Android path and dormant JaaS rollback posture. ACS remains fail-closed until a TGC Azure resource and call-specific consent are provisioned.
 
 **22 Aug 2026 — EPD boundary accepted; CareCheck clinical integration removed from the completion goal.** The owner confirmed that employees will continue dossier notes, appointments and all other legal clinical-record work in the authoritative EPD. Careon retains only minimized analytics plus the exact authorized CareCheck dossier handoff already in production. G06 is therefore `Done` as an intentional system boundary, not as an embedded EPD implementation. G07 continues only as analytics-feed reliability and monitoring work; it no longer implies recreating an EPD workflow inside Careon/YAAZ. The platform goal remains that all normal work outside the EPD is reachable through Careon Pulse/YAAZ.
 
@@ -224,9 +226,9 @@ Shell app foundation is built: native login, secure refresh, launcher + server-d
 
 **Acceptance:** all employees onboarded via the identity hub; SSO into both modules on web and in the app; tiles match entitlements with server-side enforcement; deactivation locks a test account out of everything; push + deep links on iOS and Android; Space isolation; restore drill passed; both apps approved.
 
-### ⬜ Phase 2 — Calling module (§22)
+### 🔵 Phase 2 — Microsoft Teams calling module (§22, D23)
 
-`meeting-core`, JaaS web embed, JWTs on the Supabase `sub`, invitations, native Jitsi screen in the shell, webhooks, permissions, shell update release. Scope stays push → tap → join (D5).
+Web-first implementation is now active work: TGC-owned ACS resource and call-scope consent, secure Teams-user token exchange, in-YAAZ scheduled meeting join, authorized Messenger contact voice/video and active-client incoming calls. The later mobile increment uses first-party iOS/Android ACS SDK adapters behind Flutter platform channels. The installed JaaS/Jitsi foundations remain disabled rollback assets, not the production provider. Recording/AI stays Phase 3 and must be redesigned against a supported Microsoft recording source.
 
 ### ⬜ Phase 3 — Recording & AI module (§22)
 
