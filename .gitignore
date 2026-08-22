@@ -17,6 +17,7 @@
 
 # production
 /build
+/careon-storage-backups/
 
 # misc
 .DS_Store
