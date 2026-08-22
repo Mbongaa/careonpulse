@@ -9,7 +9,8 @@
     "accessMode": "signed-in tenant administrator, read-only",
     "rawTeamIdsPersisted": false,
     "memberIdentifiersPersisted": false,
-    "tenantOrYaazMutationPerformed": false
+    "entraEligibilityMutationPerformed": true,
+    "spaceOrYaazMutationPerformed": false
   },
   "tenantInventory": {
     "totalUsers": 66,
@@ -17,19 +18,40 @@
     "guestUsers": 7,
     "activePrivateTeams": 9,
     "uniqueTeamMembers": 19,
+    "uniqueTenantTeamMembers": 17,
     "uniqueTeamOwners": 1,
-    "teamGuests": 0,
-    "internalUsersOutsideTheseTeams": 40,
+    "teamGuests": 2,
+    "internalUsersOutsideTheseTeams": 42,
     "activeYaazAccounts": 5,
     "teamMembersWithActiveYaazAccount": 2,
-    "teamMembersRequiringFirstMicrosoftLogin": 17
+    "tenantTeamMembersWithoutActiveYaazAccount": 15,
+    "careonEligibleTeamMembers": 16,
+    "safeUnassignedLicensedTenantMembers": 1
+  },
+  "phaseAEligibility": {
+    "uniqueIdentities": 17,
+    "tenantMembers": 16,
+    "excludedGuests": 1,
+    "assignmentsBefore": 3,
+    "directAssignmentsAdded": 13,
+    "assignmentsAfter": 16,
+    "pendingFirstCareonLogin": 13,
+    "assignedRole": "Careon.User",
+    "targetSetDigest": "4488be4e4be22a7d7f99214eca19ebdfa5056bac9cb024065e228feaefd97612",
+    "reconciliation": {
+      "observedDirectoryUsers": 66,
+      "eligible": 16,
+      "actions": 0,
+      "failed": 0,
+      "completedAt": "2026-08-22T10:17:14Z"
+    }
   },
   "companyWideBoundary": {
     "spaceName": "TGC Groep",
     "action": "preserve_unmanaged",
     "membershipAuthority": "entra_jit_eligibility",
     "deriveFromTeams": false,
-    "reason": "The nine Teams cover 19 of 59 internal users and therefore are not a company-wide roster."
+    "reason": "The nine Teams cover 17 of 59 internal users and also contain two guests, so they are not a company-wide employee roster."
   },
   "proposedDefaults": {
     "visibility": "private",
@@ -47,6 +69,7 @@
     {
       "name": "Backoffice",
       "memberCount": 6,
+      "tenantMemberCount": 6,
       "ownerCount": 1,
       "guestCount": 0,
       "standardChannelCount": 1,
@@ -54,6 +77,8 @@
       "sharedChannelCount": 0,
       "activeYaazAccountCount": 1,
       "firstLoginRequiredCount": 5,
+      "careonEligibleCount": 6,
+      "safeUnassignedCount": 0,
       "rolloutRecommendation": "phase_a_candidate",
       "confidentiality": "internal",
       "proposedModules": ["polls", "tasks"],
@@ -63,13 +88,16 @@
     {
       "name": "Behandelteam",
       "memberCount": 13,
+      "tenantMemberCount": 12,
       "ownerCount": 1,
-      "guestCount": 0,
+      "guestCount": 1,
       "standardChannelCount": 1,
       "privateChannelCount": 0,
       "sharedChannelCount": 0,
       "activeYaazAccountCount": 2,
-      "firstLoginRequiredCount": 11,
+      "firstLoginRequiredCount": 10,
+      "careonEligibleCount": 12,
+      "safeUnassignedCount": 0,
       "rolloutRecommendation": "phase_a_candidate",
       "confidentiality": "confidential",
       "proposedModules": ["polls", "tasks"],
@@ -78,12 +106,14 @@
         "approved_retention_identifier",
         "redundant_business_owner",
         "member_first_login",
+        "guest_excluded_from_jit",
         "no_patient_record_content_in_yaaz"
       ]
     },
     {
       "name": "Kwaliteit&Audits",
       "memberCount": 3,
+      "tenantMemberCount": 3,
       "ownerCount": 1,
       "guestCount": 0,
       "standardChannelCount": 1,
@@ -91,6 +121,8 @@
       "sharedChannelCount": 0,
       "activeYaazAccountCount": 0,
       "firstLoginRequiredCount": 3,
+      "careonEligibleCount": 3,
+      "safeUnassignedCount": 0,
       "rolloutRecommendation": "phase_a_candidate",
       "confidentiality": "confidential",
       "proposedModules": ["polls", "tasks"],
@@ -100,6 +132,7 @@
     {
       "name": "Bestuur TGC",
       "memberCount": 2,
+      "tenantMemberCount": 2,
       "ownerCount": 1,
       "guestCount": 0,
       "standardChannelCount": 1,
@@ -107,6 +140,8 @@
       "sharedChannelCount": 0,
       "activeYaazAccountCount": 1,
       "firstLoginRequiredCount": 1,
+      "careonEligibleCount": 2,
+      "safeUnassignedCount": 0,
       "rolloutRecommendation": "phase_b_governance_review",
       "confidentiality": "confidential",
       "proposedModules": ["polls", "tasks"],
@@ -121,6 +156,7 @@
     {
       "name": "Zorgproces & Verbetering",
       "memberCount": 1,
+      "tenantMemberCount": 1,
       "ownerCount": 1,
       "guestCount": 0,
       "standardChannelCount": 1,
@@ -128,6 +164,8 @@
       "sharedChannelCount": 0,
       "activeYaazAccountCount": 0,
       "firstLoginRequiredCount": 1,
+      "careonEligibleCount": 1,
+      "safeUnassignedCount": 0,
       "rolloutRecommendation": "hold_single_member",
       "confidentiality": "internal",
       "proposedModules": ["polls", "tasks"],
@@ -142,6 +180,7 @@
     {
       "name": "Bestuur Vurans",
       "memberCount": 2,
+      "tenantMemberCount": 2,
       "ownerCount": 1,
       "guestCount": 0,
       "standardChannelCount": 1,
@@ -149,6 +188,8 @@
       "sharedChannelCount": 0,
       "activeYaazAccountCount": 1,
       "firstLoginRequiredCount": 1,
+      "careonEligibleCount": 2,
+      "safeUnassignedCount": 0,
       "rolloutRecommendation": "separate_entity_review",
       "confidentiality": "confidential",
       "proposedModules": [],
@@ -164,6 +205,7 @@
     {
       "name": "Facturen & Betalingen TGC/Vurans",
       "memberCount": 4,
+      "tenantMemberCount": 4,
       "ownerCount": 1,
       "guestCount": 0,
       "standardChannelCount": 1,
@@ -171,6 +213,8 @@
       "sharedChannelCount": 0,
       "activeYaazAccountCount": 1,
       "firstLoginRequiredCount": 3,
+      "careonEligibleCount": 3,
+      "safeUnassignedCount": 1,
       "rolloutRecommendation": "mixed_entity_finance_review",
       "confidentiality": "confidential",
       "proposedModules": [],
@@ -187,6 +231,7 @@
     {
       "name": "Management TGC/Vurans",
       "memberCount": 3,
+      "tenantMemberCount": 3,
       "ownerCount": 1,
       "guestCount": 0,
       "standardChannelCount": 1,
@@ -194,6 +239,8 @@
       "sharedChannelCount": 0,
       "activeYaazAccountCount": 1,
       "firstLoginRequiredCount": 2,
+      "careonEligibleCount": 3,
+      "safeUnassignedCount": 0,
       "rolloutRecommendation": "mixed_entity_management_review",
       "confidentiality": "confidential",
       "proposedModules": [],
@@ -209,19 +256,23 @@
     {
       "name": "Raad van Toezicht TGC groep",
       "memberCount": 4,
+      "tenantMemberCount": 3,
       "ownerCount": 1,
-      "guestCount": 0,
+      "guestCount": 1,
       "standardChannelCount": 1,
       "privateChannelCount": 0,
       "sharedChannelCount": 0,
       "activeYaazAccountCount": 1,
-      "firstLoginRequiredCount": 3,
+      "firstLoginRequiredCount": 2,
+      "careonEligibleCount": 2,
+      "safeUnassignedCount": 1,
       "rolloutRecommendation": "independent_oversight_review",
       "confidentiality": "confidential",
       "proposedModules": [],
       "proposedRetentionClass": "pending-oversight-decision",
       "blockers": [
         "oversight_independence_policy",
+        "guest_excluded_from_jit",
         "data_controller_decision",
         "approved_retention_identifier",
         "redundant_business_owner",
@@ -233,10 +284,11 @@
     "allowedNow": false,
     "reasons": [
       "This candidate deliberately contains no raw Team IDs or member identities.",
-      "Seventeen unique Team members do not yet have an active YAAZ account.",
+      "Fifteen tenant Team members do not yet have an active YAAZ account: thirteen are newly eligible and pending first Careon login, one existing Careon user has not opened YAAZ, and one out-of-phase tenant member remains unassigned.",
+      "Two Team participants are Entra guests and remain excluded from Careon JIT.",
       "Every Team has one owner and all nine share one unique owner.",
       "TGC IT has not approved retention identifiers or the cross-entity boundaries."
     ],
-    "nextSafeAction": "Complete Microsoft first-login onboarding, add redundant business owners, approve Phase A scope and retention identifiers, then generate the private 0600 manifest and run the read-only live plan."
+    "nextSafeAction": "Have the thirteen newly eligible employees complete Microsoft login and open YAAZ, keep both guests excluded, add redundant business owners, approve Phase A retention identifiers, then generate the private 0600 manifest and run the read-only live plan."
   }
 }
