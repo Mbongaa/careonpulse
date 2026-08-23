@@ -269,6 +269,23 @@ async function main() {
       yaazDirectorySource.includes("MAX_RESPONSE_BYTES") &&
       yaazDirectorySource.includes("Authorization: `Bearer "),
   );
+  const yaazCallDirectoryRoute = fs.readFileSync(
+    path.resolve(process.cwd(), "src/app/api/internal/yaaz-call-directory/route.ts"),
+    "utf8",
+  );
+  check(
+    "YAAZ-beladresboek is een begrensde read-only serverbrug met exact bearer",
+    yaazCallDirectoryRoute.includes("timingSafeEqual") &&
+      yaazCallDirectoryRoute.includes("CAREON_YAAZ_DIRECTORY_KEY") &&
+      yaazCallDirectoryRoute.includes('"Cache-Control": "private, no-store, max-age=0"') &&
+      yaazCallDirectoryRoute.includes("listEntraDirectoryMembers()") &&
+      yaazCallDirectoryRoute.includes("listMemberships()") &&
+      yaazCallDirectoryRoute.includes("careonSubject: careonUser.id") &&
+      yaazCallDirectoryRoute.includes("microsoftUserId: entra.entraObjectId") &&
+      !yaazCallDirectoryRoute.includes("clientSecret") &&
+      !yaazCallDirectoryRoute.includes("access_token") &&
+      !yaazCallDirectoryRoute.includes("refresh_token"),
+  );
   const lifecycleMigration = fs.readFileSync(
     path.resolve(process.cwd(), "supabase/migrations/20260821141805_entra_lifecycle_reconciliation.sql"),
     "utf8",
