@@ -20,6 +20,7 @@ This document records release evidence separately from engineering remediation. 
 | Authenticated production dashboard | Microsoft Edge walkthrough of all main pages, 46 KPI details, filtering/pagination, admin denial and missing-context routes | **Passed**, including final malformed-invoice correction |
 | Flutter shell | [`c5fdee595d2e2bd76de5e45eea4d9c6574a4f810`](https://github.com/Mbongaa/careonpulse-shell/commit/c5fdee595d2e2bd76de5e45eea4d9c6574a4f810) — `fix(shell): isolate module sessions and cancel stale native calls` | Pushed to existing `origin/main`; shell worktree clean |
 | Shell GitHub Actions | [Mobile shell verification, run 33981768499](https://github.com/Mbongaa/careonpulse-shell/actions/runs/33981768499) | **Both jobs completed successfully** |
+| Shell XCTest CI extension | `2676441af62de40072ada3c97bfb6bb865aa3034`; [iOS job 101356672307](https://github.com/Mbongaa/careonpulse-shell/actions/runs/33984962017/job/101356672307) | Pushed; **unsigned iOS build and actual simulator XCTest passed**. Application source unchanged from `c5fdee5`. |
 | Platform/HumHub deployment | `2acf26f19570389e13dcb8e6edbfcca3c738f231`: SSO 1.4.0, M365 0.17.1 | **Deployed**, exact source/runtime and served-bundle parity verified |
 | Platform CI repair | `f1343c763533fe70b726e5c308e5baa32dc88ab4`: pin official Calendar 1.8.16 artifact and SHA-256 | Pushed; application modules identical to deployed `2acf26f` |
 | Platform CI | [Microsoft 33983541505](https://github.com/Mbongaa/platform-deploy/actions/runs/33983541505), [Space governance 33983541504](https://github.com/Mbongaa/platform-deploy/actions/runs/33983541504) | **Both passed** with Calendar 1.8.16 |
@@ -72,6 +73,7 @@ Counts are suite totals and must not be added repeatedly for individual findings
 | Shell tests | `flutter test --no-pub` | **72/72 passed**, including real WebView API cleanup doubles and native cancellation/contract regressions |
 | Shell analysis | `flutter analyze --no-pub` | No issues; final pre-push rerun passed |
 | Shell formatting | `dart format --output=none --set-exit-if-changed lib test` | **47 files, 0 changes** |
+| Swift expiry regression | `xcodebuild test` for `RunnerTests` in Debug on the iOS 18.5 simulator, via shell CI | **1 test executed, 0 failures; TEST SUCCEEDED** |
 | Local Android source | `./gradlew --offline :app:compileDebugKotlin` | Passed; additionally superseded by complete Android CI builds below |
 | Release source hygiene | Scoped diff checks and changed/new shell source scan | Passed; 14 reviewed shell files, no credential-pattern matches or tracked signing/configuration secrets |
 
@@ -105,7 +107,9 @@ Recorded CI artifact integrity:
 | Debug APK | 286288363 | `43EB74C7B607A9F4D2032A110F6B3D2261FE813EE818D5C36125D6D812F51011` |
 | Unsigned release APK | 173670200 | `6F29450E010CCC272574CF2FCF66EC7923E34E92609A3C6C2CB9A208D74B8725` |
 
-These are values recorded by the verification job, not a claim of store upload or distributable signing. The fresh macOS build resolves the earlier uncertainty about compilation of the edited Swift coordinator. The existing workflow **does not execute RunnerTests XCTest**. Its expiry tests remain included in the existing Xcode test target/build sources, but execution and real-device acceptance are still unrun.
+These are values recorded by the verification job, not a claim of store upload or distributable signing. The fresh macOS build resolves the earlier uncertainty about compilation of the edited Swift coordinator. The initial workflow did not execute XCTest; that remaining automated gap was subsequently closed as described below. Physical-device acceptance is still unrun.
+
+CI-only follow-up `2676441` adds a hosted Debug `RunnerTests` invocation using the existing Xcode 16.4 toolchain, SDK pins and scheme. It selects an available iPhone simulator on iOS 18.5 and sets `.invalid` identity/API endpoints, an empty OAuth client ID and both native calling flags to false. Application, native/configuration source and the existing unsigned release build remain unchanged. [The actual iOS job](https://github.com/Mbongaa/careonpulse-shell/actions/runs/33984962017/job/101356672307) passed both builds and executed `RunnerTests.testDartExpiryWireFormat` on iPhone 16 Pro/arm64: at 18:54:57 UTC, **1 test, 0 failures**; at 18:55:19 UTC, **TEST SUCCEEDED**. This directly covers plain, millisecond and microsecond Dart expiry strings plus invalid input. It does not exercise native media or background/teardown on a physical device. The repeat Android job for this CI-only commit was still running without reported failure at this evidence point; its application source and build steps are identical to the earlier successful release job.
 
 Native calling remains disabled: `CAREON_NATIVE_TEAMS_CALLING_ENABLED` defaults to `false`; no requested native flag, permission manifest or dependency pin was changed by the release. Embedded WebView media permission requests remain denied. Module logout/account switching clears embedded cookies, local storage and cache without clearing system-browser SSO.
 
@@ -167,7 +171,7 @@ Both platform CI workflows originally failed before tests because unversioned ma
 | F04 | CLOSED | Mandatory server hooks/300-second lease deployed; real-framework and demotion regressions passed. Current-identity login/admin navigation passed; controlled live role-demotion timing remains. |
 | F05 | CLOSED | Unique credit index and service-only atomic RPC installed after zero-duplicate preflight; concurrent/idempotent/rollback regressions passed. Real credit transaction unrun. |
 | F06 | CLOSED | Revision trigger and atomic issuance routes/RPC deployed; stale-autosave and snapshot regressions passed. Real issuance/PDF acceptance unrun. |
-| F08 | PARTIALLY CLOSED | Contract/expiry fixes pushed; Android and unsigned iOS compile CI green. XCTest execution and physical-device contract acceptance remain; native flag off. |
+| F08 | PARTIALLY CLOSED | Contract/expiry fixes pushed; Android/iOS build CI and actual Swift expiry XCTest pass. Physical-device contract acceptance remains; native flag off. |
 | F09 | PARTIALLY CLOSED | Cancellation/lifecycle regressions passed and shell CI green. Native teardown/media acceptance on devices remains. |
 | F10 | CLOSED | Web hang-up retry fix deployed; actual client regression plus isolated Chromium control checks pass. Real two-user failed-hangup acceptance unrun. |
 | F11 | CLOSED | Shared initialization, teardown/camera/video races fixed and deployed; regression/Chromium suites pass. Actual live call lifecycle unrun. |
@@ -177,7 +181,7 @@ Both platform CI workflows originally failed before tests because unversioned ma
 
 **G07 remains open:** the TGC import worker last heartbeated on 3 September at 02:07 UTC, before this release. Its Windows task is Ready rather than Running, last exit 1; the queue is empty. The unchanged service-role heartbeat boundary remains valid. No worker restart/import was performed during verification; exact host failure cause and a managed ingestion host/SLA/owner remain outstanding. The invoice offsite-backup gate remains intentionally dormant under G17.
 
-G19 remains In progress for the controlled acceptance above. No app-store submission, signing, actual call, real invoice/credit, EPD publication or new feature activation is implied by this report.
+G19 remains In progress for the controlled acceptance above. The Swift XCTest execution gap is closed; device/media acceptance remains. No app-store submission, production signing, actual call, real invoice/credit, EPD publication or new feature activation is implied by this report.
 
 ## Final invoice URL correction
 
