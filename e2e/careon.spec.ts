@@ -544,20 +544,24 @@ test.describe("hr (handmatige registratie)", () => {
     await expect(rows).toHaveCount(3);
   });
 
-  test("BIG changes feed Signaleringen with live remaining days", async ({ page }) => {
+  test("BIG changes retain expired registrations alongside live remaining days", async ({ page }) => {
     await loginViaSession(page);
     await page.goto("/dashboard/hr");
-    const overDertigDagen = await page.evaluate(() => {
+    const { overDertigDagen, gisteren } = await page.evaluate(() => {
       const nu = new Date();
-      return new Date(Date.UTC(nu.getUTCFullYear(), nu.getUTCMonth(), nu.getUTCDate() + 30)).toISOString().slice(0, 10);
+      const datum = (dagen: number) =>
+        new Date(Date.UTC(nu.getUTCFullYear(), nu.getUTCMonth(), nu.getUTCDate() + dagen)).toISOString().slice(0, 10);
+      return { overDertigDagen: datum(30), gisteren: datum(-1) };
     });
     await page.getByLabel("Verloopdatum — L. Vermeer").fill(overDertigDagen);
+    await page.getByLabel("Verloopdatum — T. Bakker").fill(gisteren);
     await page.goto("/dashboard/signaleringen");
     const alert = page.getByRole("link", {
-      name: /BIG-registratie verloopt <90 dgn/,
+      name: /BIG-registratie verlopen of <90 dgn/,
     });
     await expect(alert).toBeVisible();
     await expect(alert.getByText(/L\. Vermeer \(30 dgn\)/)).toBeVisible();
+    await expect(alert.getByText(/T\. Bakker \(1 dgn verlopen\)/)).toBeVisible();
   });
 });
 
