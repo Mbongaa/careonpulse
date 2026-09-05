@@ -1,10 +1,12 @@
 # Security remediation — 5 September 2026
 
+**Current deployment status:** the owner subsequently approved release and the three production migrations. Dashboard/database and YAAZ server changes are now deployed; shell source is pushed with green Android and unsigned iOS CI. The [release verification ledger](./RELEASE_VERIFICATION_2026-09-05.md) is authoritative for current revisions, latest totals, production browser evidence and remaining acceptance. The detailed sections below retain the initial remediation-phase evidence and its then-undeployed state.
+
 **Follow-up verification and release preparation.** The owner subsequently authorized pushing and deploying these changes. Independent verification found and fixed additional F01/F04 framework integration gaps: SSO is mandatory and its authorization handler precedes ordinary HumHub request handlers. Actual pinned HumHub/Yii tests now supplement the doubles. Further F09/F11 tests close delayed camera/video callbacks, overlapping incoming/outgoing calls, cancellation during native initialization and declined confirmation leaving the web UI busy. Latest totals are **44 identity + 121 session + 26 real-framework checks**, **22 web calling tests**, **5 isolated Chromium calling checks**, and **72 Flutter tests** with clean analysis. Native calling remains disabled.
 
 The hands-on local page walkthrough also reproduced two display defects: receivables ageing percentages contradicted the unchanged €96,400 total / €21,300 older-than-90-days amount, and expired BIG registrations disappeared from alerts. The chart now derives the supported 77.9% / 22.1% split; alerts and assistant responses retain explicitly labelled expired registrations. Thirteen regression checks increase the product suite to **1018**. The original validation ledger below remains the initial remediation record; final deployment and browser acceptance are recorded separately in the platform status/gap documents.
 
-This report records the authorized remediation of F01, F02, F03, F04, F05, F06, F08, F09, F10, F11, F12, F13 and F14 across the dashboard, deployment repository and Flutter shell. It describes the current working tree and local evidence. **No remediation in this report has been deployed to production.** No production database, identity, message, invoice, Microsoft service or feature flag was changed during this remediation.
+This report records the authorized remediation of F01, F02, F03, F04, F05, F06, F08, F09, F10, F11, F12, F13 and F14 across the dashboard, deployment repository and Flutter shell. Its initial evidence describes the pre-release working tree. **The initial engineering phase made no production changes; the subsequently authorized deployment is recorded in the release ledger linked above.** No production business transaction or feature activation was used to manufacture regression evidence.
 
 **CLOSED** means the engineering defect has a fix and relevant passing local behavioral evidence. It does not mean production acceptance, release, device acceptance or an unrelated platform gap is complete. **PARTIALLY CLOSED** identifies remaining implementation acceptance evidence. Counts below are suite totals, shared by several findings; they must not be added once per finding.
 
@@ -24,9 +26,9 @@ PostgreSQL tests used PostgreSQL 15.19 in a disposable, loopback-only local clus
 
 The native-calling flag remains disabled. JaaS/Jitsi fallback, recording/AI, backup activation, mail activation and other disabled capabilities were not enabled. No authorization scope or confirmed platform decision was silently broadened.
 
-## Findings and status
+## Findings and initial remediation evidence
 
-| Finding | Engineering status | Local evidence | Deployment status |
+| Finding | Engineering status | Initial local evidence | State at end of initial engineering phase |
 |---|---|---|---|
 | F01 — stale HumHub identity after account switch | CLOSED | PHP session/identity and Flutter cleanup regressions | Not deployed |
 | F02 — banned/deleted account retains direct database authorization | CLOSED | 207 PostgreSQL checks, including old behavior reproduction | Not deployed |
@@ -201,10 +203,12 @@ Run each command from the named repository. `python3`/`php` refer to the local W
 
 The new database regressions are wired into `Dashboard/.github/workflows/ci.yml` using a disposable PostgreSQL service. `Dashboard/package.json` adds the identity, atomic invoice and atomic EPD checks to `verify:ci`; `src/scripts/verify-runtime-hardening.ts` reconciles existing checks with the new paths. Source-level runtime checks supplement the behavioral suites; they are not the evidence for race prevention or transaction rollback. `Platform/scripts/verify-sso.sh` contains the two PHP suites plus its existing running-HumHub checks, but that container/production script was not used as a substitute for local offline tests here. `Platform/.github/workflows/m365-module-ci.yml` also runs the call-client tests/build and checks generated-bundle drift. The SSO registration in `humhub/modules-custom/careon-sso/config.php` and its new `README.md` document and wire the request lease. Ban comments in both dashboard identity-administration routes now describe the database gate.
 
-## Rollout sequence and blockers
+## Rollout sequence and acceptance boundaries
+
+The coordinated deployment and preflight steps below were subsequently completed as recorded in the release ledger. Controlled account-switch, role-demotion, invoice/EPD transaction and native-device acceptance remain separately tracked; a prepared rollout step is not evidence that its live acceptance was exercised.
 
 1. Review the exact working-tree changes against the preserved dirty baseline and the completed local gates above, then produce the intended release artifacts. Passing this report's local tests does not authorize an unreviewed production operation.
-2. Before the HumHub lease release, verify a separate unlinked local recovery administrator and the explicit `CAREON_SSO_BREAK_GLASS_USER_IDS` configuration. Existing sessions without a lease will need fresh OIDC on their next protected request. Verify recovery before enforcing that transition.
+2. Establish a concrete recovery route before the HumHub lease release. A separately verified unlinked local administrator with explicit `CAREON_SSO_BREAK_GLASS_USER_IDS` is one option; this release instead used a verified backup and retained-source SSH rollback, preserving the existing empty allowlist. Existing sessions without a lease need fresh OIDC on their next protected request. A local-password check is not a confirmed architecture requirement.
 3. Preflight the actual database migration state and existing issued full credits. The new unique index cannot install while duplicate issued full credits exist. Stop rollout and reconcile such records under an approved accounting process; do not delete or rewrite issued documents to force the migration through. Historical schema drift and Supabase PostgreSQL 17 compatibility also require verification.
 4. Coordinate the database/application cutover. Apply the corrective migrations in order: `20260905135733_active_account_rls.sql`, `20260905135739_invoice_atomic_issuance.sql`, `20260905135745_epd_atomic_generations.sql`. The invoice migration revokes the old allocator, so use a controlled write cutover with the matching routes; an old route must not remain the active writer after revocation.
 5. Release the complete EPD writer/manifest/reader/client set before resuming scheduled generation publication. The first authorized publication must have all five verified files and a complete manifest. Once an organization has a generation, individual-slice writes correctly fail. Do not roll back only the new reader or only the publication policy and reintroduce mixed generations; prefer a reviewed forward correction.

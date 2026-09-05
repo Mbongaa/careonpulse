@@ -19,17 +19,19 @@ Status legend: `Open` · `Proposed` · `In progress` · `Blocked externally` · 
 
 ## G19 — security remediation release gate
 
-**Status: In progress · Priority: P0.** The [5 September remediation report](./SECURITY_REMEDIATION_2026-09-05.md) records the verified engineering fixes and exact evidence. Engineering closure does not satisfy this register's production-deployment rule. The existing G01/G10/G18 and invoice/EPD operational statements must be read alongside this release gate.
+**Status: In progress · Priority: P0.** The [remediation report](./SECURITY_REMEDIATION_2026-09-05.md) records the engineering fixes; the [5 September release verification](./RELEASE_VERIFICATION_2026-09-05.md) records approved production migrations, deployed dashboard/YAAZ revisions, green CI and the authenticated browser walkthrough. Deployment is complete for the server changes; controlled product acceptance remains. The existing G01/G10/G18 and invoice/EPD statements must be read alongside this gate.
 
 | Scope | Verified engineering state | Remaining acceptance |
 |---|---|---|
-| F01–F04 identity and authorization | Fresh YAAZ account entry; 300-second role lease; retained-claim DB status gate; global identity controls restricted to platform admins | Deliberately configured unlinked recovery account, migration/environment preflight, isolated HumHub/OIDC account-switch and role-demotion acceptance, authorized deployment |
-| F05/F06/F13 invoice integrity | Revision-checked issuance and unique/idempotent full credits; real database races and corrected metadata fixture pass | Check for historical duplicate full credits before the unique index; coordinate routes/migration; run authorized invoice/Storage acceptance without enabling unrestricted issuance |
-| F08–F11 calling | Web lifecycle and Flutter regressions plus Kotlin compilation pass; native flag remains off | Fresh macOS build/XCTest, signed physical-device lifecycle/media acceptance under the existing D23 matrix |
-| F12 EPD publication | Whole-file manifest, transactional generation marker, snapshot read and atomic local cache; concurrency and interrupted-publication tests pass | Deploy the database/writer/reader together; first authorized full generation, then scheduled publication acceptance; keep individual central slice writes blocked for generation-managed organizations |
-| F14 documentation | Current blueprint, workspace guidance and operational docs reconciled after implementation verification | Record actual deployment/version evidence when the release is authorized; retain dated historical milestones |
+| F01–F04 identity and authorization | Deployed fresh YAAZ entry/300-second lease, retained-claim restrictions on 30/30 public tables and platform-only global identity controls; real current-identity SSO/admin navigation and role-denial pages pass | Controlled A→logout→B and live role-demotion timing. Verified backup plus retained-source SSH rollback is the selected recovery route; existing empty local recovery allowlist is preserved. |
+| F05/F06/F13 invoice integrity | Zero-duplicate preflight, revision/unique index/RPC installation and matching routes deployed; real SQL concurrency/rollback and metadata fixture regressions pass | Authorized real invoice/credit/PDF/Storage acceptance without enabling unrestricted issuance; missing legal sender data and disabled mail remain visible |
+| F08–F11 calling | Web source deployed; 22 client + 5 Chromium checks and 72 Flutter tests pass; Android builds and fresh unsigned iOS compilation green; native flag off | XCTest execution and signed physical-device lifecycle/media acceptance under existing D23 matrix; real two-user web-call acceptance |
+| F12 EPD publication | Database/writer/reader released; complete-generation concurrency and client adoption checks pass; existing five legacy slices still readable | First authorized full generation and scheduled publication acceptance; individual writes stay blocked after managed adoption. G07 worker outage must be addressed separately. |
+| F14 documentation | Exact revisions, schema evidence, CI, browser results and recovery method recorded after verification; D1–D23 unchanged | Preserve dated evidence; update this gate when controlled acceptance completes |
 
-No production mutation, Microsoft/ACS transaction or feature activation occurred during remediation. G19 cannot become `Done` until its deployment and acceptance evidence is recorded.
+The initial engineering phase made no production changes. The owner subsequently approved release/migrations, which are now recorded; no business record, actual call or feature activation was used for verification. G19 cannot become `Done` until the remaining controlled acceptance is evidenced.
+
+**5 Sep operational observation (G07):** the import worker last heartbeated on 3 September 02:07 UTC, before this release. Its Windows task is Ready, last exit 1; the central queue is empty. Existing service heartbeat permissions remain valid. No worker restart/import was performed; exact task failure cause, managed ingestion hosting, freshness SLA and escalation ownership remain open. G17 offsite invoice backup stays intentionally dormant.
 
 ## Active goal
 
