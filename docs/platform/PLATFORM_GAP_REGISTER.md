@@ -19,6 +19,8 @@ Status legend: `Open` · `Proposed` · `In progress` · `Blocked externally` · 
 
 ## G19 — security remediation release gate
 
+**Additional 5 September browser verification:** all 31 Careon page patterns and 46 KPI variants were revisited after clicking Microsoft sign-in, alongside expanded YAAZ/Microsoft pages. The [fresh checklist](./BROWSER_ROUTE_VERIFICATION_2026-09-05.md) records the evidence. Production Calendar changed from 1.8.16 in the pre-release backup to 1.8.17 because image startup ran `module/update-all`; the previous unchanged-dependency claim is superseded. Pushed/deployed platform `01af713` removes automatic updates and fixes expired-XHR SSO renewal without extending the 300-second lease. All remote workflows and production checks pass with the actual dependency; no downgrade or feature activation occurred. Controlled role-revocation, business-transaction and device/media acceptance remain under this gate.
+
 **Status: In progress · Priority: P0.** The [remediation report](./SECURITY_REMEDIATION_2026-09-05.md) records the engineering fixes; the [5 September release verification](./RELEASE_VERIFICATION_2026-09-05.md) records approved production migrations, deployed dashboard/YAAZ revisions, green CI and the authenticated browser walkthrough. Deployment is complete for the server changes; controlled product acceptance remains. The existing G01/G10/G18 and invoice/EPD statements must be read alongside this gate.
 
 | Scope | Verified engineering state | Remaining acceptance |

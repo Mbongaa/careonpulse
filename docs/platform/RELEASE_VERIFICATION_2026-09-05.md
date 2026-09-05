@@ -4,10 +4,13 @@
 
 This document records release evidence separately from engineering remediation. Finding-specific root causes, changes, behavioral regressions and remaining acceptance requirements are in [Security remediation — 5 September 2026](SECURITY_REMEDIATION_2026-09-05.md). That report retains historical pre-release statements and initial test totals; the newer release facts and latest totals below take precedence for deployment status. Passing compilation, local doubles or an isolated browser suite does not establish real-provider or device acceptance.
 
+**Additional fresh Microsoft/browser pass:** [The route checklist](./BROWSER_ROUTE_VERIFICATION_2026-09-05.md) records all 31 Careon page patterns, all 46 valid KPI variants and expanded YAAZ/Microsoft navigation. It exposed an implicit Calendar upgrade during container restart and an expired-background-request SSO navigation gap. Both are fixed in pushed/deployed platform `01af713`, whose three remote workflows passed. The earlier unchanged-dependency claim is withdrawn: Calendar is 1.8.17, now covered by exact-version CI, and the corrected restart preserved all module bytes. SSO 1.4.1 passes 300 checks. The existing import-worker outage remains visible; the checklist records the timed browser follow-up.
+
 ## Release state
 
 | Component | Exact release/evidence | Current state |
 |---|---|---|
+| Additional browser-discovered fixes | `01af713fb447f079c58ae74200ee5a4adf5c5912`: startup dependency preservation and SSO 1.4.1 renewal | **Pushed and deployed**, remote Microsoft/Space/smoke workflows green; production module hashes unchanged, SSO 44+216+40, capabilities 22 and health green |
 | Dashboard security and consistency changes | `d4408de5ade3f8c640743f613f6927b7ab7814c5` — `fix(security): enforce account boundaries and atomic invoice and EPD workflows` | Committed and pushed |
 | Dashboard browser regression follow-up | `af02437eab10e4e7f1a2aa8d6f6e58cdf17e0ae4` — `test(hr): cover expired registrations in browser alerts` | Committed and pushed |
 | Vercel dashboard deployment | Commit `af02437`; deployment `9KiCiE6hzw3bHp9q7kZFTFNqyVpa` | **Success**, recorded by release coordinator |
@@ -63,8 +66,8 @@ Counts are suite totals and must not be added repeatedly for individual findings
 | Database account/RLS regressions | `python3 src/scripts/verify-auth-postgres.py --port 55439 --user hassan` | **207/207 passed** |
 | Database invoice/credit regressions | `python3 src/scripts/verify-facturatie-postgres.py --port 55439 --user hassan` | **26 passed** |
 | Database EPD generation regressions | `python3 src/scripts/verify-epd-postgres.py --port 55439 --user hassan` | **37 passed** |
-| Platform SSO | Identity, session and pinned-framework suites | **44 identity + 121 session + 26 real-framework checks passed** |
-| Microsoft integration | Pinned HumHub/Calendar CI, rollback-only fixtures | **481 passed** with Calendar 1.8.16 |
+| Platform SSO | Identity, session and pinned-framework suites | **44 identity + 216 session + 40 real-framework checks passed** on deployed `01af713`; the 340-second production browser renewal also passed |
+| Microsoft integration | Pinned HumHub/Calendar CI, rollback-only fixtures | **481 passed** with the deployed Calendar **1.8.17** fixture on `01af713` |
 | Space governance | Pinned integration CI | **42 no-write + 42 rollback checks passed** |
 | Calendar artifact installer | CI-only behavioral fixture suite | **5 passed**, including corrupt-download rejection and overwrite prevention |
 | Web calling lifecycle | Platform call-client: `npm test` | **22/22 passed** |
@@ -109,7 +112,7 @@ Recorded CI artifact integrity:
 
 These are values recorded by the verification job, not a claim of store upload or distributable signing. The fresh macOS build resolves the earlier uncertainty about compilation of the edited Swift coordinator. The initial workflow did not execute XCTest; that remaining automated gap was subsequently closed as described below. Physical-device acceptance is still unrun.
 
-CI-only follow-up `2676441` adds a hosted Debug `RunnerTests` invocation using the existing Xcode 16.4 toolchain, SDK pins and scheme. It selects an available iPhone simulator on iOS 18.5 and sets `.invalid` identity/API endpoints, an empty OAuth client ID and both native calling flags to false. Application, native/configuration source and the existing unsigned release build remain unchanged. [The actual iOS job](https://github.com/Mbongaa/careonpulse-shell/actions/runs/33984962017/job/101356672307) passed both builds and executed `RunnerTests.testDartExpiryWireFormat` on iPhone 16 Pro/arm64: at 18:54:57 UTC, **1 test, 0 failures**; at 18:55:19 UTC, **TEST SUCCEEDED**. This directly covers plain, millisecond and microsecond Dart expiry strings plus invalid input. It does not exercise native media or background/teardown on a physical device. The repeat Android job for this CI-only commit was still running without reported failure at this evidence point; its application source and build steps are identical to the earlier successful release job.
+CI-only follow-up `2676441` adds a hosted Debug `RunnerTests` invocation using the existing Xcode 16.4 toolchain, SDK pins and scheme. It selects an available iPhone simulator on iOS 18.5 and sets `.invalid` identity/API endpoints, an empty OAuth client ID and both native calling flags to false. Application, native/configuration source and the existing unsigned release build remain unchanged. [The actual iOS job](https://github.com/Mbongaa/careonpulse-shell/actions/runs/33984962017/job/101356672307) passed both builds and executed `RunnerTests.testDartExpiryWireFormat` on iPhone 16 Pro/arm64: at 18:54:57 UTC, **1 test, 0 failures**; at 18:55:19 UTC, **TEST SUCCEEDED**. This directly covers plain, millisecond and microsecond Dart expiry strings plus invalid input. It does not exercise native media or background/teardown on a physical device. The [repeat Android job](https://github.com/Mbongaa/careonpulse-shell/actions/runs/33984962017/job/101356672475) also completed successfully, including source, tests and APK policy verification. Both jobs for the final shell commit are green.
 
 Native calling remains disabled: `CAREON_NATIVE_TEAMS_CALLING_ENABLED` defaults to `false`; no requested native flag, permission manifest or dependency pin was changed by the release. Embedded WebView media permission requests remain denied. Module logout/account switching clears embedded cookies, local storage and cache without clearing system-browser SSO.
 
@@ -143,7 +146,7 @@ The coordinator operated the user's Microsoft-authenticated Edge tab after Verce
 | YAAZ Stream, Spaces, Members, Conversations, Calendar, Tasks, Office 365, Administration | Pages rendered with no observed browser errors. Calendar/Microsoft overview used their existing read integrations; no messages, events, files, calls or settings were changed. |
 | Later direct YAAZ protected navigation | Same identity and administration remained accessible; this is not evidence of a live role-demotion or cross-account test |
 
-No patient dossier deep links, mail bodies, private chat histories or documents were opened to prove page rendering. No production business record was written. The local walkthrough additionally exercised login failure/success, synthetic CSV activation, HR autosave/restoration, resource toggles, assistant fallback and invoice editing; the 130-case browser suite covers desktop/mobile/accessibility/PWA and synthetic invoice lifecycle behavior.
+During this initial walkthrough, no patient dossier deep links, mail bodies, private chat histories or documents were opened to prove page rendering. The subsequent fresh-browser checklist separately records one existing invitation's message-detail rendering without reproducing its body. No production business record was written in either pass. The local walkthrough additionally exercised login failure/success, synthetic CSV activation, HR autosave/restoration, resource toggles, assistant fallback and invoice editing; the 130-case browser suite covers desktop/mobile/accessibility/PWA and synthetic invoice lifecycle behavior.
 
 ## Platform deployment verification
 
@@ -157,7 +160,7 @@ bash /opt/platform-deploy/.deploy/rollback-security-2acf26f.sh
 
 A known local recovery password was an inferred rollout preference, not a confirmed architecture decision. No local password, administrator or allowlist change was necessary. Native calling, JaaS/Jitsi fallback, recording/transcription/AI, backup activation and mail activation were not enabled by this release. Existing dashboard AI and Microsoft capabilities retain their previous states.
 
-Both platform CI workflows originally failed before tests because unversioned marketplace installation returned Calendar 1.8.17. The follow-up `f1343c7` uses the exact official 1.8.16 artifact with SHA-256 verification and behavioral guards. Both fresh integration workflows passed against that pin; production dependencies were unchanged.
+Both platform CI workflows originally failed before tests because unversioned marketplace installation returned Calendar 1.8.17. The follow-up `f1343c7` uses the exact official 1.8.16 artifact with SHA-256 verification and behavioral guards. Both fresh integration workflows passed against that pin. The later fresh-browser inspection and read-only host trace established that production had implicitly upgraded Calendar to 1.8.17 when the image startup script ran `module/update-all` during release restart; the pre-release backup still contains 1.8.16. Those CI results therefore prove the 1.8.16 fixture, not dependency parity with the current runtime. See the additional browser checklist for the follow-up.
 
 ## Finding closure and remaining acceptance
 
