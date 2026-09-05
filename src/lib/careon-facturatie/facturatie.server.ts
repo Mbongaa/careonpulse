@@ -254,6 +254,9 @@ export async function haalInstellingen(
 
 /** Eén factuur binnen de eigen organisatie, of null. */
 export async function haalFactuurRij(session: CareonSession, factuurId: string): Promise<FactuurRij | null> {
+  // Een ongeldige URL-id kan geen factuur zijn. Voorkom dat de UUID-cast van
+  // PostgREST een normale niet-gevondenmelding als database-uitval laat tonen.
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(factuurId)) return null;
   const params = new URLSearchParams({
     select: FACTUUR_SELECT,
     org_id: `eq.${session.orgId}`,

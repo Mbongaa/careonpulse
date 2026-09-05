@@ -52,6 +52,7 @@ function load(file) {
 
 const data = load("src/data/careon/careon-facturatie.ts");
 const storage = load("src/lib/careon-facturatie/facturatie.server.ts");
+const readInvoiceRow = storage.haalFactuurRij;
 const { berekenTotalen } = load("src/lib/careon-facturatie/totalen.ts");
 const db = new Map();
 let afterSettings = () => undefined;
@@ -176,6 +177,68 @@ try {
   };
   assert.equal((await credit.POST(request(), params)).status, 200);
   checks += 5;
+
+  // Follow the editor's actual client -> GET route -> storage helper path.
+  // A healthy PostgREST UUID column rejects malformed values with HTTP 400;
+  // that must never be presented to the user as a database outage.
+  storage.haalFactuurRij = readInvoiceRow;
+  const detail = load("src/app/api/careon/facturatie/facturen/[factuurId]/route.ts");
+  const remote = load("src/lib/careon-facturatie/remote.client.ts");
+  const invoiceReads = [];
+  let invoiceRowsResponse = (id) => Response.json(db.has(id) ? [db.get(id)] : []);
+  const missingId = "00000000-0000-4000-8000-000000000001";
+  const notFound = "Deze factuur bestaat niet (meer) voor deze organisatie.";
+  globalThis.fetch = async (input) => {
+    if (input.startsWith("/api/careon/facturatie/facturen/")) {
+      return detail.GET(new Request(`https://offline.invalid${input}`), {
+        params: Promise.resolve({ factuurId: input.slice(input.lastIndexOf("/") + 1) }),
+      });
+    }
+    const query = new URL(input);
+    assert.equal(query.origin + query.pathname, "https://offline.invalid/rest/v1/careon_facturatie_facturen");
+    assert.equal(query.searchParams.get("org_id"), `eq.${actor.orgId}`);
+    assert.equal(query.searchParams.get("limit"), "1");
+    invoiceReads.push(query);
+    const id = query.searchParams.get("id").slice(3);
+    if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)) {
+      return Response.json({ code: "22P02" }, { status: 400 });
+    }
+    return invoiceRowsResponse(id);
+  };
+  for (const malformedId of ["verification-invalid-invoice", "not-a-uuid", "g".repeat(36)]) {
+    const result = await remote.haalFactuur(malformedId);
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 404);
+    assert.equal(result.fout, notFound);
+    assert.equal(invoiceReads.length, 0, "Malformed invoice IDs must not reach PostgREST");
+    checks += 1;
+  }
+  const missing = await remote.haalFactuur(missingId);
+  assert.equal(missing.ok, false);
+  assert.equal(missing.status, 404);
+  assert.equal(missing.fout, notFound);
+  assert.equal(invoiceReads.length, 1);
+  checks += 1;
+  const existing = await remote.haalFactuur(row().id);
+  assert.equal(existing.ok, true);
+  assert.equal(existing.factuur.id, row().id);
+  assert.equal(invoiceReads.length, 2);
+  checks += 1;
+  invoiceRowsResponse = () => Response.json({ error: "unavailable" }, { status: 503 });
+  const outage = await remote.haalFactuur(missingId);
+  assert.equal(outage.ok, false);
+  assert.equal(outage.status, 502);
+  assert.equal(outage.fout, "Supabase niet bereikbaar.");
+  assert.equal(invoiceReads.length, 3);
+  checks += 1;
+  stubs.get("@/lib/supabase/session.server").requireOrgAdmin = async () => ({
+    denied: Response.json({ error: "Niet toegestaan." }, { status: 403 }),
+  });
+  const denied = await remote.haalFactuur("verification-invalid-invoice");
+  assert.equal(denied.ok, false);
+  assert.equal(denied.status, 403);
+  assert.equal(invoiceReads.length, 3, "The original authorization gate still precedes invoice lookup");
+  checks += 1;
   console.log(`verify-facturatie-atomic: ${checks} route/helper checks passed (synthetic, no network)`);
 } finally {
   globalThis.fetch = originalFetch;
