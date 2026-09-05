@@ -28,9 +28,16 @@ export function BigRegistratiesPanel({
   const rijen = hrBigVenster(registraties, vandaag, { inclusiefVerlopen: true });
 
   return (
-    <CareonChartCard title="BIG-registraties" sub="Verloopt binnen 90 dagen" className={className} footer={HR_BIG_NOTE}>
+    <CareonChartCard
+      title="BIG-registraties"
+      sub="Verlopen of binnen 90 dagen"
+      className={className}
+      footer={HR_BIG_NOTE}
+    >
       {rijen.length === 0 ? (
-        <p className="py-6 text-center text-muted-foreground text-sm">Geen registraties verlopen binnen 90 dagen.</p>
+        <p className="py-6 text-center text-muted-foreground text-sm">
+          Geen verlopen registraties of registraties die binnen 90 dagen verlopen.
+        </p>
       ) : (
         <div className="flex flex-col divide-y">
           {rijen.map((registratie) => (
@@ -41,7 +48,8 @@ export function BigRegistratiesPanel({
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium text-sm leading-tight">{registratie.naam}</p>
                 <p className="truncate text-muted-foreground text-xs">
-                  {registratie.functie ? `${registratie.functie} · ` : ""}verloopt {toonDatum(registratie.verloopt)}
+                  {registratie.functie ? `${registratie.functie} · ` : ""}
+                  {registratie.dagen < 0 ? "verlopen op" : "verloopt"} {toonDatum(registratie.verloopt)}
                 </p>
               </div>
               <Badge variant="outline" className={cn("tabular-nums", bigDagenBadgeClass(registratie.dagen))}>

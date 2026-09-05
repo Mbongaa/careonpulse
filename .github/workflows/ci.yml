@@ -13,6 +13,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  database-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:15.19
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y postgresql-client
+      - name: Retained-token authorization and transactional release gates
+        run: |
+          python3 src/scripts/verify-auth-postgres.py --port 5432 --user postgres
+          python3 src/scripts/verify-facturatie-postgres.py --port 5432 --user postgres
+          python3 src/scripts/verify-epd-postgres.py --port 5432 --user postgres
+
   quality:
     runs-on: ubuntu-latest
     timeout-minutes: 20

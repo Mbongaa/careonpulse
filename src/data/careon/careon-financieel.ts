@@ -1,14 +1,31 @@
 import type { CareonMetric } from "./careon-types";
 
+export const OPENSTAAND_TOTAAL = 96400;
+export const OPENSTAAND_90_DAGEN = 21300;
+
 export const FINANCIEEL_METRICS: CareonMetric[] = [
   { label: "Omzet verzekeraars", value: 425000, prev: 401000, f: "eurK", detailId: "omzetverz" },
   { label: "Omzet Infomedics", value: 68000, prev: 59000, f: "eurK", detailId: "omzetinfo" },
   { label: "Onderhanden werk", value: 182000, prev: 174000, f: "eurK", neutralDown: true, detailId: "ohw" },
-  { label: "Openstaande declaraties", value: 96400, prev: 104800, f: "eurK", betterLow: true, detailId: "openstaand" },
+  {
+    label: "Openstaande declaraties",
+    value: OPENSTAAND_TOTAAL,
+    prev: 104800,
+    f: "eurK",
+    betterLow: true,
+    detailId: "openstaand",
+  },
   { label: "Afgekeurde declaraties", value: 12300, prev: 15100, f: "eurK", betterLow: true, detailId: "afgekeurd" },
   { label: "Gem. omzet / cliënt", value: 2140, prev: 2075, f: "eur", detailId: "omzet-client" },
   { label: "Gem. omzet / traject", value: 3680, prev: 3590, f: "eur", detailId: "omzet-traject" },
-  { label: "Declaraties >90 dgn", value: 21300, prev: 26800, f: "eurK", betterLow: true, detailId: "declaraties90" },
+  {
+    label: "Declaraties >90 dgn",
+    value: OPENSTAAND_90_DAGEN,
+    prev: 26800,
+    f: "eurK",
+    betterLow: true,
+    detailId: "declaraties90",
+  },
 ];
 
 export const OMZET_PER_VERZEKERAAR = [
@@ -26,14 +43,12 @@ export const OMZET_PER_LOCATIE = [
   { loc: "Roermond", omzet: 111 },
 ];
 
-export const OPENSTAAND_TOTAAL = 96400;
-
+// De audit draagt twee eurobedragen, geen betrouwbare verdeling over de drie
+// jongere buckets. Toon alleen die bekende uitsplitsing, met afgeleide aandelen.
 export const DECLARATIE_OUDERDOM = [
-  { label: "Binnen 30 dagen", pct: 68 },
-  { label: "30-60 dagen", pct: 21 },
-  { label: "60-90 dagen", pct: 6 },
-  { label: "Ouder dan 90 dagen", pct: 5 },
-];
+  { label: "Tot en met 90 dagen", bedrag: OPENSTAAND_TOTAAL - OPENSTAAND_90_DAGEN },
+  { label: "Ouder dan 90 dagen", bedrag: OPENSTAAND_90_DAGEN },
+].map((row) => ({ ...row, pct: Math.round((row.bedrag / OPENSTAAND_TOTAAL) * 1000) / 10 }));
 
 export const FINANCIEEL_NOTE =
   "€ 21.300 staat langer dan 90 dagen open, gebundeld bij 3 verzekeraars. Zie Signaleringen voor de specificatie.";

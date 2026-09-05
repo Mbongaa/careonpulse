@@ -25,6 +25,7 @@ export interface OrgMember {
   banned: boolean;
   isPlatformAdmin: boolean;
   isSelf: boolean;
+  canManageIdentity: boolean;
 }
 
 const ROL_LABELS = { org_admin: "Organisatiebeheerder", member: "Gebruiker" } as const;
@@ -92,8 +93,8 @@ export function BeheerContent() {
             <CardHeader>
               <CardTitle>Bestaande Careon-accounts</CardTitle>
               <CardDescription>
-                Rollen en blokkades beheert u altijd in Careon. De wachtwoord-link blijft alleen beschikbaar voor
-                uitzonderingen en break-glass; gewone werknemers gebruiken Microsoft.
+                Rollen beheert u in Careon. Alleen platformbeheer wijzigt globale accountblokkades en wachtwoorden;
+                gewone werknemers gebruiken Microsoft.
               </CardDescription>
             </CardHeader>
             <CardContent>

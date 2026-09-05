@@ -673,8 +673,10 @@ async function draaiTests(orgId: string, wachtwoord: string): Promise<void> {
 
   const nogmaals = await reikUit(conceptA.id);
   check(
-    "tweede definitief-aanroep op dezelfde factuur geeft 409",
-    nogmaals.status === 409 && (nogmaals.body.error ?? "").includes("al uitgereikt"),
+    "tweede definitief-aanroep geeft dezelfde uitgereikte factuur terug",
+    nogmaals.status === 200 &&
+      nogmaals.body.factuur?.id === factuurA.id &&
+      nogmaals.body.factuur.nummer === factuurA.nummer,
     `status=${nogmaals.status} body=${JSON.stringify(nogmaals.body).slice(0, 160)}`,
   );
 
@@ -765,10 +767,11 @@ async function draaiTests(orgId: string, wachtwoord: string): Promise<void> {
   const uitgereiktC = await reikUit(conceptC.id);
   const factuurC = uitgereiktC.body.factuur;
   if (!factuurC) throw new Error(`Uitreiken C faalde: ${uitgereiktC.status}`);
-  await serviceRest(`careon_facturatie_facturen?org_id=eq.${orgId}&id=eq.${factuurC.id}`, {
+  const metadataGewist = await serviceRest(`careon_facturatie_facturen?org_id=eq.${orgId}&id=eq.${factuurC.id}`, {
     method: "PATCH",
     body: JSON.stringify({ pdf_pad: null, pdf_sha256: null, pdf_bytes: null, pdf_gegenereerd_op: null }),
   });
+  if (!metadataGewist.ok) throw new Error(`Pdf-herstel-fixture geweigerd: ${metadataGewist.status}`);
   const zonderPdf = await appJson<{ error?: string }>(`/api/careon/facturatie/facturen/${factuurC.id}/pdf`);
   check(
     'download zonder pdf-metadata geeft 409 "Pdf ontbreekt — genereer opnieuw."',
@@ -807,10 +810,13 @@ async function draaiTests(orgId: string, wachtwoord: string): Promise<void> {
   // anker hieronder is bewust een hash die niet bij de bytes hoort: alleen zo
   // is "bewaard" te onderscheiden van "toevallig opnieuw dezelfde uitkomst".
   const anker = "0".repeat(64);
-  await serviceRest(`careon_facturatie_facturen?org_id=eq.${orgId}&id=eq.${factuurC.id}`, {
+  const ankerGeplaatst = await serviceRest(`careon_facturatie_facturen?org_id=eq.${orgId}&id=eq.${factuurC.id}`, {
     method: "PATCH",
-    body: JSON.stringify({ pdf_pad: null, pdf_bytes: null, pdf_sha256: anker }),
+    // All four metadata fields must remain present under the archive CHECK.
+    // A valid-shaped wrong hash tests preservation without illegal partial metadata.
+    body: JSON.stringify({ pdf_sha256: anker }),
   });
+  if (!ankerGeplaatst.ok) throw new Error(`Pdf-anker-fixture geweigerd: ${ankerGeplaatst.status}`);
   const herstelMetAnker = await appJson<FactuurAntwoord>(`/api/careon/facturatie/facturen/${factuurC.id}/pdf`, {
     method: "POST",
   });
@@ -833,10 +839,14 @@ async function draaiTests(orgId: string, wachtwoord: string): Promise<void> {
     body: JSON.stringify({ prefixes: [padD] }),
   });
   if (!gewist.ok) throw new Error(`Testobject wissen faalde: ${gewist.status}`);
-  await serviceRest(`careon_facturatie_facturen?org_id=eq.${orgId}&id=eq.${factuurD.id}`, {
-    method: "PATCH",
-    body: JSON.stringify({ pdf_pad: null, pdf_sha256: null, pdf_bytes: null, pdf_gegenereerd_op: null }),
-  });
+  const rerenderMetadataGewist = await serviceRest(
+    `careon_facturatie_facturen?org_id=eq.${orgId}&id=eq.${factuurD.id}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ pdf_pad: null, pdf_sha256: null, pdf_bytes: null, pdf_gegenereerd_op: null }),
+    },
+  );
+  if (!rerenderMetadataGewist.ok) throw new Error(`Pdf-rerender-fixture geweigerd: ${rerenderMetadataGewist.status}`);
   const herstelRerender = await appJson<FactuurAntwoord>(`/api/careon/facturatie/facturen/${factuurD.id}/pdf`, {
     method: "POST",
   });
@@ -940,8 +950,8 @@ async function draaiTests(orgId: string, wachtwoord: string): Promise<void> {
     method: "POST",
   });
   check(
-    "een reeds gecrediteerde factuur nogmaals crediteren geeft 409",
-    dubbeleCredit.status === 409,
+    "een herhaalde creditering geeft dezelfde credit terug",
+    dubbeleCredit.status === 200 && dubbeleCredit.body.factuur?.id === creditFactuur?.id,
     `status=${dubbeleCredit.status} body=${JSON.stringify(dubbeleCredit.body).slice(0, 160)}`,
   );
   if (creditFactuur?.pdfPad) {

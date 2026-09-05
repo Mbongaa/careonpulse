@@ -15,11 +15,17 @@
 
 import { chromium, type Download, type Page } from "playwright";
 
+import { publishStagedEpdGeneration } from "../lib/careon-production/epd-generation";
 import { parseAgendaExport } from "../lib/careon-production/parse-agenda";
 import { parseDeclaratiesExport } from "../lib/careon-production/parse-declaraties";
-import { parseClientExport, splitLine } from "../lib/careon-production/parse-export";
+import { mergeQuotedLines, parseClientExport, splitLine } from "../lib/careon-production/parse-export";
 import { parseToeslagenExport } from "../lib/careon-production/parse-toeslagen";
 import { parseVerwijzersExport } from "../lib/careon-production/parse-verwijzers";
+import {
+  type DeclarationHistoryCandidate,
+  type FinanceDeclarationRow,
+  reconcileDeclarationHistory,
+} from "../lib/careon-production/tgc-declaration-history";
 import {
   AGENDA_FORBIDDEN_HEADERS,
   AGENDA_RESULT_FIELDS,
@@ -65,16 +71,6 @@ interface DownloadedExports {
   referrers: string;
   surcharges: string;
   declarations: string;
-}
-
-interface FinanceDeclarationRow {
-  invoiceNumber: string;
-  invoiceDate: string;
-  debtor: string;
-  amount: string;
-  awarded: string;
-  debitCredit: "D" | "C";
-  creditFor: string;
 }
 
 function readEnvFile(filePath: string): LocalEnv {
@@ -337,15 +333,6 @@ function csvCell(value: string): string {
   return /[;"\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
-function dutchFromIso(value: string): string {
-  const [year, month, day] = value.split("-");
-  return `${day}-${month}-${year}`;
-}
-
-function dutchMoney(value: number): string {
-  return value.toFixed(2).replace(".", ",");
-}
-
 function historicalDeclarationRows(
   currentRows: FinanceDeclarationRow[],
   currentStart: string,
@@ -357,7 +344,7 @@ function historicalDeclarationRows(
       return fs.statSync(path.join(EXPORTS_DIR, right)).mtimeMs - fs.statSync(path.join(EXPORTS_DIR, left)).mtimeMs;
     });
 
-  const parsedCandidates = candidates
+  const parsedCandidates: DeclarationHistoryCandidate[] = candidates
     .map((candidate) => {
       const candidatePath = path.join(EXPORTS_DIR, candidate);
       const parsed = parseDeclaratiesExport(
@@ -366,50 +353,17 @@ function historicalDeclarationRows(
         RUN_STARTED.toISOString(),
       );
       return parsed.ok && parsed.facts
-        ? { candidate, facts: parsed.facts, mtime: fs.statSync(candidatePath).mtimeMs }
+        ? { fileName: candidate, facts: parsed.facts, modifiedAt: fs.statSync(candidatePath).mtimeMs }
         : null;
     })
-    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
-    .sort((left, right) => left.facts.bronVan.localeCompare(right.facts.bronVan) || right.mtime - left.mtime);
+    .filter((entry): entry is DeclarationHistoryCandidate => entry !== null);
 
-  const currentInvoiceKeys = new Set(
-    currentRows
-      .filter((row) => row.debitCredit === "D")
-      .map((row) => `${row.invoiceNumber}|${row.debtor.toLowerCase()}`),
+  const reconciled = reconcileDeclarationHistory(currentRows, currentStart, parsedCandidates);
+  logStep(
+    `Historische declaratiebasis uit ${reconciled.sourceFiles.length} gevalideerde snapshot(s) vult ` +
+      `${reconciled.rows.length} opgeloste/historische regels aan.`,
   );
-  for (const { candidate, facts } of parsedCandidates) {
-    if (facts.bronVan >= currentStart) continue;
-    const rows: FinanceDeclarationRow[] = [];
-    for (const invoice of facts.facturen) {
-      if (currentInvoiceKeys.has(`${invoice.nummer}|${invoice.koepel.toLowerCase()}`)) continue;
-      // If a previous invoice is absent from every current finance status
-      // feed, TGC considers it resolved. Carry its immutable invoice and
-      // credit history forward with no outstanding balance.
-      rows.push({
-        invoiceNumber: invoice.nummer,
-        invoiceDate: dutchFromIso(invoice.datum),
-        debtor: invoice.koepel,
-        amount: dutchMoney(invoice.bedrag),
-        awarded: dutchMoney(Math.max(0, invoice.bedrag - invoice.gecrediteerd)),
-        debitCredit: "D",
-        creditFor: "",
-      });
-      if (invoice.gecrediteerd > 0) {
-        rows.push({
-          invoiceNumber: `CARRY-${invoice.nummer}`,
-          invoiceDate: dutchFromIso(invoice.datum),
-          debtor: invoice.koepel,
-          amount: dutchMoney(invoice.gecrediteerd),
-          awarded: "0,00",
-          debitCredit: "C",
-          creditFor: invoice.nummer,
-        });
-      }
-    }
-    logStep(`Historische declaratiebasis '${candidate}' vult ${rows.length} opgeloste/historische regels aan.`);
-    return rows;
-  }
-  throw new Error(`Geen gevalideerde declaratiebasis gevonden voor de periode vóór ${currentStart}.`);
+  return reconciled.rows;
 }
 
 async function readFinanceDeclarationFeed(
@@ -521,6 +475,25 @@ function assertForbiddenHeadersAbsent(fileName: string, text: string, forbidden:
   }
 }
 
+function csvColumnValues(text: string, columnName: string): Set<string> {
+  const { rows } = mergeQuotedLines(text.replace(/^﻿/, "").split(/\r?\n/));
+  const headerRowIdx = rows.findIndex((row) => row.text.trim() !== "");
+  if (headerRowIdx < 0) return new Set();
+
+  const headerLine = rows[headerRowIdx].text;
+  const delimiter = (headerLine.match(/;/g) ?? []).length >= (headerLine.match(/,/g) ?? []).length ? ";" : ",";
+  const headers = splitLine(headerLine, delimiter).map((cell) => cell.replace(/^﻿/, "").trim().toLowerCase());
+  const columnIndex = headers.indexOf(columnName.toLowerCase());
+  if (columnIndex < 0) return new Set();
+
+  return new Set(
+    rows
+      .slice(headerRowIdx + 1)
+      .map((row) => splitLine(row.text, delimiter)[columnIndex]?.trim() ?? "")
+      .filter((value) => value !== "" && value !== "-"),
+  );
+}
+
 function validateExports(files: DownloadedExports): void {
   logStep("Alle vijf downloads valideren met de productieparsers.");
   const importedAt = RUN_STARTED.toISOString();
@@ -554,6 +527,20 @@ function validateExports(files: DownloadedExports): void {
     throw new Error(`Declaratievalidatie mislukt: ${declarations.error ?? "geen regels"}.`);
   }
 
+  const declarationInvoiceNumbers = new Set(declarations.facts.facturen.map((invoice) => invoice.nummer));
+  const missingAgendaInvoices = [...csvColumnValues(agendaText, "Factuurnummer")].filter(
+    (invoiceNumber) => !declarationInvoiceNumbers.has(invoiceNumber),
+  );
+  const missingSurchargeInvoices = [...csvColumnValues(surchargeText, "Factuurnummer")].filter(
+    (invoiceNumber) => !declarationInvoiceNumbers.has(invoiceNumber),
+  );
+  if (missingAgendaInvoices.length > 0 || missingSurchargeInvoices.length > 0) {
+    throw new Error(
+      `Declaratiehistorie is niet volledig: ${missingAgendaInvoices.length} agendafacturen en ` +
+        `${missingSurchargeInvoices.length} toeslagfacturen ontbreken.`,
+    );
+  }
+
   logStep(
     `Validatie geslaagd: ${clients.records.length} cliënten, ${agenda.facts.totalRows} agendaregels, ` +
       `${referrers.facts.totalRows} verwijzerregels, ${surcharges.facts.totalRows} toeslagregels en ` +
@@ -562,12 +549,7 @@ function validateExports(files: DownloadedExports): void {
 }
 
 function publishStagedFiles(files: DownloadedExports): DownloadedExports {
-  const published = {} as DownloadedExports;
-  for (const [key, stagedPath] of Object.entries(files) as [keyof DownloadedExports, string][]) {
-    const destination = path.join(EXPORTS_DIR, path.basename(stagedPath));
-    fs.renameSync(stagedPath, destination);
-    published[key] = destination;
-  }
+  const published = publishStagedEpdGeneration(EXPORTS_DIR, files, RUN_STARTED.toISOString());
   fs.rmdirSync(STAGE_DIR);
   return published;
 }

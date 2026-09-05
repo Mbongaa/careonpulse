@@ -29,8 +29,8 @@ export function hrMetrics(state: HrState): CareonMetric[] {
 /** Eén definitie van het BIG-venster voor zowel het HR-paneel als de
     signalering; die liepen uiteen (`<= 90` naast `< 90`), waardoor een
     registratie die precies over 90 dagen verloopt wél in het paneel stond maar
-    niet in de melding. `inclusiefVerlopen` is het enige verschil dat blijft: het
-    paneel toont ook al verlopen registraties, de melding heet "<90 dgn". */
+    niet in de melding. Paneel en signalering nemen ook verlopen registraties
+    mee: verval lost de benodigde herregistratie niet vanzelf op. */
 export function hrBigVenster(
   registraties: readonly HrBigRegistratie[],
   vandaag: Date,
@@ -51,14 +51,14 @@ export function formatHrDate(value: string): string {
 }
 
 export function buildHrBigAlert(state: HrState, vandaag: Date): CareonAlert | null {
-  const registraties = hrBigBinnenDagen(state, vandaag);
+  const registraties = hrBigVenster(state.bigRegistraties, vandaag, { inclusiefVerlopen: true });
   if (registraties.length === 0) return null;
   const formatter = new Intl.ListFormat("nl-NL", { style: "long", type: "conjunction" });
   return {
     sev: "hoog",
-    titel: HR_BIG_ALERT_TITLE,
+    titel: registraties.some((row) => row.dagen < 0) ? "BIG-registratie verlopen of <90 dgn" : HR_BIG_ALERT_TITLE,
     unit: "medewerkers",
-    detail: `${formatter.format(registraties.map((row) => `${row.naam} (${row.dagen} dgn)`))}.`,
+    detail: `${formatter.format(registraties.map((row) => `${row.naam} (${row.dagen < 0 ? `${-row.dagen} dgn verlopen` : `${row.dagen} dgn`})`))}.`,
     n: registraties.length,
     page: "hr",
   };

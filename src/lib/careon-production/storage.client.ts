@@ -2,6 +2,7 @@
 
 import { getLocalStorageValue, setLocalStorageValue } from "@/lib/local-storage.client";
 
+import { type EpdSnapshot, isEpdSnapshot } from "./epd-snapshot";
 import {
   type AgendaFacts,
   type DeclaratiesFacts,
@@ -20,6 +21,54 @@ import {
 // Supabase-omgeving is de server de bron; localStorage blijft de fallback.
 
 const STORAGE_KEY = "careon-production-v1";
+const GENERATION_KEY = "careon-epd-generation-v1";
+
+/** One localStorage write commits all slices; quota failure preserves the previous complete generation. */
+export function saveEpdSnapshot(snapshot: EpdSnapshot, financieelZichtbaar: boolean): boolean {
+  if (!snapshot.generationId || !isEpdSnapshot(snapshot, financieelZichtbaar)) return false;
+  try {
+    window.localStorage.setItem(GENERATION_KEY, JSON.stringify({ snapshot, financieelZichtbaar }));
+  } catch {
+    return false;
+  }
+  // Once committed, remove obsolete individual slices. Failure here cannot
+  // affect hydration: the complete bundle always takes precedence.
+  try {
+    for (const key of [
+      STORAGE_KEY,
+      AGENDA_KEY,
+      AGENDA_GEREDIGEERD_KEY,
+      VERWIJZERS_KEY,
+      TOESLAGEN_KEY,
+      DECLARATIES_KEY,
+    ]) {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    /* The generation itself was persisted successfully. */
+  }
+  return true;
+}
+
+export function loadEpdSnapshot(financieelZichtbaar: boolean): { present: boolean; snapshot: EpdSnapshot | null } {
+  const raw = getLocalStorageValue(GENERATION_KEY);
+  if (raw === null) return { present: false, snapshot: null };
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (value && typeof value === "object") {
+      const cache = value as Record<string, unknown>;
+      if (
+        cache.financieelZichtbaar === financieelZichtbaar &&
+        isEpdSnapshot(cache.snapshot, financieelZichtbaar) &&
+        cache.snapshot.generationId
+      )
+        return { present: true, snapshot: cache.snapshot };
+    }
+  } catch {
+    /* A broken bundle must never fall back to individual, potentially mixed slices. */
+  }
+  return { present: true, snapshot: null };
+}
 
 // Expliciete demo-keuze: gezet door "Herstel demo-data" (of een csv/api-
 // activatie) zodat een centrale Supabase-run productie-modus niet ongevraagd
@@ -42,6 +91,7 @@ export function saveProductionState(state: ProductionState): boolean {
 
 export function clearProductionState(): void {
   try {
+    window.localStorage.removeItem(GENERATION_KEY);
     window.localStorage.removeItem(STORAGE_KEY);
     window.localStorage.removeItem(OPTOUT_KEY);
   } catch {
@@ -190,6 +240,7 @@ export function loadDeclaratiesFacts(): DeclaratiesFacts | null {
 
 export function clearAuxFacts(): void {
   try {
+    window.localStorage.removeItem(GENERATION_KEY);
     window.localStorage.removeItem(AGENDA_KEY);
     window.localStorage.removeItem(AGENDA_GEREDIGEERD_KEY);
     window.localStorage.removeItem(VERWIJZERS_KEY);
@@ -207,6 +258,7 @@ export function clearAuxFacts(): void {
  */
 export function clearFinancieleAuxFacts(): void {
   try {
+    window.localStorage.removeItem(GENERATION_KEY);
     window.localStorage.removeItem(TOESLAGEN_KEY);
     window.localStorage.removeItem(DECLARATIES_KEY);
   } catch {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { scheduleAuditEvent } from "@/lib/careon-audit/audit.server";
+import { isGenerationManaged, readEpdSnapshot } from "@/lib/careon-production/epd-snapshot.server";
 import { type ClientRecord, isClientRecord, type ProductionState } from "@/lib/careon-production/types";
 import { InvalidJsonBodyError, RequestPayloadTooLargeError, readJsonBodyLimited } from "@/lib/http/read-json.server";
 import { POSTGREST_URL, userRestHeaders } from "@/lib/supabase/postgrest.server";
@@ -89,6 +90,13 @@ export async function GET() {
   if ("denied" in auth) return auth.denied;
   const session = auth.session;
 
+  try {
+    const snapshot = await readEpdSnapshot(session);
+    if (snapshot.generationId) return NextResponse.json({ configured: true, state: snapshot.production });
+  } catch {
+    return NextResponse.json({ error: "EPD-generatie kon niet worden gelezen." }, { status: 502 });
+  }
+
   // Drie runs i.p.v. één, plus een volledigheidscontrole: een run waarvan de
   // records-insert halverwege faalde mag niet als "laatste stand" doorgaan en
   // de vorige goede run verduisteren. Geordend op created_at (servertijd,
@@ -128,6 +136,20 @@ export async function POST(request: Request) {
   const auth = await requireCareonSession();
   if ("denied" in auth) return auth.denied;
   const session = auth.session;
+
+  try {
+    if (await isGenerationManaged(session)) {
+      return NextResponse.json(
+        {
+          error:
+            "Deze centrale bron wordt als volledige EPD-generatie gesynchroniseerd. Start een volledige synchronisatie.",
+        },
+        { status: 409 },
+      );
+    }
+  } catch {
+    return NextResponse.json({ error: "EPD-generatie kon niet worden gecontroleerd." }, { status: 502 });
+  }
 
   let body: Partial<ProductionState> & { operationId?: unknown };
   try {

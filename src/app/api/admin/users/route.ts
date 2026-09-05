@@ -497,10 +497,9 @@ export async function PATCH(request: Request) {
   // andermans sessies te beëindigen. `admin.signOut()` in @supabase/auth-js
   // POST't naar /logout met het JWT van de gebruiker zélf, en de admin-routes
   // gaan niet verder dan /admin/users/{id} (+ /factors) — een DELETE op
-  // /admin/users/{id}/sessions zou een 404 zijn. Een blokkade geldt daarom via
-  // de sessielaag: getCareonSession leest `banned_until` uit het /user-antwoord
-  // dat het toch al ophaalt en behandelt de sessie als niet-ingelogd, dus de
-  // toegang valt bij de eerstvolgende aanvraag dicht. Bij reset_password blijft
+  // /admin/users/{id}/sessions zou een 404 zijn. Een blokkade geldt via de
+  // sessielaag én app.is_active_user() in de database; ook een behouden JWT
+  // verliest bij de volgende DB-aanvraag zijn RLS-toegang. Bij reset_password blijft
   // een al uitgegeven access token geldig tot zijn vervaltijd; blokkeer het
   // account als de toegang direct dicht moet.
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { scheduleAuditEvent } from "@/lib/careon-audit/audit.server";
 import { magFinancieelZien } from "@/lib/careon-financieel-rol";
+import { isGenerationManaged, readEpdSnapshot } from "@/lib/careon-production/epd-snapshot.server";
 import { InvalidJsonBodyError, RequestPayloadTooLargeError, readJsonBodyLimited } from "@/lib/http/read-json.server";
 import { POSTGREST_URL, userRestHeaders } from "@/lib/supabase/postgrest.server";
 import { type CareonSession, requireCareonSession } from "@/lib/supabase/session.server";
@@ -52,6 +53,20 @@ export function createAuxStateHandlers<T>(
     if ("denied" in auth) return auth.denied;
     const session: CareonSession = auth.session;
 
+    try {
+      const snapshot = await readEpdSnapshot(session);
+      if (snapshot.generationId) {
+        const key = table.replace(/^careon_/, "").replace(/_state$/, "");
+        let state = isValid(snapshot[key]) ? snapshot[key] : null;
+        if (state !== null && financieel && !magFinancieelZien(session)) {
+          state = financieel.modus === "geheel" ? null : financieel.redigeer(state);
+        }
+        return NextResponse.json({ configured: true, state });
+      }
+    } catch {
+      return NextResponse.json({ error: "EPD-generatie kon niet worden gelezen." }, { status: 502 });
+    }
+
     const params = new URLSearchParams({
       select: "state",
       org_id: `eq.${session.orgId}`,
@@ -97,6 +112,19 @@ export function createAuxStateHandlers<T>(
     const auth = await requireCareonSession();
     if ("denied" in auth) return auth.denied;
     const session: CareonSession = auth.session;
+    try {
+      if (await isGenerationManaged(session)) {
+        return NextResponse.json(
+          {
+            error:
+              "Deze centrale bron wordt als volledige EPD-generatie gesynchroniseerd. Start een volledige synchronisatie.",
+          },
+          { status: 409 },
+        );
+      }
+    } catch {
+      return NextResponse.json({ error: "EPD-generatie kon niet worden gecontroleerd." }, { status: 502 });
+    }
     // Wie (een deel van) een aggregaat niet mag zien, mag hem ook niet
     // vervangen: een push wint org-breed (nieuwste rij). Voor de gemengde
     // agenda geldt dat evengoed — een lid zou anders zijn geredigeerde

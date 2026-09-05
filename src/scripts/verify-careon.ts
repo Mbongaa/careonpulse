@@ -40,7 +40,7 @@ import {
   EMPTY_FACTURATIE_INSTELLINGEN,
 } from "../data/careon/careon-facturatie";
 import { CAREON_LOCATION_SCALE, CAREON_LOCATIONS } from "../data/careon/careon-filters";
-import { FINANCIEEL_METRICS } from "../data/careon/careon-financieel";
+import { DECLARATIE_OUDERDOM, FINANCIEEL_METRICS, OPENSTAAND_TOTAAL } from "../data/careon/careon-financieel";
 import { BIG_REGISTRATIES, HR_METRICS, HR_SEED_STATE } from "../data/careon/careon-hr";
 import { careonDetailHref, KPI_DETAIL_BY_ID, KPI_DETAILS } from "../data/careon/careon-kpi-details";
 import { COCKPIT_KPIS } from "../data/careon/careon-kpis";
@@ -1059,6 +1059,50 @@ check("hr metrics volgen handmatige staat", hrMetrics(hrGewijzigd)[0].value, 4.2
 const hrAlert = buildHrBigAlert(HR_SEED_STATE, new Date("2026-07-26T00:00:00Z"));
 check("hr BIG-alert live aantal", hrAlert?.n, 3);
 check("hr BIG-alert live dagen", hrAlert ? hrAlert.detail.includes("19 dgn") : false, true);
+const hrNaVerloop = buildHrBigAlert(HR_SEED_STATE, new Date("2026-09-05T00:00:00Z"));
+check("hr verlopen BIG blijft gesignaleerd naast komende registratie", hrNaVerloop?.n, 3);
+check(
+  "hr verlopen alert behoudt handmatige herkomst",
+  hrNaVerloop ? CAREON_PROVENANCE.signaleringen.widgets[hrNaVerloop.titel] : null,
+  "handmatig",
+);
+check(
+  "hr verlopen BIG krijgt expliciet verlopen label",
+  hrNaVerloop ? hrNaVerloop.detail.includes("L. Vermeer (22 dgn verlopen)") : false,
+  true,
+);
+check(
+  "hr komende BIG behoudt resterende dagen",
+  hrNaVerloop ? hrNaVerloop.detail.includes("S. Yılmaz (23 dgn)") : false,
+  true,
+);
+check(
+  "hr uitsluitend verlopen BIG blijft gesignaleerd",
+  buildHrBigAlert(HR_SEED_STATE, new Date("2026-10-01T00:00:00Z"))?.n,
+  3,
+);
+check(
+  "hr lege registratie geeft geen BIG-alert",
+  buildHrBigAlert({ ...HR_SEED_STATE, bigRegistraties: [] }, bigPeildatum),
+  null,
+);
+
+// Demo-ouderdom moet dezelfde eurogrondslag gebruiken als de KPI's. De audit
+// draagt alleen het totaal en >90 dagen; fijnere leeftijdsbedragen zijn onbekend.
+const openstaandKpi = FINANCIEEL_METRICS.find((metric) => metric.detailId === "openstaand");
+const ouder90Kpi = FINANCIEEL_METRICS.find((metric) => metric.detailId === "declaraties90");
+check("financieel ouderdom bewaart geauditeerd totaal", [openstaandKpi?.value, OPENSTAAND_TOTAAL], [96400, 96400]);
+check("financieel ouderdom bewaart geauditeerd >90 bedrag", ouder90Kpi?.value, 21300);
+check(
+  "financieel ouderdom >90 sluit aan op eurogrondslag",
+  DECLARATIE_OUDERDOM.at(-1)?.pct,
+  Math.round((21300 / 96400) * 1000) / 10,
+);
+check(
+  "financieel ouderdom percentages vormen geheel",
+  DECLARATIE_OUDERDOM.reduce((sum, row) => sum + row.pct, 0),
+  100,
+);
 check(
   "hr validatie weigert percentage >100",
   isHrState({ ...HR_SEED_STATE, kpis: { ...HR_SEED_STATE.kpis, verzuim: { value: 101, prev: 6.4 } } }),
@@ -1247,6 +1291,26 @@ const rolregelCtx = {
   source: { mode: "demo" as const, label: "Demo-data", detail: "Voorbeeldset Careon" },
   hr: HR_SEED_STATE,
 };
+const financeAntwoord = resolveAssistantResponse("Openstaande declaraties", rolregelCtx, "financieel-omzet");
+check(
+  "assistent ouderdompercentage volgt KPI-bedragen",
+  financeAntwoord.deep.includes("22,1% ouder dan 90 dagen"),
+  true,
+);
+const verlopenHrAntwoord = resolveAssistantResponse(
+  "BIG-registraties",
+  {
+    ...rolregelCtx,
+    hr: { ...HR_SEED_STATE, bigRegistraties: [{ ...HR_SEED_STATE.bigRegistraties[0], verloopt: "2000-01-01" }] },
+  },
+  "verzuim-hr",
+);
+check(
+  "assistent laat verlopen BIG niet verdwijnen",
+  verlopenHrAntwoord.artifact.visualizations.find((visual) => visual.id === "big")?.table?.rows.length,
+  1,
+);
+check("assistent benoemt verlopen BIG als verlopen", verlopenHrAntwoord.deep.includes("is verlopen"), true);
 const overzichtVoorLid = redigeerFinancieleAssistentResponse(
   resolveAssistantResponse("Geef mij het overzicht van vandaag", rolregelCtx, "directie-overzicht"),
 );

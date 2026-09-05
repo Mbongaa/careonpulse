@@ -128,7 +128,7 @@ function AccountCel({
       setAccountEmail(rij.naam, normalized);
       setLink(payload?.inviteLink ?? null);
       if (!payload?.inviteLink) {
-        setFeedback("Account aangemaakt — genereer de wachtwoord-link via Gebruikersbeheer.");
+        setFeedback("Account aangemaakt. Een eventuele wachtwoord-link vraagt u aan bij platformbeheer.");
       }
       onChanged();
     } finally {

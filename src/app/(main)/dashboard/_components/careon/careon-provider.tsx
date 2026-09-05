@@ -8,13 +8,10 @@ import { COCKPIT_KPIS } from "@/data/careon/careon-kpis";
 import type { CareonFilters, CareonKpi, CareonKpiOverrides, CareonSource } from "@/data/careon/careon-types";
 import { filterFinancieleAlerts } from "@/lib/careon-financieel-rol";
 import { aanwezigeVestigingen, computeProductionSnapshot } from "@/lib/careon-production/compute-snapshot";
+import { EMPTY_EPD_SNAPSHOT, type EpdSnapshot } from "@/lib/careon-production/epd-snapshot";
 import { redigeerAgendaFactsFinancieel } from "@/lib/careon-production/redactie";
 import {
-  fetchRemoteAgendaFacts,
-  fetchRemoteDeclaratiesFacts,
-  fetchRemoteProductionState,
-  fetchRemoteToeslagenFacts,
-  fetchRemoteVerwijzersFacts,
+  fetchRemoteEpdSnapshot,
   type PushResult,
   pushRemoteAgendaFacts,
   pushRemoteDeclaratiesFacts,
@@ -30,12 +27,14 @@ import {
   isAgendaOpslagGeredigeerd,
   loadAgendaFacts,
   loadDeclaratiesFacts,
+  loadEpdSnapshot,
   loadProductionState,
   loadToeslagenFacts,
   loadVerwijzersFacts,
   saveAgendaFacts,
   saveAgendaFactsGeredigeerd,
   saveDeclaratiesFacts,
+  saveEpdSnapshot,
   saveProductionState,
   saveToeslagenFacts,
   saveVerwijzersFacts,
@@ -122,11 +121,14 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
   });
   const [source, setSourceState] = useState<CareonSource>(DEMO_SOURCE);
   const [overrides, setOverrides] = useState<CareonKpiOverrides>({});
-  const [productionState, setProductionState] = useState<ProductionState | null>(null);
-  const [agendaFacts, setAgendaFacts] = useState<AgendaFacts | null>(null);
-  const [verwijzersFacts, setVerwijzersFacts] = useState<VerwijzersFacts | null>(null);
-  const [toeslagenFacts, setToeslagenFacts] = useState<ToeslagenFacts | null>(null);
-  const [declaratiesFacts, setDeclaratiesFacts] = useState<DeclaratiesFacts | null>(null);
+  const [slices, setSlices] = useState<EpdSnapshot>(EMPTY_EPD_SNAPSHOT);
+  const {
+    production: productionState,
+    agenda: agendaFacts,
+    verwijzers: verwijzersFacts,
+    toeslagen: toeslagenFacts,
+    declaraties: declaratiesFacts,
+  } = slices;
 
   // Zodra de gebruiker zelf een bron kiest (import, csv, api, herstel demo)
   // mag een nog lopende remote-fetch die keuze niet meer overschrijven.
@@ -141,76 +143,92 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
   // ("Herstel demo-data") blokkeert de auto-activatie tot een nieuwe import.
   useEffect(() => {
     bewaakCacheEigenaar(cacheEigenaar);
-    const stored = loadProductionState();
+    const cached = loadEpdSnapshot(financieelZichtbaar);
+    const stored = cached.present ? (cached.snapshot?.production ?? null) : loadProductionState();
     // Een gemarkeerd-geredigeerde (leden)kopie is voor een beheerder
     // onbruikbaar — negeren, zodat de volledige centrale versie zo dadelijk
     // wél wordt geadopteerd (redactie behoudt importedAt, dus de gewone
     // "nieuwer"-vergelijking zou de genulde kopie laten staan).
-    const agendaRuw = financieelZichtbaar && isAgendaOpslagGeredigeerd() ? null : loadAgendaFacts();
+    let agendaRuw = cached.present ? (cached.snapshot?.agenda ?? null) : loadAgendaFacts();
+    if (!cached.present && financieelZichtbaar && isAgendaOpslagGeredigeerd()) agendaRuw = null;
     const storedAgenda = agendaRuw && !financieelZichtbaar ? redigeerAgendaFactsFinancieel(agendaRuw) : agendaRuw;
-    const storedVerwijzers = loadVerwijzersFacts();
-    const storedToeslagen = financieelZichtbaar ? loadToeslagenFacts() : null;
-    const storedDeclaraties = financieelZichtbaar ? loadDeclaratiesFacts() : null;
+    const storedVerwijzers = cached.present ? (cached.snapshot?.verwijzers ?? null) : loadVerwijzersFacts();
+    let storedToeslagen = cached.present ? (cached.snapshot?.toeslagen ?? null) : loadToeslagenFacts();
+    let storedDeclaraties = cached.present ? (cached.snapshot?.declaraties ?? null) : loadDeclaratiesFacts();
+    if (!financieelZichtbaar) {
+      storedToeslagen = null;
+      storedDeclaraties = null;
+    }
     if (!financieelZichtbaar) {
       // Achtergebleven financiële kopieën van een eerdere (admin-)sessie op
       // dezelfde werkplek opruimen; de geredigeerde agenda overschrijft de
       // volledige lokale kopie — mét markering, zodat een latere
       // beheerderssessie hem herkent en de centrale versie terughaalt.
       clearFinancieleAuxFacts();
-      if (storedAgenda) saveAgendaFactsGeredigeerd(storedAgenda);
+      if (cached.snapshot)
+        saveEpdSnapshot({ ...cached.snapshot, agenda: storedAgenda, toeslagen: null, declaraties: null }, false);
+      else if (!cached.present && storedAgenda) saveAgendaFactsGeredigeerd(storedAgenda);
     }
+    const local: EpdSnapshot = {
+      generationId: cached.snapshot?.generationId ?? null,
+      production: stored,
+      agenda: storedAgenda,
+      verwijzers: storedVerwijzers,
+      toeslagen: storedToeslagen,
+      declaraties: storedDeclaraties,
+    };
+    setSlices(local);
     if (stored) {
-      setProductionState(stored);
       setSourceState(productionSource(stored));
-      if (storedAgenda) setAgendaFacts(storedAgenda);
-      if (storedVerwijzers) setVerwijzersFacts(storedVerwijzers);
-      if (storedToeslagen) setToeslagenFacts(storedToeslagen);
-      if (storedDeclaraties) setDeclaratiesFacts(storedDeclaraties);
-    } else if (hasProductionOptOut()) {
-      return;
+    } else {
+      setSourceState(DEMO_SOURCE);
+      if (hasProductionOptOut()) return;
     }
     let cancelled = false;
     const isNieuwer = (remote: { importedAt: string }, lokaal: { importedAt: string } | null) =>
       lokaal === null || Date.parse(remote.importedAt) > Date.parse(lokaal.importedAt);
-    void fetchRemoteProductionState().then((remote) => {
-      if (remote && !cancelled && !userChoseSourceRef.current && isNieuwer(remote, stored)) {
-        setProductionState(remote);
-        saveProductionState(remote);
-        setSourceState(productionSource(remote));
+    // One request, one state transition and one cache write for managed generations.
+    void fetchRemoteEpdSnapshot(financieelZichtbaar).then((bundle) => {
+      if (!bundle || cancelled || userChoseSourceRef.current) return;
+      const visible = {
+        ...bundle,
+        agenda: bundle.agenda && !financieelZichtbaar ? redigeerAgendaFactsFinancieel(bundle.agenda) : bundle.agenda,
+        toeslagen: financieelZichtbaar ? bundle.toeslagen : null,
+        declaraties: financieelZichtbaar ? bundle.declaraties : null,
+      };
+      if (visible.generationId) {
+        setSlices(visible);
+        saveEpdSnapshot(visible, financieelZichtbaar);
+        if (visible.production) setSourceState(productionSource(visible.production));
+        return;
       }
-    });
-    void fetchRemoteAgendaFacts().then((remote) => {
-      if (remote && !cancelled && !userChoseSourceRef.current && isNieuwer(remote, storedAgenda)) {
-        if (financieelZichtbaar) {
-          setAgendaFacts(remote);
-          saveAgendaFacts(remote);
-        } else {
-          const facts = redigeerAgendaFactsFinancieel(remote);
-          setAgendaFacts(facts);
-          saveAgendaFactsGeredigeerd(facts);
-        }
+      // Never downgrade a managed cache to the legacy independent-import protocol.
+      if (cached.present) return;
+      const next = { ...local };
+      if (visible.production && isNieuwer(visible.production, stored)) {
+        next.production = visible.production;
+        saveProductionState(visible.production);
+        setSourceState(productionSource(visible.production));
       }
-    });
-    void fetchRemoteVerwijzersFacts().then((remote) => {
-      if (remote && !cancelled && !userChoseSourceRef.current && isNieuwer(remote, storedVerwijzers)) {
-        setVerwijzersFacts(remote);
-        saveVerwijzersFacts(remote);
+      if (visible.agenda && isNieuwer(visible.agenda, storedAgenda)) {
+        next.agenda = visible.agenda;
+        if (financieelZichtbaar) saveAgendaFacts(visible.agenda);
+        else saveAgendaFactsGeredigeerd(visible.agenda);
       }
+      if (visible.verwijzers && isNieuwer(visible.verwijzers, storedVerwijzers)) {
+        next.verwijzers = visible.verwijzers;
+        saveVerwijzersFacts(visible.verwijzers);
+      }
+      if (visible.toeslagen && isNieuwer(visible.toeslagen, storedToeslagen)) {
+        next.toeslagen = visible.toeslagen;
+        saveToeslagenFacts(visible.toeslagen);
+      }
+      if (visible.declaraties && isNieuwer(visible.declaraties, storedDeclaraties)) {
+        next.declaraties = visible.declaraties;
+        saveDeclaratiesFacts(visible.declaraties);
+      }
+      setSlices(next);
     });
-    if (financieelZichtbaar) {
-      void fetchRemoteToeslagenFacts().then((remote) => {
-        if (remote && !cancelled && !userChoseSourceRef.current && isNieuwer(remote, storedToeslagen)) {
-          setToeslagenFacts(remote);
-          saveToeslagenFacts(remote);
-        }
-      });
-      void fetchRemoteDeclaratiesFacts().then((remote) => {
-        if (remote && !cancelled && !userChoseSourceRef.current && isNieuwer(remote, storedDeclaraties)) {
-          setDeclaratiesFacts(remote);
-          saveDeclaratiesFacts(remote);
-        }
-      });
-    }
     return () => {
       cancelled = true;
     };
@@ -233,11 +251,7 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
   }, []);
 
   const clearProductionSlices = useCallback(() => {
-    setProductionState(null);
-    setAgendaFacts(null);
-    setVerwijzersFacts(null);
-    setToeslagenFacts(null);
-    setDeclaratiesFacts(null);
+    setSlices(EMPTY_EPD_SNAPSHOT);
     clearProductionState();
     clearAuxFacts();
   }, []);
@@ -267,16 +281,20 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
   // De activatie zelf is synchroon (state + bron flippen direct); opslag- en
   // sync-uitkomsten gaan terug naar de aanroeper zodat een quota- of
   // push-fout zichtbaar wordt i.p.v. een stille terugval na herladen.
-  const activateProduction = useCallback(async (state: ProductionState): Promise<ActivationResult> => {
-    userChoseSourceRef.current = true;
-    setOverrides({});
-    setProductionState(state);
-    const persisted = saveProductionState(state);
-    setProductionOptOut(false);
-    setSourceState(productionSource(state));
-    const sync = await pushRemoteProductionState(state);
-    return { persisted, sync };
-  }, []);
+  const activateProduction = useCallback(
+    async (state: ProductionState): Promise<ActivationResult> => {
+      if (slices.generationId) return { persisted: false, sync: "failed" };
+      userChoseSourceRef.current = true;
+      setOverrides({});
+      setSlices((prev) => ({ ...prev, production: state }));
+      const persisted = saveProductionState(state);
+      setProductionOptOut(false);
+      setSourceState(productionSource(state));
+      const sync = await pushRemoteProductionState(state);
+      return { persisted, sync };
+    },
+    [slices.generationId],
+  );
 
   // Een lid mag de (gemengde) agenda-export wél koppelen — het bestand komt
   // van zijn eigen werkplek — maar houdt lokaal alleen de geredigeerde
@@ -288,49 +306,60 @@ export function CareonProvider({ children }: Readonly<{ children: ReactNode }>) 
   // synchronisatiefout.
   const activateAgenda = useCallback(
     async (facts: AgendaFacts): Promise<ActivationResult> => {
+      if (slices.generationId) return { persisted: false, sync: "failed" };
+      userChoseSourceRef.current = true;
       const zichtbaar = financieelZichtbaar ? facts : redigeerAgendaFactsFinancieel(facts);
-      setAgendaFacts(zichtbaar);
+      setSlices((prev) => ({ ...prev, agenda: zichtbaar }));
       const persisted = financieelZichtbaar ? saveAgendaFacts(facts) : saveAgendaFactsGeredigeerd(zichtbaar);
       const sync = await pushRemoteAgendaFacts(facts);
       return { persisted, sync };
     },
-    [financieelZichtbaar],
+    [financieelZichtbaar, slices.generationId],
   );
 
-  const activateVerwijzers = useCallback(async (facts: VerwijzersFacts): Promise<ActivationResult> => {
-    setVerwijzersFacts(facts);
-    const persisted = saveVerwijzersFacts(facts);
-    const sync = await pushRemoteVerwijzersFacts(facts);
-    return { persisted, sync };
-  }, []);
+  const activateVerwijzers = useCallback(
+    async (facts: VerwijzersFacts): Promise<ActivationResult> => {
+      if (slices.generationId) return { persisted: false, sync: "failed" };
+      userChoseSourceRef.current = true;
+      setSlices((prev) => ({ ...prev, verwijzers: facts }));
+      const persisted = saveVerwijzersFacts(facts);
+      const sync = await pushRemoteVerwijzersFacts(facts);
+      return { persisted, sync };
+    },
+    [slices.generationId],
+  );
 
   // Volledig financiële aggregaten: de uploadkaarten zijn voor leden
   // verborgen en de route weigert hun push (403) — mocht dit pad toch ooit
   // lopen, dan raakt het de zichtbare staat niet.
   const activateToeslagen = useCallback(
     async (facts: ToeslagenFacts): Promise<ActivationResult> => {
+      if (slices.generationId) return { persisted: false, sync: "failed" };
       if (!financieelZichtbaar) {
         return { persisted: false, sync: await pushRemoteToeslagenFacts(facts) };
       }
-      setToeslagenFacts(facts);
+      userChoseSourceRef.current = true;
+      setSlices((prev) => ({ ...prev, toeslagen: facts }));
       const persisted = saveToeslagenFacts(facts);
       const sync = await pushRemoteToeslagenFacts(facts);
       return { persisted, sync };
     },
-    [financieelZichtbaar],
+    [financieelZichtbaar, slices.generationId],
   );
 
   const activateDeclaraties = useCallback(
     async (facts: DeclaratiesFacts): Promise<ActivationResult> => {
+      if (slices.generationId) return { persisted: false, sync: "failed" };
       if (!financieelZichtbaar) {
         return { persisted: false, sync: await pushRemoteDeclaratiesFacts(facts) };
       }
-      setDeclaratiesFacts(facts);
+      userChoseSourceRef.current = true;
+      setSlices((prev) => ({ ...prev, declaraties: facts }));
       const persisted = saveDeclaratiesFacts(facts);
       const sync = await pushRemoteDeclaratiesFacts(facts);
       return { persisted, sync };
     },
-    [financieelZichtbaar],
+    [financieelZichtbaar, slices.generationId],
   );
 
   const isProduction = source.mode === "productie" && productionState !== null;

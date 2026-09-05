@@ -1,8 +1,12 @@
 import { parseAgendaExport } from "../lib/careon-production/parse-agenda";
 import { parseDeclaratiesExport } from "../lib/careon-production/parse-declaraties";
-import { parseClientExport } from "../lib/careon-production/parse-export";
+import { mergeQuotedLines, parseClientExport, splitLine } from "../lib/careon-production/parse-export";
 import { parseToeslagenExport } from "../lib/careon-production/parse-toeslagen";
 import { parseVerwijzersExport } from "../lib/careon-production/parse-verwijzers";
+import {
+  type DeclarationHistoryCandidate,
+  reconcileDeclarationHistory,
+} from "../lib/careon-production/tgc-declaration-history";
 import { isTgcDossierUrl } from "../lib/careon-production/tgc-dossier-url";
 import {
   AGENDA_RESULT_FIELDS,
@@ -35,6 +39,25 @@ function newest(pattern: RegExp): string {
     });
   assert(matches[0], `Geen export voor ${pattern} gevonden.`);
   return path.join(EXPORTS_DIR, matches[0]);
+}
+
+function csvColumnValues(text: string, columnName: string): Set<string> {
+  const { rows } = mergeQuotedLines(text.replace(/^﻿/, "").split(/\r?\n/));
+  const headerRowIdx = rows.findIndex((row) => row.text.trim() !== "");
+  if (headerRowIdx < 0) return new Set();
+
+  const headerLine = rows[headerRowIdx].text;
+  const delimiter = (headerLine.match(/;/g) ?? []).length >= (headerLine.match(/,/g) ?? []).length ? ";" : ",";
+  const headers = splitLine(headerLine, delimiter).map((cell) => cell.replace(/^﻿/, "").trim().toLowerCase());
+  const columnIndex = headers.indexOf(columnName.toLowerCase());
+  if (columnIndex < 0) return new Set();
+
+  return new Set(
+    rows
+      .slice(headerRowIdx + 1)
+      .map((row) => splitLine(row.text, delimiter)[columnIndex]?.trim() ?? "")
+      .filter((value) => value !== "" && value !== "-"),
+  );
 }
 
 function verifyConfiguration(): void {
@@ -111,6 +134,111 @@ function verifySyntheticExports(): void {
   );
 }
 
+function verifyDeclarationHistoryReconciliation(): void {
+  const currentRows = [
+    {
+      invoiceNumber: "CURRENT-1",
+      invoiceDate: "20-08-2026",
+      debtor: "VGZ",
+      amount: "100,00",
+      awarded: "100,00",
+      debitCredit: "D" as const,
+      creditFor: "",
+    },
+  ];
+  const candidates: DeclarationHistoryCandidate[] = [
+    {
+      fileName: "newest-partial.csv",
+      modifiedAt: 2,
+      facts: {
+        fileName: "newest-partial.csv",
+        importedAt: IMPORTED_AT,
+        totalRows: 2,
+        skippedRows: 0,
+        bronVan: "2025-05-20",
+        bronTot: "2026-08-20",
+        facturen: [
+          {
+            nummer: "CURRENT-1",
+            datum: "2026-08-20",
+            koepel: "VGZ",
+            bedrag: 90,
+            toegekend: 90,
+            gecrediteerd: 0,
+          },
+          {
+            nummer: "HISTORY-1",
+            datum: "2025-06-01",
+            koepel: "CZ",
+            bedrag: 200,
+            toegekend: 200,
+            gecrediteerd: 25,
+          },
+        ],
+        losseCredits: { aantal: 0, bedrag: 0 },
+      },
+    },
+    {
+      fileName: "older-full.csv",
+      modifiedAt: 1,
+      facts: {
+        fileName: "older-full.csv",
+        importedAt: IMPORTED_AT,
+        totalRows: 3,
+        skippedRows: 0,
+        bronVan: "2025-05-20",
+        bronTot: "2026-07-22",
+        facturen: [
+          {
+            nummer: "HISTORY-1",
+            datum: "2025-06-01",
+            koepel: "CZ",
+            bedrag: 150,
+            toegekend: 150,
+            gecrediteerd: 0,
+          },
+          {
+            nummer: "HISTORY-2",
+            datum: "2025-07-01",
+            koepel: "Particulier",
+            bedrag: 50,
+            toegekend: 0,
+            gecrediteerd: 0,
+          },
+          {
+            nummer: "CURRENT-1",
+            datum: "2026-07-01",
+            koepel: "VGZ",
+            bedrag: 80,
+            toegekend: 80,
+            gecrediteerd: 0,
+          },
+        ],
+        losseCredits: { aantal: 0, bedrag: 0 },
+      },
+    },
+  ];
+
+  const reconciled = reconcileDeclarationHistory(currentRows, "2025-08-01", candidates);
+  assert(reconciled.rows.length === 3, "Declaratiehistorie moet ontbrekende debetten plus credit bewaren.");
+  assert(
+    reconciled.rows.some((row) => row.invoiceNumber === "HISTORY-1" && row.amount === "200,00"),
+    "Nieuwste gevalideerde historische waarde moet winnen.",
+  );
+  assert(
+    reconciled.rows.some((row) => row.invoiceNumber === "HISTORY-2"),
+    "Een oudere volledige basis moet een ontbrekende factuur aanvullen.",
+  );
+  assert(
+    !reconciled.rows.some((row) => row.invoiceNumber === "CURRENT-1"),
+    "Een factuur uit de actuele finance-feed mag niet historisch worden gedupliceerd.",
+  );
+  assert(
+    reconciled.sourceFiles.join("|") === "newest-partial.csv|older-full.csv",
+    "De herkomst van alle gebruikte historische snapshots moet zichtbaar blijven.",
+  );
+}
+
 function verifyExistingExports(): void {
   if (!fs.existsSync(EXPORTS_DIR)) {
     console.log("(privé Exports EPD-map niet aanwezig — aanvullende productie-exportcontrole overgeslagen)");
@@ -122,18 +250,16 @@ function verifyExistingExports(): void {
   const surchargePath = newest(/^declared_surcharges.*\.csv$/i);
   const declarationPath = newest(/^declaration_total.*\.csv$/i);
 
+  const agendaText = fs.readFileSync(agendaPath, "utf8");
+  const surchargeText = fs.readFileSync(surchargePath, "utf8");
   const clients = parseClientExport(path.basename(clientPath), fs.readFileSync(clientPath, "utf8"));
-  const agenda = parseAgendaExport(path.basename(agendaPath), fs.readFileSync(agendaPath, "utf8"), IMPORTED_AT);
+  const agenda = parseAgendaExport(path.basename(agendaPath), agendaText, IMPORTED_AT);
   const referrers = parseVerwijzersExport(
     path.basename(referrerPath),
     fs.readFileSync(referrerPath, "utf8"),
     IMPORTED_AT,
   );
-  const surcharges = parseToeslagenExport(
-    path.basename(surchargePath),
-    fs.readFileSync(surchargePath, "utf8"),
-    IMPORTED_AT,
-  );
+  const surcharges = parseToeslagenExport(path.basename(surchargePath), surchargeText, IMPORTED_AT);
   const declarations = parseDeclaratiesExport(
     path.basename(declarationPath),
     fs.readFileSync(declarationPath, "utf8"),
@@ -165,9 +291,19 @@ function verifyExistingExports(): void {
     declarations.ok && declarations.facts && declarations.facts.totalRows > 0,
     `Declaratiefixture ongeldig: ${declarations.error ?? "geen regels"}.`,
   );
+  const declarationInvoiceNumbers = new Set(declarations.facts.facturen.map((invoice) => invoice.nummer));
+  assert(
+    [...csvColumnValues(agendaText, "Factuurnummer")].every((number) => declarationInvoiceNumbers.has(number)),
+    "De actuele declaratiehistorie mist een of meer facturen uit de agenda-export.",
+  );
+  assert(
+    [...csvColumnValues(surchargeText, "Factuurnummer")].every((number) => declarationInvoiceNumbers.has(number)),
+    "De actuele declaratiehistorie mist een of meer facturen uit de toeslagen-export.",
+  );
 }
 
 verifyConfiguration();
 verifySyntheticExports();
+verifyDeclarationHistoryReconciliation();
 verifyExistingExports();
 console.log("TGC sync-configuratie en alle vijf productieparsers met synthetische fixtures geverifieerd.");

@@ -33,6 +33,7 @@ export function storageBeschikbaar(): boolean {
 /** DB-rij (snake_case) van careon_facturatie_facturen. */
 export interface FactuurRij {
   id: string;
+  revision: number;
   status: Factuur["status"];
   soort: Factuur["soort"];
   reeks: string;
@@ -67,7 +68,7 @@ export interface FactuurRij {
 }
 
 export const FACTUUR_SELECT =
-  "id,status,soort,reeks,jaar,volgnummer,nummer,gecrediteerde_factuur_id,factuurdatum,prestatie_van," +
+  "id,revision,status,soort,reeks,jaar,volgnummer,nummer,gecrediteerde_factuur_id,factuurdatum,prestatie_van," +
   "prestatie_tot,vervaldatum,betaaltermijn_dagen,contact_id,afnemer,afzender,uw_kenmerk,order_referentie," +
   "regels,btw_totalen,vrijstelling_tekst,subtotaal_cent,btw_cent,totaal_cent,valuta,opmerking,betaald_op," +
   "pdf_pad,mail_status,mail_verzonden_op,created_at,updated_at";

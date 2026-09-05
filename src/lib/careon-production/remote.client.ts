@@ -1,5 +1,6 @@
 "use client";
 
+import { type EpdSnapshot, isEpdSnapshot } from "./epd-snapshot";
 import {
   type AgendaFacts,
   type DeclaratiesFacts,
@@ -35,6 +36,17 @@ function syncHeaders(extra?: HeadersInit): HeadersInit {
  * importkaart een mislukte synchronisatie voor volstrekt normaal rolgedrag.
  */
 export type PushResult = "ok" | "unconfigured" | "failed" | "alleen_beheerder";
+
+export async function fetchRemoteEpdSnapshot(financieelZichtbaar: boolean): Promise<EpdSnapshot | null> {
+  try {
+    const response = await fetch(`${ENDPOINT}/snapshot`, { cache: "no-store", headers: syncHeaders() });
+    if (!response.ok) return null;
+    const { snapshot } = (await response.json()) as { snapshot?: unknown };
+    return isEpdSnapshot(snapshot, financieelZichtbaar) ? snapshot : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function fetchRemoteProductionState(): Promise<ProductionState | null> {
   try {

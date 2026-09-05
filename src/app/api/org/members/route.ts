@@ -7,8 +7,11 @@ import { InvalidJsonBodyError, readJsonBodyLimited } from "@/lib/http/read-json.
 import { requireOrgAdmin } from "@/lib/supabase/session.server";
 
 // Organisatiebeheer (handoff 13, fase 6): een org_admin beheert accounts
-// UITSLUITEND binnen de eigen organisatie — aanmaken, wachtwoord resetten,
-// blokkeren/deblokkeren. Zelfde service-role-na-expliciete-rolcheck-patroon
+// UITSLUITEND binnen de eigen organisatie — leden lezen en nieuwe accounts
+// aanmaken. Globale identiteit (herstellinks, wachtwoord, blokkade) blijft
+// uitsluitend bij platformbeheer, ook als iemand vandaag maar één org heeft.
+// Een membership-count-check zou racen met het toevoegen van een tweede org.
+// Zelfde service-role-na-expliciete-rolcheck-patroon
 // als /api/admin/users, maar de organisatie komt altijd uit de sessie (nooit
 // uit de request) en platformbeheerders zijn geen geldig doelwit.
 
@@ -189,6 +192,7 @@ export async function GET() {
       banned: Boolean(user?.banned_until && new Date(user.banned_until) > new Date()),
       isPlatformAdmin: adminIds.has(membership.user_id),
       isSelf: membership.user_id === auth.session.userId,
+      canManageIdentity: auth.session.isSuperadmin && !adminIds.has(membership.user_id),
     };
   });
   return NextResponse.json({ members }, { headers: { "Cache-Control": "no-store" } });
@@ -239,10 +243,14 @@ export async function POST(request: Request) {
     body: JSON.stringify({ org_id: orgId, user_id: created.id, role }),
   }).catch(() => null);
   if (!membershipResponse?.ok) {
-    const cleanupResponse = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${created.id}`, {
-      method: "DELETE",
-      headers: serviceHeaders(),
-    }).catch(() => null);
+    // Een ander org kan het nieuwe account inmiddels gekoppeld hebben. Alleen
+    // platformbeheer mag daarom een globale rollback/delete uitvoeren.
+    const cleanupResponse = auth.session.isSuperadmin
+      ? await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${created.id}`, {
+          method: "DELETE",
+          headers: serviceHeaders(),
+        }).catch(() => null)
+      : null;
     if (!cleanupResponse?.ok) {
       scheduleAuditEvent({
         action: "org.user.rollback_failed",
@@ -271,13 +279,21 @@ export async function POST(request: Request) {
     userId: auth.session.userId,
     detail: { role, invite: true },
   });
-  const inviteLink = await maakWachtwoordLink(email, request);
+  // Een herstel-token blijft geldig buiten de tenant die het account aanmaakt.
+  // Geef organisatiebeheerders ook bij provisioning geen globale credential.
+  const inviteLink = auth.session.isSuperadmin ? await maakWachtwoordLink(email, request) : null;
   return NextResponse.json({ ok: true, id: created.id, inviteLink });
 }
 
 export async function PATCH(request: Request) {
   const auth = await requireOrgAdmin();
   if ("denied" in auth) return auth.denied;
+  if (!auth.session.isSuperadmin) {
+    return NextResponse.json(
+      { error: "Wachtwoorden, herstellinks en accountblokkades worden uitsluitend door platformbeheer beheerd." },
+      { status: 403 },
+    );
+  }
   const orgId = auth.session.orgId as string;
 
   const body = await readBody(request);
@@ -365,9 +381,9 @@ export async function PATCH(request: Request) {
   // ingetrokken. De GoTrue-beheer-API kent geen pad om andermans sessies te
   // beëindigen (`admin.signOut()` POST't naar /logout met het JWT van de
   // gebruiker zélf; /admin/users/{id}/sessions bestaat niet en zou een 404
-  // geven). De blokkade geldt via de sessielaag: getCareonSession() én de
-  // proxy toetsen `banned_until` bij ieder verzoek, dus de toegang valt bij de
-  // eerstvolgende aanvraag dicht. Bij reset_password blijft een al uitgegeven
+  // geven). De blokkade geldt via de sessielaag én app.is_active_user() in de
+  // database: ook een behouden JWT verliest bij de volgende DB-aanvraag zijn
+  // RLS-toegang. Bij reset_password blijft een al uitgegeven
   // access token geldig tot zijn vervaltijd — blokkeer het account wanneer de
   // toegang direct dicht moet.
 

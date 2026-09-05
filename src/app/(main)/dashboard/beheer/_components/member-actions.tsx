@@ -14,7 +14,7 @@ export function MemberActions({ member, onChanged }: Readonly<{ member: OrgMembe
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
-  const beschermd = member.isPlatformAdmin;
+  const beschermd = member.isPlatformAdmin || !member.canManageIdentity;
 
   async function call(body: Record<string, unknown>, confirmText?: string) {
     if (busy) return;

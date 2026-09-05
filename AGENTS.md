@@ -134,9 +134,9 @@ Keep a component inside its route until it is reused by another feature. Do not 
 
 ## Platform context (Careon Pulse)
 
-This repository is one module of the **Careon Pulse** multi-module platform: a Flutter shell app + a Supabase identity hub (OAuth 2.1 / OIDC) + independent modules (this dashboard, the HumHub communication platform, JaaS meetings, and the recording/AI module).
+This repository is one module of the **Careon Pulse** multi-module platform: a Flutter shell app + a Supabase identity hub (OAuth 2.1 / OIDC) + independent modules (this dashboard and the HumHub communication platform with Microsoft ACS/Teams calling). JaaS remains a disabled fallback; native calling and recording/AI retain their release gates.
 
-Platform-level architecture, the decision log (D1–D22), the roadmap, and cross-repo rules live in `docs/platform/PLATFORM_BLUEPRINT.md`. Read it before any work that touches authentication, organizations/roles, tile entitlements, the OAuth 2.1 server configuration, Microsoft Entra/Graph, or integration with other modules. Decisions marked **Confirmed** there must not be changed silently — propose alternatives explicitly with consequences.
+Platform-level architecture, the decision log (D1–D23), the roadmap, and cross-repo rules live in `docs/platform/PLATFORM_BLUEPRINT.md`. Read it before any work that touches authentication, organizations/roles, tile entitlements, the OAuth 2.1 server configuration, Microsoft Entra/Graph, or integration with other modules. Decisions marked **Confirmed** there must not be changed silently — propose alternatives explicitly with consequences.
 
 Current platform state, phase progress, and next milestones are tracked in `docs/platform/PROJECT_STATUS.md` — update it when a milestone changes state. The cross-session product-readiness backlog, consequences and acceptance evidence live in `docs/platform/PLATFORM_GAP_REGISTER.md`; read it before platform-gap work and update the relevant item whenever work starts or its status changes.
 

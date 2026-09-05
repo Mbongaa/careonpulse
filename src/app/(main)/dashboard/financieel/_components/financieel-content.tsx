@@ -139,7 +139,7 @@ export function FinancieelContent() {
   let ouderdomItems = DECLARATIE_OUDERDOM.map((row, index) => ({
     label: row.label,
     value: row.pct,
-    display: `${row.pct}%`,
+    display: `${nl.format(row.pct)}% · € ${nl.format(row.bedrag)}`,
     tone: index === DECLARATIE_OUDERDOM.length - 1 ? ("bad" as const) : ("default" as const),
   }));
   if (declaraties) {

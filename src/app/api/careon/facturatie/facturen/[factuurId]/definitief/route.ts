@@ -6,16 +6,15 @@ import {
   factuurVanRij,
   haalFactuurRij,
   haalInstellingen,
-  serviceRestHeaders,
   storageBeschikbaar,
 } from "@/lib/careon-facturatie/facturatie.server";
 import { berekenVervaldatum } from "@/lib/careon-facturatie/nummer";
 import { genereerEnArchiveerPdf } from "@/lib/careon-facturatie/pdf-archief.server";
 import { berekenTotalen } from "@/lib/careon-facturatie/totalen";
-import { vindTemplate } from "@/lib/careon-facturatie/types";
+import { isFactuur, vindTemplate } from "@/lib/careon-facturatie/types";
+import { FactuurConflictError, reikFactuurAtomairUit } from "@/lib/careon-facturatie/uitreiking.server";
 import { afzenderUitTemplate, valideerFactuurVoorUitreiking } from "@/lib/careon-facturatie/validatie";
 import { InvalidJsonBodyError, RequestPayloadTooLargeError, readJsonBodyLimited } from "@/lib/http/read-json.server";
-import { POSTGREST_URL, userRestHeaders } from "@/lib/supabase/postgrest.server";
 import { requireOrgAdmin } from "@/lib/supabase/session.server";
 
 export const runtime = "nodejs";
@@ -23,9 +22,9 @@ export const runtime = "nodejs";
 const ISO_DATUM = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * Definitief maken (handoff 15 §5.5): bevriezen + herrekenen + valideren via
- * het caller-JWT, daarna de service-only atomaire RPC (nummer + statusovergang
- * in één transactie — geen nummergaten, geen verbrande nummers). De route heeft
+ * Definitief maken (handoff 15 §5.5): herrekenen en valideren, daarna de
+ * service-only RPC die revisiecontrole, inhoud en nummer samen vastlegt.
+ * Geen concept-write kan tussen het bevriezen en de uitreiking komen. De route heeft
  * requireOrgAdmin() al afgedwongen en de RPC herbevestigt actor + organisatie.
  * Pas ná commit volgt de pdf. Faalt die, dan blijft de factuur definitief mét
  * nummer en toont de UI "Pdf opnieuw genereren".
@@ -63,9 +62,12 @@ export async function POST(request: Request, context: { params: Promise<{ factuu
       return NextResponse.json({ error: "Deze factuur bestaat niet (meer) voor deze organisatie." }, { status: 404 });
     }
     if (rij.status !== "concept") {
-      return NextResponse.json({ error: "Deze factuur is al uitgereikt." }, { status: 409 });
+      return NextResponse.json({ configured: true, factuur: factuurVanRij(rij), pdfOntbreekt: !rij.pdf_pad });
     }
     const concept = factuurVanRij(rij);
+    if (!isFactuur(concept)) {
+      return NextResponse.json({ error: "Ongeldige of onvolledige factuur." }, { status: 400 });
+    }
     const { instellingen } = await haalInstellingen(session);
     // Sjabloonkeuze van het concept (afzender-snapshot draagt het id); de
     // snapshot zelf wordt hier opnieuw uit het sjabloon herleid — nooit uit
@@ -92,65 +94,29 @@ export async function POST(request: Request, context: { params: Promise<{ factuu
       );
     }
 
-    // Stap 1 (caller-JWT, rij is nog concept): snapshots + herrekende totalen
-    // bevriezen op de rij, zodat de RPC-overgang exact deze inhoud uitreikt.
-    const bevriesParams = new URLSearchParams({
-      org_id: `eq.${session.orgId}`,
-      id: `eq.${factuurId}`,
-      status: "eq.concept",
-      select: "id",
-    });
-    const bevriesResponse = await fetch(`${POSTGREST_URL}/careon_facturatie_facturen?${bevriesParams}`, {
-      method: "PATCH",
-      headers: userRestHeaders(session, { Prefer: "return=representation" }),
-      body: JSON.stringify({
+    const uitreiking = await reikFactuurAtomairUit(
+      session,
+      factuurId,
+      rij.revision,
+      {
+        ...concept,
+        ...totalen,
         afzender,
-        betaaltermijn_dagen: betaaltermijn,
-        subtotaal_cent: totalen.subtotaalCent,
-        btw_cent: totalen.btwCent,
-        totaal_cent: totalen.totaalCent,
-        btw_totalen: totalen.btwTotalen,
-        updated_at: new Date().toISOString(),
-      }),
-    });
-    if (!bevriesResponse.ok) throw new Error("storage-unavailable");
-    if (((await bevriesResponse.json()) as unknown[]).length === 0) {
-      return NextResponse.json({ error: "Deze factuur is al uitgereikt." }, { status: 409 });
-    }
-
-    // Stap 2: atomaire RPC — teller + nummer + status in één transactie.
-    const reeks = concept.soort === "creditfactuur" ? template.nummering.reeksCredit : template.nummering.reeksFactuur;
-    const jaar = Number.parseInt(factuurdatum.slice(0, 4), 10);
-    const rpcResponse = await fetch(`${POSTGREST_URL}/rpc/careon_factuur_definitief_maken_service`, {
-      method: "POST",
-      headers: serviceRestHeaders(),
-      body: JSON.stringify({
-        p_actor: session.userId,
-        p_org: session.orgId,
-        p_factuur: factuurId,
-        p_reeks: reeks,
-        p_jaar: jaar,
-        p_start: template.nummering.startVolgnummer,
-        p_formaat: template.nummering.formaat,
-        p_factuurdatum: factuurdatum,
-        p_vervaldatum: vervaldatum,
-      }),
-    });
-    if (!rpcResponse.ok) {
-      const tekst = await rpcResponse.text();
-      if (tekst.includes("al uitgereikt")) {
-        return NextResponse.json({ error: "Deze factuur is al uitgereikt." }, { status: 409 });
-      }
-      console.error("Facturatie: definitief-RPC faalde", rpcResponse.status, tekst.slice(0, 300));
-      throw new Error("storage-unavailable");
-    }
+        factuurdatum,
+        vervaldatum,
+        betaaltermijnDagen: betaaltermijn,
+      },
+      template,
+    );
 
     // Stap 3 (ná commit): pdf renderen en archiveren — mislukken laat de
     // factuur definitief mét nummer (geen nummergat, geen rollback).
     const versRij = await haalFactuurRij(session, factuurId);
     if (!versRij) throw new Error("storage-unavailable");
     const definitieveFactuur = factuurVanRij(versRij);
-    const pdf = await genereerEnArchiveerPdf(session.orgId as string, definitieveFactuur);
+    const pdf = uitreiking.alreadyIssued
+      ? { ok: Boolean(versRij.pdf_pad) }
+      : await genereerEnArchiveerPdf(session.orgId as string, definitieveFactuur);
 
     scheduleAuditEvent({
       action: "facturatie.factuur.definitief",
@@ -177,7 +143,10 @@ export async function POST(request: Request, context: { params: Promise<{ factuu
               "De pdf kon niet worden gegenereerd. De factuur is wel uitgereikt; probeer de pdf opnieuw te genereren.",
           }),
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof FactuurConflictError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     return NextResponse.json({ error: "Supabase niet bereikbaar." }, { status: 502 });
   }
 }

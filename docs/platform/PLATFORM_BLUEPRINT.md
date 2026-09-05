@@ -7,6 +7,8 @@ This document is the implementation source of truth for **Careon Pulse**: a mult
 
 ---
 
+**Implementation reconciliation — 5 September 2026.** D1–D23 remain accepted without redesign. [Security remediation](./SECURITY_REMEDIATION_2026-09-05.md) records locally verified account-switch isolation, a 300-second HumHub authorization lease, current-account RLS, platform-only global identity controls, atomic invoices and EPD generations. These changes are not yet deployed; native calling/recording/AI and other existing release gates remain unchanged.
+
 ## 1. Executive Summary
 
 Careon Pulse is delivered as a **shell + modules** platform. A custom Flutter **shell app** (iOS/Android) provides native login, a tile launcher, push notifications, and deep links; each tile opens a module. Modules are independent applications behind one identity: users exist once, sign in once, and see only the tiles their account is entitled to.
@@ -91,7 +93,7 @@ flowchart LR
 |---|---|---|---|
 | Supabase (EU) | Supabase Auth + OAuth 2.1/OIDC server; organizations, members, roles, tile entitlements; Pulse dashboard schema (RLS) incl. facturatie (D19); audit + rate-limit tables; Storage bucket `facturen` (private — final invoice PDFs + org logo, own backup regime) | SQL migrations in `careonpulse/supabase` | live |
 | Vercel | Pulse dashboard (Next.js 16), maintenance cron | Git push (Vercel) | live |
-| Hetzner VPS | Nginx, HumHub (PHP-FPM) + meeting modules, MariaDB, Redis, queue worker, cron | Coolify Cloud, GitHub push-to-deploy | 1 |
+| Hetzner VPS | Pinned HumHub image (FrankenPHP/Caddy, Supervisor workers/cron), MariaDB, Redis | Current direct SSH/Compose; Coolify target deferred per §8 | 1 |
 | Client devices | Careon Pulse shell app (Flutter), browsers/PWA | App Store / Play (client accounts) | 1 |
 
 ### 3.2 External services
@@ -152,7 +154,7 @@ flowchart TD
   HH -.->|OIDC| SUPA
 ```
 
-**Shell responsibilities (build in progress, repo `careonpulse-shell`).** Native login (Section 4); secure token storage and refresh; the **launcher**; push notifications (FCM/APNs); deep links (`careonpulse://<module>/<path>`); the WebView module container; and narrow native Swift/Kotlin adapters around Microsoft's ACS Calling SDK. Shell `373588e` supplies the first reviewed adapter increment with exact-origin/message validation, short-lived memory-only tokens, explicit employee confirmation and scoped microphone/camera/audio declarations. Its production build flag remains off pending iOS compilation, signing and the physical-device matrix. The dormant Jitsi contract remains compile-time disabled until removed in a separately verified cleanup after ACS acceptance.
+**Shell responsibilities (build in progress, repo `careonpulse-shell`).** Native login (Section 4); secure token storage and refresh; the **launcher**; push notifications (FCM/APNs); deep links (`careonpulse://<module>/<path>`); the WebView module container; and narrow native Swift/Kotlin adapters around Microsoft's ACS Calling SDK. Shell `373588e` supplies the first reviewed adapter increment with exact-origin/message validation, short-lived memory-only tokens, explicit employee confirmation and scoped microphone/camera/audio declarations. Its production build flag remains off. Historical unsigned iOS compilation is recorded in the status log; the 5 September Swift lifecycle/expiry changes still need fresh macOS compilation/XCTest, signing and the physical-device matrix. The dormant Jitsi contract remains compile-time disabled until removed in a separately verified cleanup after ACS acceptance.
 
 **Module registry.** The launcher is server-driven: the shell fetches a tile registry from the identity plane — per tile: id, display name, icon, type (`webview` | `native`), URL or native route, required entitlement, minimum shell version, enabled flag. Shipping a new module is a registry entry plus an entitled account, not an app release. Careon commit `4873a67` puts schema v1 live at `GET /api/mobile/v1/modules`; it is bearer-only, exact-client-bound, RLS-backed, no-store and shares the web launcher's Facturatie role predicate. Careon `a2f9b7f` adds the companion one-time handoff contract for those exact registry targets. The first public shell client has no secret and permits only its exact app callback.
 
@@ -458,7 +460,7 @@ A meeting administration area provides: enabling/disabling the meeting modules g
 
 **Transport & access.** HTTPS everywhere with automatic certificates. Every meeting, recording, transcript, and report route enforces HumHub authentication plus membership and role checks; media is reachable only through short-lived signed URLs. Meetings are joinable only via invitation/permission — room names are unguessable and JaaS access requires our server-signed JWT.
 
-**Keys & webhooks.** The RS256 private key exists only server-side; JWTs are short-lived; webhooks are signature-verified and idempotent (Section 14). External OIDC clients receive identity-scoped tokens only — no data-API scopes against the Supabase project — and the service-role key never leaves the dashboard's server plane. D21 Graph access is deliberately separate: delegated tokens stay server-side, are AES-256-GCM encrypted with a deployment key plus per-user associated data, and are deleted on disconnect/user deletion. The browser receives rendered results and Microsoft web links, never bearer or refresh tokens. Secrets and the encryption key live only in the deployment secret store; key rotation requires an explicit reconnect/rotation runbook.
+**Keys & webhooks.** The RS256 private key exists only server-side; JWTs are short-lived; webhooks are signature-verified and idempotent (Section 14). External OIDC clients receive signed user access tokens that can reach the Supabase Data API under the same user RLS; identity scope names do not restrict that access (D14). Current database account-status, organization and role checks are the boundary. The service-role key remains server-only in the dashboard plane. D21 Graph access is deliberately separate: delegated tokens stay server-side, are AES-256-GCM encrypted with a deployment key plus per-user associated data, and are deleted on disconnect/user deletion. The browser receives rendered results and Microsoft web links, never bearer or refresh tokens. Secrets and the encryption key live only in the deployment secret store; key rotation requires an explicit reconnect/rotation runbook.
 
 **Data locations.** Supabase project in an EU region; Vercel for the stateless dashboard runtime; Hetzner (Germany/Finland); R2 with the EU jurisdiction option; Vertex AI in an EU region. 8x8/JaaS processing regions must be confirmed and recorded (Open Questions). Facturatie (D19): invoice rows and PDFs live in the same EU Supabase project (schema + private Storage bucket `facturen`); statutory retention is 7 years (10 for immovable property), enforced by excluding issued invoices from every prune routine.
 
@@ -483,7 +485,7 @@ A meeting administration area provides: enabling/disabling the meeting modules g
 
 **Supabase — identity + dashboard data.** EU-region project; schema managed exclusively through `careonpulse/supabase/migrations` (applied in file order); OAuth server configuration (registered clients: shell, HumHub, future modules) treated as infrastructure config and documented in the umbrella docs; backups per Supabase plan (point-in-time recovery recommended once meetings go live).
 
-**Hetzner + Coolify — comms & pipeline.** One Hetzner CX VPS (start 4 GB, upgrade path 8 GB) runs Docker Compose — nginx, humhub-php, mariadb, redis, worker, cron — orchestrated by Coolify Cloud (~$5/month) with GitHub push-to-deploy from `platform-deploy`, automatic SSL, and a staging project on a subdomain. The Compose file stays provider-portable.
+**Hetzner — current comms deployment.** Per the accepted operational state in §8, direct SSH/Compose runs the pinned HumHub image (FrankenPHP/Caddy, Supervisor-managed workers and cron), MariaDB and Redis. `compose.tls.yml` provides direct Caddy TLS. Coolify orchestration and a separate staging plane remain the deferred D10 target; neither is claimed live. Compose stays provider-portable.
 
 **Environment variables — Hetzner plane.**
 
@@ -494,8 +496,8 @@ A meeting administration area provides: enabling/disabling the meeting modules g
 | OIDC_ISSUER_URL / OIDC_CLIENT_ID / OIDC_CLIENT_SECRET | HumHub → Supabase identity federation |
 | M365_GRAPH_ENABLED / M365_GRAPH_TENANT_ID / M365_GRAPH_CLIENT_ID / M365_GRAPH_CLIENT_SECRET | D21 YAAZ delegated Graph registration (separate from D20 login) |
 | M365_GRAPH_REDIRECT_URI / M365_GRAPH_TOKEN_KEY | Exact Entra callback and base64 32-byte AES-256-GCM key |
-| M365_GRAPH_MAIL_WRITE_ENABLED / M365_GRAPH_CALENDAR_WRITE_ENABLED / M365_GRAPH_FILES_WRITE_ENABLED | Capability-specific delegated writes; each defaults to `0`. Only calendar is approved for TGC at v2.5 |
-| M365_GRAPH_WRITE_ENABLED | Backwards-compatible all-writes switch; default `0` and not used for the calendar-only rollout |
+| M365_GRAPH_MAIL_WRITE_ENABLED / M365_GRAPH_CALENDAR_WRITE_ENABLED / M365_GRAPH_FILES_WRITE_ENABLED | Capability-specific delegated writes; each defaults to `0`. Capability-specific mail, calendar, files and Teams writes follow accepted D21 amendments; see `platform-deploy/ops/production-capabilities.env` for the current non-secret manifest |
+| M365_GRAPH_WRITE_ENABLED | Backwards-compatible all-writes switch; remains `0`; approved writes use their own flags |
 | M365_GRAPH_SHARED_DRIVE_ID / M365_GRAPH_SHARED_FOLDER_ID | Optional SharePoint target |
 | M365_GRAPH_TIMEZONE / M365_GRAPH_IANA_TIMEZONE | Matching Windows Graph-response zone and IANA PHP/YAAZ rendering zone |
 | M365_ACS_CALLING_ENABLED / M365_ACS_ENDPOINT | Independent D23 kill switch and public ACS resource endpoint |

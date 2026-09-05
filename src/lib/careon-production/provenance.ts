@@ -95,6 +95,7 @@ export const CAREON_PROVENANCE: Record<string, PageProvenance> = {
       // De BIG-signalering wordt live berekend uit de handmatige HR-registratie
       // (buildHrBigAlert) — geen EPD-bron, maar ook geen demo-constante.
       "BIG-registratie verloopt <90 dgn": "handmatig",
+      "BIG-registratie verlopen of <90 dgn": "handmatig",
       "No-show >5% per behandelaar": "demo",
       "Geen ROM-meting": "demo",
       "Geen evaluatie gepland": "demo",

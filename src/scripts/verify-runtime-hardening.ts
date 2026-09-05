@@ -549,6 +549,10 @@ async function main() {
     path.resolve(process.cwd(), "supabase/migrations/20260822235500_revoke_legacy_facturatie_rpc.sql"),
     "utf8",
   );
+  const atomicInvoiceMigration = fs.readFileSync(
+    path.resolve(process.cwd(), "supabase/migrations/20260905135739_invoice_atomic_issuance.sql"),
+    "utf8",
+  );
   check(
     "facturatie-RLS: elke policy eist het rolpredicaat (geen kale is_org_member-select)",
     (facturatieMigration.match(/app\.mag_facturatie_zien\(org_id\)/g) ?? []).length >= 10 &&
@@ -590,15 +594,16 @@ async function main() {
       facturatieMigration.includes("create trigger careon_facturatie_facturen_geen_delete"),
   );
   check(
-    "facturatie: service-only nummer-RPC herbevestigt actor en blijft atomair",
-    securityInvokerMigration.includes("careon_factuur_definitief_maken_service") &&
-      securityInvokerMigration.includes("p_actor uuid") &&
-      securityInvokerMigration.includes("m.user_id = p_actor") &&
-      securityInvokerMigration.includes("m.role = 'org_admin'") &&
-      securityInvokerMigration.includes("for update") &&
-      securityInvokerMigration.includes("on conflict (org_id, reeks, jaar)") &&
-      securityInvokerMigration.includes("from public, anon, authenticated") &&
-      securityInvokerMigration.includes("to service_role"),
+    // The separate real-PostgreSQL suite proves lock/rollback/concurrency behavior.
+    "facturatie: service-only RPC heeft revisie-, actor- en volledige-creditgrenzen",
+    atomicInvoiceMigration.includes("careon_factuur_uitreiken_atomic") &&
+      atomicInvoiceMigration.includes("p_expected_revision is distinct from v_source.revision") &&
+      atomicInvoiceMigration.includes("u.deleted_at is null") &&
+      atomicInvoiceMigration.includes("m.role = 'org_admin'") &&
+      atomicInvoiceMigration.includes("for update") &&
+      atomicInvoiceMigration.includes("careon_facturatie_one_issued_full_credit") &&
+      atomicInvoiceMigration.includes("from public, anon, authenticated, service_role") &&
+      atomicInvoiceMigration.includes("to service_role"),
   );
   const definitiefRouteSource = fs.readFileSync(
     path.resolve(process.cwd(), "src/app/api/careon/facturatie/facturen/[factuurId]/definitief/route.ts"),
@@ -608,16 +613,22 @@ async function main() {
     path.resolve(process.cwd(), "src/app/api/careon/facturatie/facturen/[factuurId]/credit/route.ts"),
     "utf8",
   );
+  const issuanceHelperSource = fs.readFileSync(
+    path.resolve(process.cwd(), "src/lib/careon-facturatie/uitreiking.server.ts"),
+    "utf8",
+  );
   check(
     "facturatie: alleen gevalideerde serverroutes roepen de service-RPC aan",
-    [definitiefRouteSource, creditRouteSource].every(
-      (source) =>
-        source.includes("requireOrgAdmin()") &&
-        source.includes("careon_factuur_definitief_maken_service") &&
-        source.includes("headers: serviceRestHeaders()") &&
-        source.includes("p_actor: session.userId") &&
-        !source.includes('/rpc/careon_factuur_definitief_maken"'),
-    ),
+    issuanceHelperSource.includes("careon_factuur_uitreiken_atomic") &&
+      issuanceHelperSource.includes("headers: serviceRestHeaders()") &&
+      issuanceHelperSource.includes("p_actor: session.userId") &&
+      [definitiefRouteSource, creditRouteSource].every(
+        (source) =>
+          source.includes("requireOrgAdmin()") &&
+          source.includes("reikFactuurAtomairUit(") &&
+          !source.includes("headers: userRestHeaders(") &&
+          !source.includes("careon_factuur_definitief_maken_service"),
+      ),
   );
   check(
     "facturatie: legacy authenticated SECURITY DEFINER-RPC wordt verwijderd",

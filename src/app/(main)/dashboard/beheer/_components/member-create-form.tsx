@@ -47,7 +47,7 @@ export function MemberCreateForm({ onCreated }: Readonly<{ onCreated: () => void
         setInviteLink(payload.inviteLink);
       } else {
         setMessage(
-          "Account aangemaakt, maar de wachtwoord-link kon niet worden gegenereerd — gebruik 'Wachtwoord-link' bij het lid.",
+          "Account aangemaakt. De medewerker gebruikt Microsoft; een wachtwoord-link kan alleen platformbeheer verstrekken.",
         );
       }
       onCreated();

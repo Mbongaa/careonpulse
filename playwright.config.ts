@@ -11,6 +11,9 @@ export default defineConfig({
   timeout: 45_000,
   use: {
     baseURL: `http://localhost:${PORT}`,
+    // Full Chromium's new headless mode avoids the Windows headless-shell
+    // shared-image mailbox crash between contexts in the complete suite.
+    channel: process.platform === "win32" ? "chromium" : undefined,
     launchOptions: {
       // Chromium headless shell can crash its Windows SwiftShader mailbox
       // between contexts; E2E charts do not require GPU acceleration.

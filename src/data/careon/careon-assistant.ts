@@ -1,5 +1,5 @@
 import { formatCareonDelta, formatCareonValue } from "@/lib/careon-format";
-import { formatHrDate, hrBigBinnenDagen, hrMetrics } from "@/lib/careon-hr/insights";
+import { formatHrDate, hrBigVenster, hrMetrics } from "@/lib/careon-hr/insights";
 import type { HrState } from "@/lib/careon-hr/types";
 import type { MiddelenState } from "@/lib/careon-middelen/types";
 
@@ -808,8 +808,8 @@ function buildFinancieelOmzet(query: string, ctx: AssistantContext): AssistantRe
           DECLARATIE_OUDERDOM.map((d, i) => ({
             label: d.label,
             value: d.pct,
-            display: `${d.pct}%`,
-            tone: toneAbove(i, 3, 2),
+            display: `${nlDec1.format(d.pct)}%`,
+            tone: i === DECLARATIE_OUDERDOM.length - 1 ? "bad" : "accent",
           })),
         ),
       },
@@ -840,7 +840,7 @@ function buildFinancieelOmzet(query: string, ctx: AssistantContext): AssistantRe
   };
 
   const brief = `De omzet ontwikkelt zich goed${scopeLine(ctx.filters)}: verzekeraars ${formatCareonValue(omzetVerz.value, omzetVerz.f)} (+6,0%) en Infomedics ${formatCareonValue(omzetInfo.value, omzetInfo.f)} (+15,3%). Aandachtspunt: € 21.300 aan declaraties staat langer dan 90 dagen open.`;
-  const deep = `${brief}\n\n**Verzekeraarsmix:** VGZ € 128K, CZ € 104K, Zilveren Kruis € 92K, Menzis € 58K, DSW € 27K, overig € 16K.\n\n**Werkkapitaal:** onderhanden werk € 182K (groeit mee met de omzet — plan declaratiemoment in week 29); openstaand € 96.400, waarvan 5% ouder dan 90 dagen.\n\n**Actie:** ${FINANCIEEL_NOTE}`;
+  const deep = `${brief}\n\n**Verzekeraarsmix:** VGZ € 128K, CZ € 104K, Zilveren Kruis € 92K, Menzis € 58K, DSW € 27K, overig € 16K.\n\n**Werkkapitaal:** onderhanden werk € 182K (groeit mee met de omzet — plan declaratiemoment in week 29); openstaand € 96.400, waarvan ${nlDec1.format(DECLARATIE_OUDERDOM.at(-1)?.pct ?? 0)}% ouder dan 90 dagen.\n\n**Actie:** ${FINANCIEEL_NOTE}`;
 
   return { artifact, brief, deep };
 }
@@ -938,8 +938,9 @@ function buildVerzuimHr(query: string, ctx: AssistantContext): AssistantResponse
   const opleidingen = metrics[3];
   const intervisie = metrics[4];
   const werkdruk = metrics[5];
-  const binnenkort = hrBigBinnenDagen(hrState, new Date());
-  const eerstvolgende = binnenkort[0];
+  const registraties = hrBigVenster(hrState.bigRegistraties, new Date(), { inclusiefVerlopen: true });
+  const verlopen = registraties.filter((registratie) => registratie.dagen < 0).length;
+  const eerstvolgende = registraties[0];
   const benchmarkVergelijking =
     verzuim.value <= hrState.benchmark
       ? `onder de benchmark van ${nlDec1.format(hrState.benchmark)}%`
@@ -968,12 +969,17 @@ function buildVerzuimHr(query: string, ctx: AssistantContext): AssistantResponse
       {
         id: "big",
         kind: "table",
-        title: "BIG-registraties die verlopen",
+        title: "BIG-registraties die aandacht vragen",
         sub: HR_BIG_NOTE,
         table: {
           head: ["Medewerker", "Functie", "Verloopt", "Dagen"],
-          rows: binnenkort.map((b) => ({
-            cells: [b.naam, b.functie, formatHrDate(b.verloopt), String(b.dagen)],
+          rows: registraties.map((b) => ({
+            cells: [
+              b.naam,
+              b.functie,
+              formatHrDate(b.verloopt),
+              b.dagen < 0 ? `${-b.dagen} dgn verlopen` : String(b.dagen),
+            ],
             tone: toneBelow(b.dagen, 45, 60),
           })),
         },
@@ -991,11 +997,17 @@ function buildVerzuimHr(query: string, ctx: AssistantContext): AssistantResponse
       ...(eerstvolgende
         ? [
             {
-              title: `BIG-registratie ${eerstvolgende.naam} verloopt eerst`,
-              body: `Verloopt ${formatHrDate(eerstvolgende.verloopt)} (${eerstvolgende.dagen} dagen). De registratie staat in Signaleringen.`,
+              title: `BIG-registratie ${eerstvolgende.naam} ${eerstvolgende.dagen < 0 ? "is verlopen" : "verloopt eerst"}`,
+              body: `${eerstvolgende.dagen < 0 ? "Verlopen op" : "Verloopt"} ${formatHrDate(eerstvolgende.verloopt)} (${Math.abs(eerstvolgende.dagen)} dagen${eerstvolgende.dagen < 0 ? " geleden" : ""}). De registratie staat in Signaleringen.`,
               values: [
-                { label: "Eerstvolgende", value: eerstvolgende.naam },
-                { label: "Dagen", value: String(eerstvolgende.dagen) },
+                {
+                  label: eerstvolgende.dagen < 0 ? "Verlopen registratie" : "Eerstvolgende",
+                  value: eerstvolgende.naam,
+                },
+                {
+                  label: eerstvolgende.dagen < 0 ? "Dagen verlopen" : "Dagen",
+                  value: String(Math.abs(eerstvolgende.dagen)),
+                },
               ],
             },
           ]
@@ -1008,10 +1020,10 @@ function buildVerzuimHr(query: string, ctx: AssistantContext): AssistantResponse
     ],
   };
 
-  const brief = `Het ziekteverzuim staat op ${nlDec1.format(verzuim.value)}% en ligt ${benchmarkVergelijking}. Verloop staat op ${nlDec1.format(verloop.value)}%, er zijn ${nl.format(vacatures.value)} openstaande vacatures en ${binnenkort.length} BIG-registraties verlopen binnen 90 dagen.`;
+  const brief = `Het ziekteverzuim staat op ${nlDec1.format(verzuim.value)}% en ligt ${benchmarkVergelijking}. Verloop staat op ${nlDec1.format(verloop.value)}%, er zijn ${nl.format(vacatures.value)} openstaande vacatures. BIG-registraties: ${verlopen} verlopen en ${registraties.length - verlopen} binnen 90 dagen.`;
   const eerstvolgendeActie = eerstvolgende
-    ? `BIG-registratie van ${eerstvolgende.naam} (${eerstvolgende.functie}) verloopt over ${eerstvolgende.dagen} dagen — herregistratie starten.`
-    : "Er verlopen momenteel geen BIG-registraties binnen 90 dagen.";
+    ? `BIG-registratie van ${eerstvolgende.naam} (${eerstvolgende.functie}) ${eerstvolgende.dagen < 0 ? `is verlopen (${Math.abs(eerstvolgende.dagen)} dagen geleden)` : `verloopt over ${eerstvolgende.dagen} dagen`} — herregistratie starten.`
+    : "Geen verlopen BIG-registraties of registraties die binnen 90 dagen verlopen.";
   const deep = `${brief}\n\n**Trend:** verzuim was vorige maand ${nlDec1.format(verzuim.prev)}%; de hoogste waarde in de opgeslagen reeks is ${nlDec1.format(Math.max(...hrState.verzuimTrend))}%.\n\n**Ontwikkeling:** ${nl.format(opleidingen.value)} lopende opleidingen (was ${nl.format(opleidingen.prev)}), intervisie-deelname ${nlDec1.format(intervisie.value)}%, werkdrukscore ${nlDec1.format(werkdruk.prev)} → ${nlDec1.format(werkdruk.value)}.\n\n**Actie:** ${eerstvolgendeActie}`;
 
   return { artifact, brief, deep };

@@ -1,21 +1,6 @@
-/**
- * Script: push-production.ts
- *
- * Server-side verversing van de centrale productie-opslag (Supabase) met de
- * exports uit "Exports EPD/": cliëntendata (als nieuwe import-run), het
- * agenda-aggregaat, het verwijzers-aggregaat en het toeslagen-aggregaat.
- * Zelfde pseudonimisering als de browser-import — er verlaten geen namen,
- * memo's of BSN's deze machine.
- *
- * Regressie-bescherming: elke slice wordt overgeslagen wanneer het bestand
- * ontbreekt óf ouder is (mtime) dan de huidige centrale stand — een oud
- * bestand dat in de map achterblijft kan de centrale data dus nooit
- * terugdraaien. Forceren kan met: npm run push:production -- --force
- *
- * Browsers met een oudere import in localStorage nemen de nieuwe centrale
- * stand automatisch over (vers-vergelijking op importedAt in de provider).
- */
-
+/** Publish one validated five-export generation in one database transaction.
+ * The stable manifest UUID makes retries safe after a lost HTTP response. */
+import { readEpdGeneration } from "../lib/careon-production/epd-generation";
 import { parseAgendaExport } from "../lib/careon-production/parse-agenda";
 import { parseDeclaratiesExport } from "../lib/careon-production/parse-declaraties";
 import { parseClientExport } from "../lib/careon-production/parse-export";
@@ -26,196 +11,85 @@ import * as path from "node:path";
 
 const ROOT = path.join(__dirname, "../..");
 const EXPORTS_DIR = path.join(ROOT, "Exports EPD");
-const FORCE = process.argv.includes("--force");
 
-function readEnvLocal(): Record<string, string> {
-  const envPath = path.join(ROOT, ".env.local");
+async function main() {
+  const { manifest, texts } = readEpdGeneration(EXPORTS_DIR);
+  const clients = parseClientExport(manifest.files.client.name, texts.client);
+  const agenda = parseAgendaExport(manifest.files.agenda.name, texts.agenda, manifest.sourceTime);
+  const verwijzers = parseVerwijzersExport(manifest.files.referrers.name, texts.referrers, manifest.sourceTime);
+  const toeslagen = parseToeslagenExport(manifest.files.surcharges.name, texts.surcharges, manifest.sourceTime);
+  const declaraties = parseDeclaratiesExport(manifest.files.declarations.name, texts.declarations, manifest.sourceTime);
+  if (
+    !clients.ok ||
+    clients.records.length === 0 ||
+    !agenda.ok ||
+    !agenda.facts ||
+    !verwijzers.ok ||
+    !verwijzers.facts ||
+    !toeslagen.ok ||
+    !toeslagen.facts ||
+    !declaraties.ok ||
+    !declaraties.facts
+  ) {
+    throw new Error("Een export in de EPD-generatie is niet leesbaar; niets gepubliceerd.");
+  }
   const env: Record<string, string> = {};
-  if (!fs.existsSync(envPath)) return env;
-  for (const line of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
+  for (const line of fs.readFileSync(path.join(ROOT, ".env.local"), "utf8").split(/\r?\n/)) {
     const match = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
     if (match) env[match[1]] = match[2].trim();
   }
-  return env;
-}
-
-/** Nieuwste export (mtime) die op het patroon past; null wanneer afwezig. */
-function nieuwsteExport(patroon: RegExp): string | null {
-  if (!fs.existsSync(EXPORTS_DIR)) return null;
-  const kandidaten = fs
-    .readdirSync(EXPORTS_DIR)
-    .filter((name) => patroon.test(name))
-    .sort((a, b) => fs.statSync(path.join(EXPORTS_DIR, b)).mtimeMs - fs.statSync(path.join(EXPORTS_DIR, a)).mtimeMs);
-  return kandidaten[0] ?? null;
-}
-
-async function main() {
-  const env = readEnvLocal();
-  const supabaseUrl = env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!supabaseUrl || !serviceKey) {
-    console.error("Supabase-omgeving ontbreekt in .env.local — niets gepusht.");
-    process.exit(1);
+  const url = env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Supabase-omgeving ontbreekt; niets gepubliceerd.");
+  const headers = { apikey: key, Authorization: `Bearer ${key}`, "Content-Type": "application/json" };
+  const orgResponse = await fetch(`${url}/rest/v1/organizations?slug=eq.tgc&select=id&limit=1`, { headers });
+  if (!orgResponse.ok) throw new Error("Organisatiecontrole mislukt; niets gepubliceerd.");
+  const organizations: unknown = await orgResponse.json();
+  const org: unknown = Array.isArray(organizations) ? organizations.at(0) : null;
+  if (!org || typeof org !== "object" || !("id" in org) || typeof org.id !== "string" || !org.id) {
+    throw new Error("Organisatie tgc ontbreekt; niets gepubliceerd.");
   }
-  const headers = {
-    apikey: serviceKey,
-    Authorization: `Bearer ${serviceKey}`,
-    "Content-Type": "application/json",
-  };
-  const importedAt = new Date().toISOString();
-
-  // Multi-tenant (migratie 0010): elke rij draagt een org_id. Dit script vult
-  // altijd de TGC-organisatie (migratie 0014) — de exports in "Exports EPD/"
-  // zijn data van deze instelling.
-  const orgResponse = await fetch(`${supabaseUrl}/rest/v1/organizations?slug=eq.tgc&select=id&limit=1`, { headers });
-  const orgRows = orgResponse.ok ? ((await orgResponse.json()) as { id: string }[]) : [];
-  const orgId = orgRows[0]?.id;
-  if (!orgId) {
-    console.error("Organisatie 'tgc' niet gevonden in Supabase — niets gepusht.");
-    process.exit(1);
-  }
-
-  /** Laatste centrale tijdstempel voor een tabel (kolomnaam variabel). */
-  async function centraleStand(table: string, kolom: string): Promise<number | null> {
-    const response = await fetch(
-      `${supabaseUrl}/rest/v1/${table}?select=${kolom}&org_id=eq.${orgId}&order=${kolom}.desc&limit=1`,
-      { headers },
-    );
-    if (!response.ok) return null;
-    const rows = (await response.json()) as Record<string, string>[];
-    return rows[0] ? Date.parse(rows[0][kolom]) : null;
-  }
-
-  /** true = pushen; false = overslaan (bestand ouder dan de centrale stand). */
-  function versGenoeg(label: string, filePath: string, centraal: number | null): boolean {
-    if (centraal === null) return true;
-    const mtime = fs.statSync(filePath).mtimeMs;
-    if (mtime > centraal || FORCE) return true;
-    console.log(
-      `${label}: overgeslagen — het bestand is ouder dan de centrale stand (gebruik --force om te overschrijven).`,
-    );
-    return false;
-  }
-
-  // ---- Cliëntendata → nieuwe import-run ----
-  const clientFile = nieuwsteExport(/^cli_ntendata_export.*\.csv$/i);
-  if (!clientFile) {
-    console.log("Cliëntendata: geen bestand gevonden — overgeslagen.");
-  } else {
-    const clientPath = path.join(EXPORTS_DIR, clientFile);
-    if (versGenoeg("Cliëntendata", clientPath, await centraleStand("careon_import_runs", "imported_at"))) {
-      const clientParse = parseClientExport(clientFile, fs.readFileSync(clientPath, "utf8"));
-      if (!clientParse.ok) {
-        console.error(`Cliëntendata niet leesbaar: ${clientParse.error}`);
-        process.exit(1);
-      }
-      const runResponse = await fetch(`${supabaseUrl}/rest/v1/careon_import_runs`, {
-        method: "POST",
-        headers: { ...headers, Prefer: "return=representation" },
-        body: JSON.stringify({
-          org_id: orgId,
-          file_name: clientFile,
-          imported_at: importedAt,
-          total_rows: clientParse.records.length,
-        }),
-      });
-      if (!runResponse.ok) {
-        console.error(`Import-run aanmaken faalde: ${runResponse.status} ${await runResponse.text()}`);
-        process.exit(1);
-      }
-      const [run] = (await runResponse.json()) as { id: string }[];
-      const recordsResponse = await fetch(`${supabaseUrl}/rest/v1/careon_import_records`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(clientParse.records.map((record) => ({ run_id: run.id, record }))),
-      });
-      if (!recordsResponse.ok) {
-        await fetch(`${supabaseUrl}/rest/v1/careon_import_runs?id=eq.${run.id}`, { method: "DELETE", headers }).catch(
-          () => undefined,
-        );
-        console.error(`Records opslaan faalde: ${recordsResponse.status} ${await recordsResponse.text()}`);
-        process.exit(1);
-      }
-      console.log(`Cliëntendata: run ${run.id} centraal opgeslagen (${clientParse.records.length} records).`);
-    }
-  }
-
-  /** Aux-slice: parse + push naar een state-tabel met vers-guard. */
-  async function pushAux<T>(
-    label: string,
-    patroon: RegExp,
-    table: string,
-    parse: (fileName: string, text: string) => { ok: boolean; error?: string; facts: T | null },
-    beschrijf: (facts: T) => string,
+  const priorResponse = await fetch(
+    `${url}/rest/v1/careon_epd_generations?org_id=eq.${org.id}&select=id&order=published_at.desc&limit=1`,
+    { headers },
+  );
+  if (!priorResponse.ok) throw new Error("Generatiecontrole mislukt; niets gepubliceerd (migratie vereist).");
+  const generations: unknown = await priorResponse.json();
+  if (!Array.isArray(generations) || generations.length > 1)
+    throw new Error("Ongeldige generatiecontrole; niets gepubliceerd.");
+  const prior: unknown = generations.at(0);
+  if (
+    prior !== undefined &&
+    (!prior || typeof prior !== "object" || !("id" in prior) || typeof prior.id !== "string")
   ) {
-    const file = nieuwsteExport(patroon);
-    if (!file) {
-      console.log(`${label}: geen bestand gevonden — overgeslagen.`);
-      return;
-    }
-    const filePath = path.join(EXPORTS_DIR, file);
-    if (!versGenoeg(label, filePath, await centraleStand(table, "saved_at"))) return;
-    const parsed = parse(file, fs.readFileSync(filePath, "utf8"));
-    if (!parsed.ok || !parsed.facts) {
-      console.error(`${label} niet leesbaar: ${parsed.error}`);
-      process.exit(1);
-    }
-    const response = await fetch(`${supabaseUrl}/rest/v1/${table}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ org_id: orgId, state: parsed.facts }),
-    });
-    if (!response.ok) {
-      console.error(`${label} opslaan faalde: ${response.status} ${await response.text()}`);
-      process.exit(1);
-    }
-    console.log(`${label}: opgeslagen — ${beschrijf(parsed.facts)}.`);
+    throw new Error("Ongeldige generatiecontrole; niets gepubliceerd.");
   }
-
-  await pushAux(
-    "Agenda-aggregaat",
-    /^exporteer_agenda_afspraken_.*\.csv$/i,
-    "careon_agenda_state",
-    (name, text) => parseAgendaExport(name, text, importedAt),
-    (facts) =>
-      `${facts.sessieRows} sessies (${facts.bronVan} – ${facts.bronTot})${
-        facts.toekomst
-          ? ` + vooruitblik: ${facts.toekomst.sessies} geplande sessies voor ${facts.toekomst.clienten} cliënten`
-          : " (geen toekomstvenster)"
-      }`,
+  const response = await fetch(`${url}/rest/v1/rpc/careon_publish_epd_generation`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      p_org: org.id,
+      p_generation: manifest.id,
+      p_expected_generation: prior && typeof prior === "object" && "id" in prior ? prior.id : null,
+      p_source_time: manifest.sourceTime,
+      p_payload: {
+        fileName: manifest.files.client.name,
+        records: clients.records,
+        agenda: agenda.facts,
+        verwijzers: verwijzers.facts,
+        toeslagen: toeslagen.facts,
+        declaraties: declaraties.facts,
+      },
+    }),
+  });
+  if (!response.ok)
+    throw new Error(`Atomaire EPD-publicatie geweigerd (${response.status}); vorige generatie blijft actief.`);
+  console.log(
+    `EPD-generatie ${manifest.id} volledig gepubliceerd (${clients.records.length} cliënten, alle vijf exports).`,
   );
-
-  await pushAux(
-    "Verwijzers-aggregaat",
-    /^huisarts_verwijzer.*\.csv$/i,
-    "careon_verwijzers_state",
-    (name, text) => parseVerwijzersExport(name, text, importedAt),
-    (facts) => `${facts.contacten.length} verwijzers`,
-  );
-
-  await pushAux(
-    "Declaratie-aggregaat",
-    /^declaration_total.*\.csv$/i,
-    "careon_declaraties_state",
-    (name, text) => parseDeclaratiesExport(name, text, importedAt),
-    (facts) =>
-      `${facts.facturen.length} facturen, € ${Math.round(
-        facts.facturen.reduce((sum, factuur) => sum + factuur.bedrag, 0),
-      )} gedeclareerd`,
-  );
-
-  await pushAux(
-    "Toeslagen-aggregaat",
-    /^declared_surcharges.*\.csv$/i,
-    "careon_toeslagen_state",
-    (name, text) => parseToeslagenExport(name, text, importedAt),
-    (facts) =>
-      `${facts.totalRows - facts.skippedRows} toeslagregels, € ${Math.round(
-        facts.cellen.reduce((sum, cel) => sum + cel.omzet, 0),
-      )} (${facts.clienten} cliënten)`,
-  );
-
-  console.log("Klaar — browsers nemen de nieuwste centrale stand automatisch over bij de volgende load.");
 }
 
-void main();
+main().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : "EPD-publicatie mislukt.");
+  process.exitCode = 1;
+});

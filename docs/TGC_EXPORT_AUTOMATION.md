@@ -11,8 +11,8 @@ Portal routes were last verified against TGC/ZSG version 3.11.0 on 20 August
 2. requests full snapshots for all five production sources;
 3. waits for the asynchronous reports and downloads their CSV files;
 4. validates all files with the dashboard's production parsers;
-5. promotes the five files together to the ignored `Exports EPD/` directory;
-6. invokes `npm run push:production` to replace the central TGC snapshot in Supabase.
+5. copies the five files exclusively into the ignored `Exports EPD/` directory, then atomically switches a manifest containing their names, hashes and generation ID;
+6. invokes `npm run push:production`, which reads that exact manifest and publishes all five slices in one Supabase transaction.
 
 If any report or validation fails, the push is not started. The four
 configurable reports use full-history filters. Client and agenda exports also
@@ -114,11 +114,12 @@ amount, awarded amount and the credit target shown in parentheses. Empty
 insurer names are emitted directly as `Particulier`; the client-name column is
 never read. This fallback was verified on 20 August 2026 against 302 current
 invoice rows, including nine credits. The live feeds currently begin on
-1 August 2025. The runner therefore carries forward only the earlier immutable
-invoice segment from the newest validated full declaration CSV and marks rows
-that no longer occur in any live status feed as resolved. It fails closed if
-that historical basis is unavailable, so the May–July 2025 history can never
-silently disappear.
+1 August 2025. The runner therefore reconciles immutable invoice history across
+all validated declaration snapshots and marks rows that no longer occur in any
+live status feed as resolved. Newer snapshots win for invoices they contain;
+older full exports only fill invoice keys missing from every newer snapshot. It
+fails closed if no historical basis is available, so an already-partial
+fallback can never silently shorten the May 2025 onward history.
 
 Portal report history is injected about 1–2 seconds after the main page load.
 The runner deliberately waits for this late content and identifies a new
@@ -182,8 +183,10 @@ npm run sync:tgc -- --push-only
 skips the Supabase step. `--declaration-feed` skips the primary background job
 and uses the verified finance feeds immediately. `--headed` opens Chromium for
 portal troubleshooting. `--push-only` reruns only the central push against the
-newest already validated local exports; normal stale-state protection remains
-active.
+last complete local manifest. A retained manifest UUID makes a lost-response retry
+idempotent. Old individual exports without a manifest require a fresh full sync;
+there is no mtime selection or partial-file fallback. Older source generations and
+concurrent replacement of the expected generation are rejected in the database.
 
 ## Scheduling and operations
 
@@ -217,7 +220,9 @@ Operational safeguards:
 
 - only one runner should execute at a time;
 - all five files must pass before any central write;
-- `push:production` refuses files older than the central Supabase state;
+- every non-empty agenda and surcharge invoice number must reconcile to the
+  declaration ledger before publication;
+- `push:production` verifies every manifest hash before I/O and publishes one complete generation; source-time and expected-generation guards reject stale/concurrent replacement;
 - report polling fails closed after the configured timeout;
 - logs contain workflow and aggregate counts, not credentials or patient rows;
 - the central monitor is callable only with `CRON_SECRET`, never exposes the
