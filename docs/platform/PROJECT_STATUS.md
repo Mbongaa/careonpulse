@@ -1,10 +1,19 @@
 # Careon Pulse — Project Status & Timeline
 
-**Last updated:** 5 September 2026 · **Companion to:** `docs/platform/PLATFORM_BLUEPRINT.md` (v2.9, authoritative) · **Delivery gaps:** `docs/platform/PLATFORM_GAP_REGISTER.md`
+**Last updated:** 12 September 2026 · **Companion to:** `docs/platform/PLATFORM_BLUEPRINT.md` (v2.9, authoritative) · **Delivery gaps:** `docs/platform/PLATFORM_GAP_REGISTER.md`
 
 This file tracks where the platform stands: what exists, what is in progress, and what comes next. Agents and developers update it when a milestone changes state. Section references (§) point into the blueprint.
 
 Legend: ✅ done · 🔵 current focus · ⬜ not started
+
+**12 Sep 2026 — invoice contact/download repair verified as an isolated release candidate.**
+The live TGC contact failure was caused by creation requiring an existing record ID. Creation now
+accepts new contacts, while edit validation and organization boundaries remain strict. Finalized PDFs
+use immutable archive bytes, missing files have recovery, and finalization waits for the latest
+successful save. Current TGC sender settings contain all required PDF fields; email is separate.
+Full isolated `verify:ci` passes with zero dependency vulnerabilities. See
+[acceptance evidence](./FACTURATIE_READINESS_2026-09-12.md). Production publication is pending;
+G12 remains In progress for controlled real invoice lifecycle acceptance.
 
 **5 Sep 2026 — fresh Microsoft login and complete Careon route pass; two additional fixes deployed.** The additional owner-requested Edge walkthrough clicked Microsoft sign-in and covered all 31 Careon page patterns, 46 valid KPI IDs, expected admin denial/record-not-found states and expanded YAAZ/Microsoft pages. It exposed Calendar 1.8.17 in production despite the earlier 1.8.16 fixture: container startup automatically ran marketplace `module/update-all` during release restart. Platform `01af713` deploys a read-only startup override and SSO 1.4.1's expired-XHR→protected-page renewal fix. All three remote workflows passed against the current 1.8.17 artifact; production restart preserved every marketplace file and the image/settings, and all 300 SSO checks, 22 capabilities and full health pass. No downgrade or feature activation occurred. The unchanged-dependency claim for the earlier release is superseded. G07 remains offline. See the [fresh browser checklist](./BROWSER_ROUTE_VERIFICATION_2026-09-05.md) for precise coverage and timed SSO acceptance.
 

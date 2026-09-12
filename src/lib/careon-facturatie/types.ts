@@ -217,6 +217,9 @@ export interface FacturatieContact {
   updatedAt: string;
 }
 
+/** Bij toevoegen worden id en updatedAt door de centrale opslag toegekend. */
+export type FacturatieContactInvoer = Omit<FacturatieContact, "id" | "updatedAt">;
+
 export interface FactuurTemplate {
   /** Stabiele sleutel (slug), bijv. "careongroup". */
   id: string;
@@ -524,6 +527,12 @@ export function isFacturatieContact(value: unknown): value is FacturatieContact 
     (contact.medewerkerUserId === undefined || typeof contact.medewerkerUserId === "string") &&
     typeof contact.updatedAt === "string"
   );
+}
+
+/** Dezelfde inhoudscontrole als bij bewerken, zonder een reeds opgeslagen id te eisen. */
+export function isFacturatieContactInvoer(value: unknown): value is FacturatieContactInvoer {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  return isFacturatieContact({ ...value, id: "nieuw", updatedAt: "" });
 }
 
 const TEMPLATE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;

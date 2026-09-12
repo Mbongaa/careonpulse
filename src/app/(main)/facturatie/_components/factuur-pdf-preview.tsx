@@ -62,9 +62,10 @@ export default function FactuurPdfPreview({ factuur, logoSrc }: Readonly<{ factu
   }, [instance.loading, instance.url]);
 
   const bestandsnaam = `${factuur.nummer ?? "concept"}.pdf`;
+  const wordtBijgewerkt = factuur !== traag || instance.loading;
 
   const slaPdfOp = async () => {
-    if (!instance.blob) return;
+    if (!instance.blob || wordtBijgewerkt || instance.error) return;
     setOpslagFout(null);
     try {
       await saveBlobThroughCareon(instance.blob, bestandsnaam);
@@ -76,9 +77,13 @@ export default function FactuurPdfPreview({ factuur, logoSrc }: Readonly<{ factu
   return (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-muted-foreground text-xs">Voorbeeld — dit is de definitieve pdf.</p>
+        <p className="text-muted-foreground text-xs">
+          {factuur.status === "concept"
+            ? "Conceptvoorbeeld — maak definitief voor uitreiking."
+            : "Voorbeeld van de factuur."}
+        </p>
         <span className="flex items-center gap-2">
-          {zichtbareUrl && !nativeBridge ? (
+          {zichtbareUrl && !nativeBridge && !wordtBijgewerkt && !instance.error ? (
             <Button asChild variant="outline" size="sm" className="lg:hidden">
               <a href={zichtbareUrl} target="_blank" rel="noreferrer">
                 <ExternalLink className="size-3.5" />
@@ -87,12 +92,36 @@ export default function FactuurPdfPreview({ factuur, logoSrc }: Readonly<{ factu
             </Button>
           ) : null}
           {zichtbareUrl && instance.blob ? (
-            <Button variant="outline" size="sm" onClick={() => void slaPdfOp()}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={wordtBijgewerkt || Boolean(instance.error)}
+              onClick={() => void slaPdfOp()}
+            >
               Pdf {nativeBridge ? "opslaan" : "downloaden"}
             </Button>
           ) : null}
         </span>
       </div>
+      {instance.error ? (
+        <div className="space-y-2">
+          <p role="alert" className="text-destructive text-xs">
+            De pdf kon niet worden gegenereerd. Uw factuurgegevens blijven bewaard; probeer het opnieuw.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => update(<FactuurDocument factuur={traag} logoSrc={logoSrc} />)}
+          >
+            Voorbeeld opnieuw genereren
+          </Button>
+        </div>
+      ) : null}
+      {!instance.error && wordtBijgewerkt ? (
+        <p role="status" className="text-muted-foreground text-xs">
+          Pdf bijwerken…
+        </p>
+      ) : null}
       {zichtbareUrl ? (
         <iframe
           title="Voorbeeld van de factuur"

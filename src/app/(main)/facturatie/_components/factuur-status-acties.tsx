@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { BadgeEuro, Download, FileCheck2, Loader2, Mail, RefreshCcw, Send, Undo2, X } from "lucide-react";
+import { BadgeEuro, FileCheck2, Loader2, Mail, Send, Undo2, X } from "lucide-react";
 
 import {
   AlertDialog,
@@ -34,7 +34,6 @@ export function FactuurStatusActies({
   onDefinitief,
   onStatus,
   onCrediteer,
-  onPdfHerstel,
   onVerwijder,
   onMail,
 }: Readonly<{
@@ -44,7 +43,6 @@ export function FactuurStatusActies({
   onDefinitief: () => void;
   onStatus: (status: "verzonden" | "betaald", betaaldOp?: string) => void;
   onCrediteer: () => void;
-  onPdfHerstel: () => void;
   onVerwijder: () => void;
   onMail: (ontvanger: string) => void;
 }>) {
@@ -105,20 +103,6 @@ export function FactuurStatusActies({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {bron === "centraal" && factuur.pdfPad ? (
-        <Button asChild variant="outline" size="sm">
-          <a href={`/api/careon/facturatie/facturen/${factuur.id}/pdf`}>
-            <Download className="size-3.5" />
-            Pdf downloaden
-          </a>
-        </Button>
-      ) : null}
-      {bron === "centraal" && !factuur.pdfPad ? (
-        <Button variant="outline" size="sm" disabled={bezig} onClick={onPdfHerstel}>
-          <RefreshCcw className="size-3.5" />
-          Pdf opnieuw genereren
-        </Button>
-      ) : null}
       {kanVerzonden ? (
         <Button variant="outline" size="sm" disabled={bezig} onClick={() => onStatus("verzonden")}>
           <Send className="size-3.5" />

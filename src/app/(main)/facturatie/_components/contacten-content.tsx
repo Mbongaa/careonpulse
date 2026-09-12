@@ -60,21 +60,32 @@ function ContactToevoegen({ onToegevoegd }: Readonly<{ onToegevoegd: () => void 
   const [soort, setSoort] = useState<ContactSoort>("organisatie");
   const [email, setEmail] = useState("");
   const [fout, setFout] = useState<string | null>(null);
+  const [bezig, setBezig] = useState(false);
+  const opslaanBezig = useRef(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (naam.trim() === "") return;
-    const resultaat = await bewaarContact(
-      { ...leegContact(), naam: naam.trim(), soort, email: email.trim() || undefined },
-      true,
-    );
-    if (resultaat.ok) {
-      setNaam("");
-      setEmail("");
-      setFout(null);
-      onToegevoegd();
-    } else {
-      setFout(resultaat.fout);
+    if (naam.trim() === "" || opslaanBezig.current) return;
+    opslaanBezig.current = true;
+    setBezig(true);
+    setFout(null);
+    try {
+      const resultaat = await bewaarContact(
+        { ...leegContact(), naam: naam.trim(), soort, email: email.trim() || undefined },
+        true,
+      );
+      if (resultaat.ok) {
+        setNaam("");
+        setEmail("");
+        onToegevoegd();
+      } else {
+        setFout(resultaat.fout);
+      }
+    } catch {
+      setFout("Contact opslaan is niet gelukt. Probeer opnieuw.");
+    } finally {
+      opslaanBezig.current = false;
+      setBezig(false);
     }
   }
 
@@ -85,11 +96,15 @@ function ContactToevoegen({ onToegevoegd }: Readonly<{ onToegevoegd: () => void 
         onChange={(event) => setNaam(event.target.value)}
         placeholder="Naam van het contact"
         aria-label="Naam nieuw contact"
+        required
+        maxLength={FACTURATIE_LIMITS.naam}
+        disabled={bezig}
         className="h-8 max-w-56 text-xs"
       />
       <NativeSelect
         value={soort}
         aria-label="Soort nieuw contact"
+        disabled={bezig}
         className="h-8 w-32 text-xs"
         onChange={(event) => setSoort(event.target.value as ContactSoort)}
       >
@@ -104,11 +119,14 @@ function ContactToevoegen({ onToegevoegd }: Readonly<{ onToegevoegd: () => void 
         onChange={(event) => setEmail(event.target.value)}
         placeholder="E-mailadres (optioneel)"
         aria-label="E-mailadres nieuw contact"
+        type="email"
+        maxLength={FACTURATIE_LIMITS.email}
+        disabled={bezig}
         className="h-8 max-w-56 text-xs"
       />
-      <Button type="submit" size="sm" variant="outline" disabled={naam.trim() === ""}>
+      <Button type="submit" size="sm" variant="outline" disabled={bezig || naam.trim() === ""}>
         <UserRoundPlus className="size-3.5" />
-        Contact toevoegen
+        {bezig ? "Opslaan…" : "Contact toevoegen"}
       </Button>
       {fout ? (
         <p role="alert" className="basis-full text-red-700 text-xs dark:text-red-400">

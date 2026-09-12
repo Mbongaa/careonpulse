@@ -43,6 +43,7 @@ import { vindTemplate } from "@/lib/careon-facturatie/types";
 import { afzenderUitTemplate, ONTBREKEND_LABELS, type OntbrekendVeld } from "@/lib/careon-facturatie/validatie";
 
 import { StatusBadge } from "./facturatie-lijst";
+import { FactuurArchiefPreview } from "./factuur-archief-preview";
 import { FactuurRegelsEditor } from "./factuur-regels-editor";
 import { FactuurStatusActies } from "./factuur-status-acties";
 import { FactuurTotalenBlok } from "./factuur-totalen";
@@ -97,6 +98,11 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
   // Versiebeheer voor autosave: server-updatedAt van de laatst bevestigde staat.
   const baseUpdatedAt = useRef<string>("");
   const vuil = useRef(false);
+  const lopendeOpslag = useRef<Promise<boolean> | null>(null);
+  const laatsteFactuur = useRef<Factuur | null>(null);
+  useEffect(() => {
+    laatsteFactuur.current = factuur;
+  }, [factuur]);
 
   useEffect(() => {
     let actief = true;
@@ -162,27 +168,51 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
     } satisfies Factuur;
   }, [factuur, huidigTemplate, totalen]);
 
-  // Debounced autosave voor concepten (800 ms na de laatste wijziging).
-  useEffect(() => {
-    if (factuur?.status !== "concept" || !vuil.current || conflictVersie) return;
-    const timer = window.setTimeout(async () => {
+  // Autosave en uitreiken delen één opslagrij: wacht op een lopende write en
+  // sla daarna eventuele nieuwere wijzigingen op met de bevestigde versie.
+  const slaConceptOp = useCallback(async (): Promise<boolean> => {
+    while (lopendeOpslag.current) {
+      if (!(await lopendeOpslag.current)) return false;
+    }
+    if (conflictVersie) return false;
+    const teBewaren = laatsteFactuur.current;
+    if (teBewaren?.status !== "concept" || !vuil.current) return true;
+    const poging = (async () => {
       vuil.current = false;
       setSync("bezig");
-      const resultaat = await bewaarConcept(factuur, baseUpdatedAt.current);
+      const resultaat = await bewaarConcept(teBewaren, baseUpdatedAt.current);
       if (resultaat.ok) {
         baseUpdatedAt.current = resultaat.factuur.updatedAt;
         setBron(resultaat.bron);
         setSync(resultaat.bron === "lokaal" ? "lokaal" : "opgeslagen");
-      } else if (resultaat.status === 409 && resultaat.factuur) {
+        setFout(null);
+        return true;
+      }
+      if (resultaat.status === 409 && resultaat.factuur) {
+        vuil.current = true;
         setConflictVersie(resultaat.factuur);
         setSync("conflict");
       } else {
+        vuil.current = true;
         setSync("fout");
         setFout(resultaat.fout);
       }
-    }, 800);
+      return false;
+    })();
+    lopendeOpslag.current = poging;
+    try {
+      return await poging;
+    } finally {
+      if (lopendeOpslag.current === poging) lopendeOpslag.current = null;
+    }
+  }, [conflictVersie]);
+
+  // Debounced autosave voor concepten (800 ms na de laatste wijziging).
+  useEffect(() => {
+    if (factuur?.status !== "concept" || !vuil.current || conflictVersie || bezig) return;
+    const timer = window.setTimeout(() => void slaConceptOp(), 800);
     return () => window.clearTimeout(timer);
-  }, [factuur, conflictVersie]);
+  }, [factuur, conflictVersie, bezig, slaConceptOp]);
 
   const wijzig = useCallback((patch: Partial<Factuur>) => {
     vuil.current = true;
@@ -202,13 +232,11 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
     if (!factuur) return;
     setBezig(true);
     setOntbrekend([]);
-    // Eventuele laatste wijzigingen eerst persistent maken.
-    if (vuil.current && factuur.status === "concept") {
-      const opgeslagen = await bewaarConcept(factuur, baseUpdatedAt.current);
-      if (opgeslagen.ok) {
-        baseUpdatedAt.current = opgeslagen.factuur.updatedAt;
-        vuil.current = false;
-      }
+    // Nooit uitreiken op basis van een oudere opgeslagen versie wanneer de
+    // laatste wijziging nog onderweg is, is mislukt of een conflict oplevert.
+    if (!(await slaConceptOp())) {
+      setBezig(false);
+      return;
     }
     const resultaat = await maakDefinitief(factuur.id, factuur.factuurdatum ?? undefined);
     setBezig(false);
@@ -252,8 +280,10 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
     setBezig(true);
     const resultaat = await herstelPdf(factuur.id);
     setBezig(false);
-    if (resultaat.ok) void herlaad();
-    else setFout(resultaat.fout);
+    if (resultaat.ok) {
+      setFout(null);
+      await herlaad();
+    } else setFout(resultaat.fout);
   };
 
   // Fase B: per e-mail versturen (centraal via Resend, demo gesimuleerd).
@@ -443,7 +473,7 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
       ) : null}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,540px)]">
-        <div className="space-y-4">
+        <fieldset disabled={bezig} className="min-w-0 space-y-4">
           {instellingen && instellingen.templates.length > 0 ? (
             <Card>
               <CardHeader>
@@ -743,7 +773,7 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
             </CardContent>
           </Card>
 
-          <div className="sticky bottom-2 rounded-lg border bg-background/95 p-3 shadow-sm backdrop-blur">
+          <section aria-label="Factuuracties" className="rounded-lg border bg-background p-3">
             <FactuurStatusActies
               factuur={factuur}
               bron={bron}
@@ -751,7 +781,6 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
               onDefinitief={() => void definitief()}
               onStatus={(naarStatus, betaaldOp) => void statusActie(naarStatus, betaaldOp)}
               onCrediteer={() => void crediteerActie()}
-              onPdfHerstel={() => void pdfHerstel()}
               onVerwijder={() => void verwijderActie()}
               onMail={(ontvanger) => void mailActie(ontvanger)}
             />
@@ -771,11 +800,22 @@ export function FactuurEditor({ factuurId }: Readonly<{ factuurId: string }>) {
                 </ul>
               </div>
             ) : null}
-          </div>
-        </div>
+          </section>
+        </fieldset>
 
-        <div className="lg:sticky lg:top-4 lg:h-[calc(100vh-6rem)]">
-          {previewFactuur ? <FactuurPdfPreview factuur={previewFactuur} logoSrc={logoSrc} /> : null}
+        <div
+          className={
+            !isConcept && bron === "centraal"
+              ? "order-first lg:sticky lg:top-4 lg:order-last lg:h-[calc(100vh-6rem)]"
+              : "lg:sticky lg:top-4 lg:h-[calc(100vh-6rem)]"
+          }
+        >
+          {!isConcept && bron === "centraal" ? (
+            <FactuurArchiefPreview factuur={factuur} bezig={bezig} onHerstel={() => void pdfHerstel()} />
+          ) : null}
+          {(isConcept || bron === "lokaal") && previewFactuur ? (
+            <FactuurPdfPreview factuur={previewFactuur} logoSrc={logoSrc} />
+          ) : null}
         </div>
       </div>
     </div>

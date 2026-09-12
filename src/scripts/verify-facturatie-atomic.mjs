@@ -243,3 +243,5 @@ try {
 } finally {
   globalThis.fetch = originalFetch;
 }
+
+await import("./verify-facturatie-contacten.mjs");

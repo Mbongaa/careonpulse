@@ -2,7 +2,13 @@ import { EMPTY_FACTURATIE_INSTELLINGEN } from "@/data/careon/careon-facturatie";
 import { POSTGREST_URL, userRestHeaders } from "@/lib/supabase/postgrest.server";
 import type { CareonSession } from "@/lib/supabase/session.server";
 
-import { type FacturatieContact, type FacturatieInstellingen, type Factuur, migreerInstellingen } from "./types";
+import {
+  type FacturatieContact,
+  type FacturatieContactInvoer,
+  type FacturatieInstellingen,
+  type Factuur,
+  migreerInstellingen,
+} from "./types";
 
 // Server-side gereedschap voor de facturatieroutes (handoff 15 §2.3/§2.4):
 //   * PostgREST-calls lopen standaard onder het caller-JWT (RLS als grens) mét
@@ -197,7 +203,11 @@ export function contactVanRij(rij: ContactRij): FacturatieContact {
   };
 }
 
-export function rijVanContact(contact: FacturatieContact, orgId: string, createdBy?: string): Record<string, unknown> {
+export function rijVanContact(
+  contact: FacturatieContactInvoer,
+  orgId: string,
+  createdBy?: string,
+): Record<string, unknown> {
   return {
     org_id: orgId,
     soort: contact.soort,

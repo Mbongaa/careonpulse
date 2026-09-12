@@ -7,7 +7,7 @@ import {
   contactVanRij,
   rijVanContact,
 } from "@/lib/careon-facturatie/facturatie.server";
-import { FACTURATIE_LIMITS, isFacturatieContact } from "@/lib/careon-facturatie/types";
+import { FACTURATIE_LIMITS, isFacturatieContactInvoer } from "@/lib/careon-facturatie/types";
 import { InvalidJsonBodyError, RequestPayloadTooLargeError, readJsonBodyLimited } from "@/lib/http/read-json.server";
 import { POSTGREST_URL, userRestHeaders } from "@/lib/supabase/postgrest.server";
 import { requireOrgAdmin } from "@/lib/supabase/session.server";
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: status === 413 ? "Payload te groot." : "Ongeldige JSON." }, { status });
   }
   const kandidaat = body && typeof body === "object" ? (body as Record<string, unknown>).contact : null;
-  if (!isFacturatieContact(kandidaat)) {
+  if (!isFacturatieContactInvoer(kandidaat)) {
     return NextResponse.json({ error: "Ongeldig contact." }, { status: 400 });
   }
 
