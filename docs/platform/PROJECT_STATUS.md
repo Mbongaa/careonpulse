@@ -14,8 +14,10 @@ shell launch is still withheld. A loopback-only `npm run dev:local` opens the co
 without production credentials or provider calls. All four additive Scribe migrations have been
 locally tested and applied successfully. Full code checks and all 169 isolated browser tests pass.
 Release `8c70941` is live; authenticated acceptance opens Careon AI from its active tile.
-Organization/provider settings are unchanged. The remote database job is being corrected to install
-its TypeScript parity-test dependencies before rerunning the release checks. See [release evidence](./CAREON_AI_RELEASE_2026-09-12.md).
+Organization/provider settings are unchanged. Follow-up `6e473ce` completes the remote release
+checks: all 169 browser cases, 1,042 database checks, quality/build and CodeQL pass, with zero
+dependency vulnerabilities. Production TGC still needs its activation settings to create consults;
+the full local synthetic workflow is open for testing. See [release evidence](./CAREON_AI_RELEASE_2026-09-12.md).
 
 **12 Sep 2026 — invoice contact/download repair deployed and live contact/draft download verified.**
 Release `845d105` is live on the canonical Careon domain. The owner's TGC contact now saves centrally

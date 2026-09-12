@@ -87,7 +87,20 @@ Authenticated Edge acceptance confirms the active Careon AI tile opens the produ
 with no browser error. It accurately shows that TGC's module settings are not yet enabled; no
 activation values, real consults or provider settings were fabricated or changed.
 
-The first remote database job passed authorization/invoice/EPD and initial Scribe SQL cases but
-could not run the TypeScript parity fixtures because that job did not install `ts-node`. The workflow
-now sets up the same pinned Node 22 action and runs `npm ci` before its SQL suites, with providers
-disabled. Remote verification will rerun for this workflow-only correction.
+The database CI job now installs its Node/TypeScript dependencies before running the SQL parity
+fixtures, with external providers disabled. Follow-up `6e473ce` changes only that workflow and release
+documentation; application source is identical to `8c70941`.
+
+Final remote verification for `6e473ce`:
+
+- [CI](https://github.com/Mbongaa/careonpulse/actions/runs/34699878794): database, quality/build and browser pass.
+- **169/169 browser tests**, no retries or flaky/failure summary; test time 4.0 minutes.
+- **1,042 PostgreSQL checks**: authorization 247, invoice 26, EPD 37 and Scribe 732.
+- Dependency audit: **zero vulnerabilities**.
+- [CodeQL](https://github.com/Mbongaa/careonpulse/actions/runs/34699878752): passes.
+- [Vercel](https://vercel.com/hassans-projects-a393ace3/careonpulse/5v5V3nb6XZnZty4Tgs38voobcumZ): deployed successfully.
+
+A final authenticated read also confirms the requested **TGC** invoice contact remains saved after
+the full release. The production Careon AI page and local synthetic demo are left open for the owner;
+local `npm run dev:local` remains bound to `127.0.0.1:3000`. Production consult creation still requires
+TGC's authentic activation settings; no provider activation or real consultation was performed.
