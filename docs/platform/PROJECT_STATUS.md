@@ -6,14 +6,16 @@ This file tracks where the platform stands: what exists, what is in progress, an
 
 Legend: ✅ done · 🔵 current focus · ⬜ not started
 
-**12 Sep 2026 — complete Careon AI release being verified for owner testing.**
+**12 Sep 2026 — complete Careon AI web release deployed for owner testing.**
 The owner explicitly requested publication of the remaining local Careon work and then superseded
 an initial Coming soon request: the web Careon AI tile must remain accessible in production and
 locally. The existing organization, clinician and provider controls remain authoritative; native
 shell launch is still withheld. A loopback-only `npm run dev:local` opens the complete synthetic demo
 without production credentials or provider calls. All four additive Scribe migrations have been
 locally tested and applied successfully. Full code checks and all 169 isolated browser tests pass.
-Organization/provider settings are unchanged; application publication is next. See [release evidence](./CAREON_AI_RELEASE_2026-09-12.md).
+Release `8c70941` is live; authenticated acceptance opens Careon AI from its active tile.
+Organization/provider settings are unchanged. The remote database job is being corrected to install
+its TypeScript parity-test dependencies before rerunning the release checks. See [release evidence](./CAREON_AI_RELEASE_2026-09-12.md).
 
 **12 Sep 2026 — invoice contact/download repair deployed and live contact/draft download verified.**
 Release `845d105` is live on the canonical Careon domain. The owner's TGC contact now saves centrally

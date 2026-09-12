@@ -36,8 +36,9 @@ The following additive migrations require verified application/schema parity bef
 The initial audit found zero sessions, segments, notes and explicit clinician grants. TGC's module,
 transcription and AI settings were all off. Organization administrators can open the module and
 settings under the existing role rules; creating central consults remains subject to module settings.
-The existing service-only prune RPC is compatible. All four exact reviewed migrations were subsequently applied successfully, in the listed order,
-through the Supabase migration tool. Organization/provider settings were not changed.
+The existing service-only prune RPC is compatible. All four exact reviewed migrations were
+subsequently applied successfully, in the listed order, through the Supabase migration tool.
+Organization/provider settings were not changed.
 
 ## Release contents and verification
 
@@ -60,4 +61,33 @@ Private environment files, provider credentials, dependencies and build outputs 
 - Fresh TGC settings audit found no saved settings revision: new central consult creation remains
   off until authentic activation details are supplied. Local synthetic testing is immediately usable.
 
-Publication and live acceptance will be recorded after the verified source is pushed.
+## Publication and production verification
+
+Release `8c70941` is pushed to `main`; its committed tree exactly matches the isolated verified
+release. The primary checkout was clean after publication.
+
+Supabase recorded the applied migrations as follows:
+
+| Source migration | Recorded version |
+| --- | --- |
+| `scribe_audit_integrity` | `20260912143151` |
+| `scribe_conversation_context` | `20260912143158` |
+| `scribe_speaker_provenance` | `20260912143204` |
+| `scribe_reviewed_english_drafts` | `20260912143211` |
+
+Postmigration inspection confirms all 31 function definitions and security/search-path modes match
+reviewed source, all seven added columns/defaults, ten protective triggers, four constraints and the
+unique release index are present, and all eight tables retain RLS and active-account restrictions.
+Revoked legacy write/approval access remains revoked. Content tables remain empty; organization
+settings and clinician authorizations were not changed. The security advisor reports zero findings;
+the performance advisor reports only informational items, with no warning or error.
+
+[Vercel deployed the release](https://vercel.com/hassans-projects-a393ace3/careonpulse/BgAUaDHVuxxzevAUL19q9QYrT9ad).
+Authenticated Edge acceptance confirms the active Careon AI tile opens the production consult page,
+with no browser error. It accurately shows that TGC's module settings are not yet enabled; no
+activation values, real consults or provider settings were fabricated or changed.
+
+The first remote database job passed authorization/invoice/EPD and initial Scribe SQL cases but
+could not run the TypeScript parity fixtures because that job did not install `ts-node`. The workflow
+now sets up the same pinned Node 22 action and runs `npm ci` before its SQL suites, with providers
+disabled. Remote verification will rerun for this workflow-only correction.
