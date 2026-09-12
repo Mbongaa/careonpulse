@@ -70,4 +70,11 @@ use does not require the separately gated mail provider. G17's off-site backup o
   automatic headless PDF iframe preview download. The test now waits for the action to be enabled
   and observes the explicitly named invoice download, retaining the strict filename assertion.
   Five consecutive local finalization/download runs pass with the corrected event selection;
-  formatting passes. The complete remote suite will rerun for this test correction.
+  formatting passes.
+- Final verification of follow-up `38218b8`: [CI](https://github.com/Mbongaa/careonpulse/actions/runs/34698226132)
+  passes database regressions, quality/build/SBOM and **137/137 browser checks**, with no retries
+  or failures. The numbered demo-invoice download passes in 3.0 seconds.
+  [CodeQL](https://github.com/Mbongaa/careonpulse/actions/runs/34698226112) and
+  [Vercel](https://vercel.com/hassans-projects-a393ace3/careonpulse/DPovaqg4yNyAoX8L1gQjt2DoiMw3)
+  also succeed. This follow-up changes only the download-event test and acceptance documentation;
+  the deployed application implementation is unchanged from `845d105`.
