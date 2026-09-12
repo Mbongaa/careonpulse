@@ -51,3 +51,23 @@ application code, migrations and activation changes are excluded.
 
 G12 remains In progress until the client's controlled real invoice lifecycle is accepted. Download-only
 use does not require the separately gated mail provider. G17's off-site backup ownership remains separate.
+
+## Production acceptance
+
+- `845d105` was pushed to `main`; its committed tree exactly equals the isolated verified release.
+  [Vercel deployment](https://vercel.com/hassans-projects-a393ace3/careonpulse/2La9Si6g99XBUU1oRTkC96JXxWQ3)
+  reports success and the canonical site displays the new draft preview/actions.
+- Authenticated Edge acceptance created the explicitly requested **TGC** organization contact with
+  optional email blank. It returned without an error and remained present after a hard reload.
+  No billing address was guessed or copied from an unrelated sender profile.
+- Downloaded the owner's existing draft through the live **Pdf downloaden** button. The local download
+  is 827,277 bytes with a valid PDF header/trailer. The browser connector's download event timed out,
+  but the actual newly written file confirmed completion. No invoice content was changed or finalized.
+- The existing draft requires recipient billing details and service-period dates before finalization;
+  those inputs have been requested from the owner. This is distinct from the repaired contact defect.
+- Remote database-regressions, quality (including build/SBOM) and CodeQL passed for this release.
+  The full remote browser run passed 136 cases; the remaining demo-download assertion captured an
+  automatic headless PDF iframe preview download. The test now waits for the action to be enabled
+  and observes the explicitly named invoice download, retaining the strict filename assertion.
+  Five consecutive local finalization/download runs pass with the corrected event selection;
+  formatting passes. The complete remote suite will rerun for this test correction.

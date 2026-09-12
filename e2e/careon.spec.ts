@@ -752,8 +752,12 @@ test.describe("facturatie (demo-pad, handoff 15)", () => {
     // Download loopt in demo via de client-blob van het voorbeeld. De native
     // bestandsbrug gebruikt nu één knop voor browserdownload en shell-opslag.
     const pdfDownload = page.getByRole("button", { name: "Pdf downloaden" });
-    await expect(pdfDownload).toBeVisible({ timeout: 15_000 });
-    const downloadPromise = page.waitForEvent("download");
+    await expect(pdfDownload).toBeEnabled({ timeout: 15_000 });
+    // Headless shell also downloads PDF iframe previews while rendering.
+    // Only the named download requested by this button proves this action.
+    const downloadPromise = page.waitForEvent("download", {
+      predicate: (download) => download.suggestedFilename() === "F2026-0003.pdf",
+    });
     await pdfDownload.click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toBe("F2026-0003.pdf");
