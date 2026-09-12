@@ -35,6 +35,7 @@ export default defineConfig({
     // zien). Next laat al-gezette env-waarden voorgaan op .env.local.
     env: {
       CAREON_ASSISTANT_LIVE: "0",
+      CAREON_SCRIBE_LIVE: "0",
       CAREON_DEMO_MODE: "1",
       CAREON_MICROSOFT_LOGIN_ENABLED: "0",
       NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:9",

@@ -45,6 +45,7 @@ Close and track the Careon Pulse/YAAZ professional-platform gaps across sessions
 
 ## Gap inventory
 
+
 | ID | Area | Current reality (23 Aug 2026) | Consequence | Target outcome | Priority | Status |
 |---|---|---|---|---|---|---|
 | G01 | Employee onboarding | Production Directie reconciles all 66 Entra identities. All **51 enabled/licensed tenant members** are now assigned to the Careon employee app role: the previous 16 plus an exact 35-user completion cohort (redacted digest `7965c88a...12ad`). Entra's assignment grid and Careon's independent inventory both report 51 eligible; Careon reports 3 active accounts and 48 pending first login. The 35 new assignments created no Careon/YAAZ account and no admin/confidential entitlement. Seven guests, seven disabled members and one enabled/unlicensed member remain ineligible; Zairo remains an active eligible `org_admin`. The canonical YAAZ directory bridge was repaired without changing its bearer key or scope; Directie now also reports 2 active YAAZ accounts and 1 personal Microsoft 365 connection instead of unknown states. Existing-account linking, brand-new JIT first launch, denied classes and cross-plane offboarding remain production-accepted. | The full active/licensed internal workforce can now use Microsoft login without a Careon invitation or password. Forty-eight accounts deliberately do not exist until those employees first sign in; Entra eligibility and Careon authorization remain separate. | Entra-gated, audited employee provisioning with safe default access, clear role ownership and reliable offboarding. | P0 | Done |
@@ -65,6 +66,7 @@ Close and track the Careon Pulse/YAAZ professional-platform gaps across sessions
 | G16 | Reproducible source and deployment | All four repositories are now remote on private GitHub `main` branches. Careon retains production feature source `fef19f7` and passes the complete CI chain, zero-vulnerability audit, 107-route build and **130/130** browser tests. Platform head `83110b6` retains deployed M365 0.16.0 plus browser hardening and a canonical external smoke; run `32605138263` is green. Shell head `05894ed` retains feature source `8174dfd`; first cross-platform run `32604657785` is green. Meeting head `5ae2f9e` is private/remote; run `32605339721` lints and verifies PHP, then produces the same provenance-bearing `meeting-core` archive twice (`2946d0eb...db288`). Production YAAZ separately reports exact module parity, **473** M365, **18** UI, **44** SSO, **22/22** capabilities and full health. | Overwrite/reconstruction risk is closed across Careon, YAAZ/M365, governed Spaces, the mobile clients and dormant meeting rollback source. Every repo now has off-workstation source plus an appropriate deterministic gate. | Preserve commit-first isolated-release discipline, immutable CI action pins, exact production parity and capability-specific activation/acceptance boundaries. | P0 | Done |
 | G17 | Backups, monitoring and operations | Local restore rehearsal, active nightly backup/five-minute full-plane health and hourly external smoke remain green. Platform `5a9d63c`/host `7498990` makes YAAZ R2 publication pair-aware and recovery exact-pair/no-overwrite. Careon `8df360b` keeps the Facturatie secondary-copy path client-side AES-256-GCM encrypted, EU-only, conditional/no-overwrite and completion-last, and adds a daily Windows schedule boundary plus central metadata-only status. Careon `47f138f` now renders that state for organization administrators in Signaleringen as **Facturatie-reservekopie**, linked to Facturatie, without patient/invoice/object/bucket/path/key/credential data; members receive neither the service-role query nor the panel. The service-only status/RPC records only healthy/failed, a fixed failure code and database timestamps; the five-minute monitor derives healthy/failed/stale/unknown and reuses the durable operations outbox. Full CI/build remains green and live Zairo acceptance correctly shows `Nog niet geactiveerd`. The task is not installed and all client flags remain off: no TGC-owned R2 destination/token, approved external key custody or always-on operator has been supplied, so no R2 write or invoice-byte copy occurred. | Administrators now see the honest backup state inside their daily dashboard instead of relying on infrastructure access. The software can schedule, monitor and externally escalate an encrypted Facturatie backup without leaking invoice or storage metadata, but server loss can still lose local-only YAAZ backups and future invoice/logo objects until client destinations are activated. Neither plane yet has an owned Teams destination, and the off-site RPO remains open until a real non-empty restore is proven. | Supply and approve the TGC-owned EU R2 destinations, least-privilege tokens, lifecycle rules and external key custody; activate the daily task on a managed always-on host; prove isolated YAAZ fetch+restore plus non-empty Facturatie fetch/restore; then name a Teams channel with service-principal or redundant owner and run controlled incident/recovery delivery acceptance. | P0 | In progress |
 | G18 | Authentication and browser-header hardening | Supabase remains `ACTIVE_HEALTHY` on Postgres 17. The retained e-mail fallback now limits OTPs to **3,600 seconds**, enables leaked-password protection and requires at least 12 password characters; the security advisor retains only intentional deny-by-default service-table RLS notices. Platform commits `072795d`/`dbf96d1` replace YAAZ's wildcard CSP with an explicit Careon/Microsoft/Office/SharePoint/ACS allowlist, add HSTS/nosniff/SAMEORIGIN/strict-referrer headers, remove the server banner and expose a sanitized no-store `/healthz`. The 0.17 app-wide listener amendment grants camera/microphone to same-origin normal authenticated pages so an accepted incoming call can acquire media, while display capture remains limited to `/microsoft-365/call*`; health/auth/connect/callback routes retain a complete media denial. No permission prompt occurs until call start/accept. Static/live verification is part of host health. Production login handoff, Microsoft surfaces, app-wide Teams initialization and SharePoint controls render under the policy; G05/G10 own real transfer/media acceptance. | The fallback credential route and browser injection blast radius are materially reduced while the minimum media capability needed for an app-wide incoming-call accept is explicit and same-origin-only. Header drift now fails the operational health gate. | Preserve the one-hour OTP/leaked-password policy, CSP allowlist, route-aware media policy and live verifier; review the allowlist deliberately whenever HumHub or a Microsoft SDK adds a new required origin. | P2 | Done |
+| G20 | Careon Scribe activation | The clinical live scribe of `agent-handoff/20-clinical-scribe.md` is built at `/scribe` inside Module 1 with its own schema `20260907120000_careon_scribe.sql`: eight tables with owner-bound RLS, database-enforced status transitions and retention, no Storage object and no stored audio. Access runs on four layers per authorized clinician; an `org_admin` sees only metadata, may delete and may release an approved report once and audited. Every provider call is opt-in behind `CAREON_SCRIBE_LIVE`, the module is off per organization until an administrator enables it, and without a provider the complete workflow runs deterministically. Blueprint v2.10 records this as **proposed D24**; §18 carries the new special-category processing activity. The schema was applied to `careon-zsg` on 7 Sep 2026 and verified (`pg_policies`/`pg_proc`/`pg_constraint`/`pg_trigger`). No production activation or organization enablement has taken place; isolated teaching-provider calls were owner-authorized and verified on 11 September 2026. | The 10 September independent audit reopens engineering acceptance (35 findings; see SCRIBE_AUDIT_2026-09-10.md). The product may not be used on real consults: without owner confirmation of D24, per-provider DPAs covering API-input retention, an established DPIA and counsel-approved consent wording, activating it would send special-category data to a processor on an unsettled legal basis. The mobile launch remains withheld. On 12 September the owner requested publishing all remaining Careon work with an accessible Careon AI web tile for testing; that release is being verified. Direct browser access retains the existing clinician and organization gates, and local synthetic testing is provided through `npm run dev:local`. | Resolve the audit findings with negative/concurrent regressions and reviewed app/schema parity; then owner-confirmed D24, signed DPAs incl. zero data retention per provider, an established DPIA, approved consent wording, per-organization enablement with authorized clinicians, a shell microphone permission profile (D12 phase 2), and live acceptance with real clinicians before the module is presented as usable care software. | P1 | In progress |
 
 ## G01 — Entra-driven employee onboarding
 
@@ -186,6 +188,153 @@ substitute.
   presented as success, and CareCheck remains independently reachable.
 - The controller/vendor approve the data-processing and legal-dossier boundary
   before clinical write activation.
+
+## G20 — Careon AI (formerly Careon Scribe) activation
+
+**11 Sep 2026 — engine repair implemented locally at the owner's request; G20 remains In progress.**
+English source-context drafts and a narrow confirmed-speaker fact path now have matching source/approval guards.
+Repeated provider controls reproduced and verified fixes for later-batch fact loss and stopping-medication
+evidence. Post-finish corrections invalidate context; stale reports cannot be approved and regeneration refreshes
+their sources. Remaining unreviewed quotations stay accessible beside facts and across report-format changes.
+Three additive migrations passed 626 actual-database assertions and 106 shared TypeScript controls; the 53-example
+TypeScript/SQL parity corpus agrees. Complete-analysis checks pass 186 assertions and the synthetic real-provider
+browser flow covers confirmation → draft → correction → regeneration → approval → reload.
+The full 252-turn teaching control retains only one fact under synthetic role assumptions; quotation-only runs
+still do not constitute useful, complete clinical notes. Participant identity, question/answer grounding, concise
+composition, broader recording references and clinician acceptance remain open. See
+[repair evidence](./SCRIBE_ENGINE_ITERATION_2026-09-11.md) and
+[acceptance criteria](./SCRIBE_ENGINE_ACCEPTANCE_2026-09-11.md).
+No production migration, activation, deployment or D24 decision change follows from these local results.
+
+**11 Sep 2026 — owner-authorized teaching-audio verification completed; English note acceptance fails.**
+Two complete immutable-build browser runs of the 12:29 teaching MP3, one with pause/resume,
+each captured 92 successful fragments, reached the closing discussion and passed execution
+checks. Both retained zero facts and 92 unknown speaker roles; all six factual note sections
+remained blank, alongside the two intentionally manual assessment sections. Complete
+provider/diarization/prompt comparisons confirm unresolved turn/role attribution and English
+source-validation contracts. The experimental prompt was withdrawn after incorrect role
+labels; six UI clarity/approval fixes and reusable verification tools remain. Earlier dev
+replays with a Fast Refresh cutoff are explicitly excluded. `verify:ci` passes; 162 browser
+scenarios passed with one retry, followed by five successful focused repeats after a precise
+test synchronization fix. [Detailed findings and evidence](./SCRIBE_RECORDING_AUDIT_2026-09-11.md).
+G20 stays In progress: preserve speaker identity and source spans, align multilingual evidence
+rules, repeat with clinician-adjudicated references and a broader corpus, then complete the
+existing production/clinical gates. Teaching-test provider calls used process-only flags and
+in-memory persistence; no production deployment, migration, organization activation or D24 change.
+
+**11 Sep 2026 — English recording test readiness checked in the local browser.**
+The requested 12:29 teaching MP3 was located, but no MP3 transcription run was possible:
+the UI has no file importer and the local Scribe provider is not configured. Three
+supplemental demo workflows reproduced late English-capability disclosure, misleading
+"Nog niet besproken" labels for unextracted facts, a Dutch demo script under English
+selection, and bulk approval with zero eligible sections. Draft navigation protection,
+approval skipping and a saved report edit passed. [Browser evidence and remaining audio
+acceptance](./audits/scribe-browser-2026-09-11/README.md). These are demo/manual-text results,
+not source-audio accuracy evidence. No provider call, deployment, activation or product fix;
+G20 remains In progress.
+
+**10 Sep 2026 — client-requested launcher presentation implemented and verified locally.** Careon Scribe is renamed to
+**Careon AI** in product copy, with its stable `careon-scribe` module ID and `/scribe` route retained.
+Careon Academie/Academy, Careon AI and Careon Kwaliteitshandboek are coming-soon previews for employees
+and administrators. Employees retain Careon Dashboard and YAAZ; Facturatie remains administrator-only.
+These inert previews grant no module access or activation. Full `verify:ci` passes; 162 browser scenarios
+complete (161 direct passes, one draft-cleanup retry); all 77 Flutter tests pass. Four visual captures verify
+desktop/phone layouts. [Evidence](./audits/module-launcher-2026-09-10/README.md). No deployment; native clients
+need the updated shell to show previews. G20 activation and release gates remain open.
+
+**Status: Proposed / In progress · Priority: P1.** The module is built and gated. The 10 September independent
+[audit](./SCRIBE_AUDIT_2026-09-10.md) identified 35 engineering findings. Their four-phase local fixes and verification
+are recorded in the [remediation report](./SCRIBE_REMEDIATION_2026-09-10.md), including negative/concurrency, clinical,
+recording and browser regressions. Local engineering remediation is implemented; the additive migration and matching
+application are not deployed. Release, legacy-data review and external acceptance remain open.
+Specification and implementation log:
+`agent-handoff/20-clinical-scribe.md`. Decision: blueprint **D24 (Proposed, owner confirmation required)**.
+
+### Implemented boundary
+
+- Route section `/scribe` inside Module 1 with its own module shell, four-layer shielding (launcher tile, server page
+  gate, per-route session/authorization gate, RLS) and its own schema
+  `supabase/migrations/20260907120000_careon_scribe.sql`.
+- **Schema applied to production** (`careon-zsg`, 7 Sep 2026, Supabase Management API, recorded in
+  `supabase_migrations.schema_migrations` as `20260907120000 careon_scribe`) and verified: RLS on all eight tables with
+  the restrictive `careon_active_account` policy, the three transition RPCs as `security invoker`, prune executable by
+  the service role only, quota scope `scribe` in the rate-limit constraint, five freeze/retention triggers.
+- Consult content is **owner-bound**: transcript, clinical state, report and tasks are readable only by the clinician
+  who conducted the consult. An `org_admin` sees session metadata **without** dossier reference or consult type, may
+  delete a consult (audited, with role) and may release the **approved report only** — never the transcript — once and
+  audited to one named colleague. Superadmins without organization membership have no SQL branch into the module.
+- Members require an explicit clinician authorization (`careon_scribe_gemachtigden`). Organization administrators
+  also have use rights under the existing role policy; separate authorization is not required for them. The predicate
+  pair `magScribeGebruiken`/`magScribeBeheren` and its SQL mirrors are the single source of truth. Organization acceptance
+  must review this administrator exception; this remediation does not silently change the agreed role model.
+- Status transitions, retention dates and note approval are database-enforced through `security invoker` RPCs plus
+  freeze triggers (the frozen columns open only under the `careon.scribe_rpc` GUC the RPCs set); the client can set
+  neither a status nor a deletion date. The local additive integrity migration introduces revision/source-bound
+  writes and service-only administrator operations that reauthorize the initiating actor, and revokes legacy writes.
+- **Organisation-level controls (wave 2, 7 Sep 2026).** The module switch is blocked until the four activation
+  preconditions are recorded in the product (DPIA date + owner, processor agreement confirmed, consent text
+  approved) — the SQL predicate `app.scribe_ingeschakeld` requires them too; external processing is a separate
+  organisation decision (`transcriptieAan`, `aiAnalyseAan`, both default off) on top of the platform opt-in; the
+  organisation reads its own scribe audit trail on `/scribe/logboek` (metadata only, CSV export); clinicians can
+  correct or retract extracted facts (`PATCH …/staat`, `doorBehandelaar`, never undone by a later AI pass).
+- **No audio is stored.** Self-contained fragments are relayed to the provider and discarded: no Storage bucket, no
+  temporary file, no audio or transcript text in any log. Telemetry is content-free; audit events are metadata-only.
+- **Opt-in and fail-closed.** No provider call occurs without `CAREON_SCRIBE_LIVE=1`; without a fully configured
+  transcription provider the route answers 503 and manual entry remains. The module is off per organization until an
+  `org_admin` enables it. Without live AI, Dutch extraction, medication checks, reports and demo flows are deterministic;
+  English fallback explicitly requires clinician-entered report sections.
+- Session metadata is intended for a short dossier reference; users must not enter a BSN, birth date or name. The
+  validator rejects BSN/date patterns and invalid characters but cannot reliably recognize names in alphanumeric
+  input. Assessment/risk sections are clinician-authored, and machine-derived risk statements are neutralized.
+- Deliberate security change: `Permissions-Policy: microphone=(self)` on `/scribe*` only, with hard document
+  navigation into the module; the rest of the app keeps `microphone=()`.
+
+### Remaining boundary
+
+**Local engineering remediation verified — 10 September 2026.** The audited counterexamples now have corrective code
+and regression evidence: real PostgreSQL 105 baseline + 125 upgraded assertions, Scribe server/domain/clinical/route
+and client suites, optimized build, all 162 browser scenarios completed and five retry-free EPD repeats after a
+test-only synchronization correction. Dependencies are clear and the Scribe PostgreSQL suite is included in CI.
+Before activation, deploy the reviewed app/schema pair and verify actual Supabase/PostgREST behavior and drift. Review
+duplicate recipients, historical constraint exceptions, legacy inferred state and draft source bindings explicitly;
+local tests do not perform these production data decisions. See the remediation report's controlled release sequence.
+
+1. **Owner confirmation of D24**, including the D17 amendment that allows Gemini through Vertex AI (EU) for
+   transcription while extraction and report generation stay on OpenAI.
+2. **Data-processing agreements per provider**, explicitly covering the retention of API input — zero data retention
+   and exclusion from abuse logging recorded in writing. Consult audio and verbatim consult text are new material
+   relative to the existing assistant DPA line.
+3. **An established DPIA** for the consult-transcript processing (special-category data), with a named owner and date.
+4. **Consent wording approved with the client's counsel**; the module freezes the literal text and its settings
+   revision per consult.
+5. **Per-organization enablement plus authorized clinicians** by an `org_admin`, together with the organization's
+   retention choices.
+6. **Shell microphone permission profile (D12 phase 2)** before the mobile tile may be delivered; the registry keeps
+   `shellReady: false`, so the entry stays disabled with no launch URL.
+7. **Live acceptance with real clinicians** on real consults, including transcription quality, speaker separation,
+   the medication-safety signals and the EPD transfer step.
+
+### Acceptance criteria for the next stage
+
+- The owner records D24 as Confirmed (or rejects/limits it), and the processing inventory in blueprint §18 matches the
+  signed agreements.
+- Each active provider has a signed DPA whose API-input retention clause is quoted in `PRODUCTION_MODE.md`.
+- The DPIA is established and referenced before `CAREON_SCRIBE_LIVE=1` is set in any environment.
+- One organization is enabled with a limited group of authorized clinicians. An unauthorized member and a superadmin
+  without membership fail closed against the database; administrators' existing organization-wide use exception is
+  explicitly accepted. Any decision to require separate administrator authorization must update both role predicates.
+- One real consult runs end to end: consent confirmed, transcription usable, assessment sections written by the
+  clinician, report approved per section, transferred to the EPD, and the transcript verifiably erased afterwards.
+- The mobile tile stays absent until the shell permission profile is accepted; nothing about the module is presented
+  to clinicians as available before these criteria are met.
+
+### Consequences if it stays open
+
+The organization retains a gated implementation that needs a reviewed application/schema release and owner/processor,
+clinical and device acceptance before use on real patients. The audit and remediation sent no patient data to a
+processor. Activating an older deployment would retain the reproduced defects; activating the local candidate before
+acceptance would leave the processing and clinical-use conditions unresolved. The default-off gates remain necessary
+protections and do not establish production readiness.
 
 ## Cross-session update template
 

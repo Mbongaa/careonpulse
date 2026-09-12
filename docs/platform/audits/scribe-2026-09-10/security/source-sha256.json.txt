@@ -1,0 +1,54 @@
+[
+  {
+    "Path": "supabase/migrations/20260907120000_careon_scribe.sql",
+    "SHA256": "CA771EDE84B8720916D1FD8ACF75944286079E36FA886540BAF6B796E9FAD7A3"
+  },
+  {
+    "Path": "src/lib/careon-scribe/scribe.server.ts",
+    "SHA256": "B552614A3B66FDE0CB5E1EB66F8775D91390736C92067F721C7747A7A99F7F4F"
+  },
+  {
+    "Path": "src/lib/careon-scribe/types.ts",
+    "SHA256": "8E1EE2B8E7B8B45786ABFEA286624920E3227E1CE6FF2C801010C6555ABD6056"
+  },
+  {
+    "Path": "src/data/careon/careon-scribe.ts",
+    "SHA256": "5D813F9CCF26CEB11355B257BDCFF93D47E9C0B8BA111B29906F88EEF47D95EA"
+  },
+  {
+    "Path": "src/app/api/careon/scribe/sessies/route.ts",
+    "SHA256": "A54C2AECF8E5E6ED4ADF37052468E7200C298E63EE6889C1C2197C07B56D430C"
+  },
+  {
+    "Path": "src/app/api/careon/scribe/sessies/[sessieId]/route.ts",
+    "SHA256": "3C15E7D06CEA3E402FA19457B48A1392CDB3155935A97A862BCABEA8C3F99AA7"
+  },
+  {
+    "Path": "src/app/api/careon/scribe/sessies/[sessieId]/analyse/route.ts",
+    "SHA256": "BC30956712D13C12F5F0CA25F8B7B58DF8647D6AB625A4F39B899CBCEEC07B76"
+  },
+  {
+    "Path": "src/app/api/careon/scribe/sessies/[sessieId]/segmenten/[volgnummer]/route.ts",
+    "SHA256": "AD56AE8D54DF73BBB4E06C3C6E127D439F31BC7427993882CF11547275218616"
+  },
+  {
+    "Path": "src/app/api/careon/scribe/sessies/[sessieId]/notitie/[notitieId]/route.ts",
+    "SHA256": "33A0E536FCA0B3635B4AA487AF46C98B61BEA7182970A9C260BFAE7C3888BD97"
+  },
+  {
+    "Path": "src/app/api/careon/scribe/sessies/[sessieId]/vrijgave/route.ts",
+    "SHA256": "B0BA18ED2E0428FEB464F521AEBABCB601CC3F65FE8A1662943F804C74FC2538"
+  },
+  {
+    "Path": "src/app/api/internal/maintenance/route.ts",
+    "SHA256": "86E354130D73E78BAAE776B72F74023B3D049AE70B8C77A58507D0FE348BF5D3"
+  },
+  {
+    "Path": "src/app/(main)/scribe/_components/nieuw-consult-form.tsx",
+    "SHA256": "84AAEFA96ACB80CA400F176661811733A5C6FD90A8E1E5C952A9170BF6C44E21"
+  },
+  {
+    "Path": "src/app/(main)/scribe/_components/verslag-review.tsx",
+    "SHA256": "2DC362C1BC6AD89DF5CE7FD298B3112196A2FE02D2DFE5EEA3B6236D1E0F5C85"
+  }
+]

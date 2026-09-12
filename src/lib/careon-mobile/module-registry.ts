@@ -12,7 +12,7 @@ export interface CareonShellModule {
   id: string;
   displayName: string;
   description: string;
-  icon: "careon-pulse" | "yaaz" | "facturatie";
+  icon: "careon-pulse" | "yaaz" | "facturatie" | "scribe";
   type: CareonShellModuleType;
   launchUrl: string | null;
   deepLink: string;
@@ -81,7 +81,19 @@ export function resolveCareonShellTarget(
 
 const MODULE_PRESENTATION: Record<
   string,
-  { icon: CareonShellModule["icon"]; deepLinkPath: string; type: CareonShellModuleType }
+  {
+    icon: CareonShellModule["icon"];
+    deepLinkPath: string;
+    type: CareonShellModuleType;
+    /**
+     * Mag de shell deze module uitleveren? Careon Scribe heeft microfoonrechten
+     * nodig en de fase-1-shell weigert élk permissieverzoek
+     * (module_webview_screen.dart → onPermissionRequest → deny). Tot het
+     * D12-fase-2-permissieprofiel er staat, levert het register de tegel
+     * uitgeschakeld en zonder launch-URL uit (handoff 20 §2.1).
+     */
+    shellReady?: boolean;
+  }
 > = {
   "careon-pulse-directie": {
     icon: "careon-pulse",
@@ -90,6 +102,7 @@ const MODULE_PRESENTATION: Record<
   },
   yaaz: { icon: "yaaz", deepLinkPath: "/", type: "webview" },
   "careon-facturatie": { icon: "facturatie", deepLinkPath: "/facturatie", type: "webview" },
+  "careon-scribe": { icon: "scribe", deepLinkPath: "/scribe", type: "webview", shellReady: false },
 };
 
 /**
@@ -127,7 +140,10 @@ function shellModule(module: CareonModule, publicAppUrl: string | undefined): Ca
     deepLinkPath: "/",
     type: "webview" as const,
   };
-  const launchUrl = safeLaunchUrl(module.href, publicAppUrl);
+  const shellReady = presentation.shellReady !== false;
+  // Niet shell-klaar = geen launch-URL uitleveren. De deeplink blijft wel
+  // staan zodat de shell de module kent zodra hij hem wél mag openen.
+  const launchUrl = shellReady ? safeLaunchUrl(module.href, publicAppUrl) : null;
   const deepPath = presentation.deepLinkPath.replace(/^\/+/, "");
   return {
     id: module.id,
@@ -139,7 +155,7 @@ function shellModule(module: CareonModule, publicAppUrl: string | undefined): Ca
     deepLink: `careonpulse://${module.id}/${deepPath}`,
     requiredEntitlement: module.zichtbaarVoor === "org_admin" ? "org_admin" : "employee",
     minimumShellVersion: CAREON_SHELL_MINIMUM_VERSION,
-    enabled: module.status === "live" && launchUrl !== null,
+    enabled: shellReady && module.status === "live" && launchUrl !== null,
   };
 }
 

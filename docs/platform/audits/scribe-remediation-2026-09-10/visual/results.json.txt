@@ -1,0 +1,65 @@
+{
+  "capturedAt": "2026-09-09T23:49:46.637Z",
+  "mobile": [
+    {
+      "theme": "dark",
+      "geometry": {
+        "width": 390,
+        "scrollWidth": 390
+      },
+      "actions": [
+        {
+          "text": "Openen",
+          "label": null,
+          "x": 173.734375,
+          "right": 242.46875,
+          "height": 28
+        },
+        {
+          "text": "Verwijderen",
+          "label": "Verwijder consult D-2026-0417",
+          "x": 246.46875,
+          "right": 358,
+          "height": 28
+        }
+      ],
+      "deletionDialogOpenedAndCanceled": true
+    },
+    {
+      "theme": "light",
+      "geometry": {
+        "width": 390,
+        "scrollWidth": 390
+      },
+      "actions": [
+        {
+          "text": "Openen",
+          "label": null,
+          "x": 173.734375,
+          "right": 242.46875,
+          "height": 28
+        },
+        {
+          "text": "Verwijderen",
+          "label": "Verwijder consult D-2026-0417",
+          "x": 246.46875,
+          "right": 358,
+          "height": 28
+        }
+      ],
+      "deletionDialogOpenedAndCanceled": true
+    }
+  ],
+  "desktop": [
+    {
+      "theme": "light",
+      "clinicianSectionsRequired": true,
+      "approved": true,
+      "transferRemainsDisabledAfterShowText": true,
+      "riskTextInPreview": true,
+      "considerationTextInPreview": true,
+      "staleSkippedWarningAfterApproval": false
+    }
+  ],
+  "errors": []
+}

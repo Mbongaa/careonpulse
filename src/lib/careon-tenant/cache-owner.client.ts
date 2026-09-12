@@ -6,6 +6,8 @@ import { clearFacturatieState } from "@/lib/careon-facturatie/storage.client";
 import { clearHrState } from "@/lib/careon-hr/storage.client";
 import { clearMiddelenState } from "@/lib/careon-middelen/storage.client";
 import { clearAuxFacts, clearProductionState } from "@/lib/careon-production/storage.client";
+import { clearScribeDrafts } from "@/lib/careon-scribe/drafts.client";
+import { clearScribeState } from "@/lib/careon-scribe/storage.client";
 import { isSupabaseAuthConfigured } from "@/lib/supabase/config";
 
 // Eigenaarsstempel voor álle browsercaches van het dashboard (productie-import,
@@ -69,6 +71,10 @@ export function wisCareonCaches(): void {
   clearMiddelenState();
   clearHrState();
   clearFacturatieState();
+  // Careon Scribe: consulttranscripten zijn bijzondere-categoriedata en gaan
+  // onvoorwaardelijk weg bij elke eigenaarswissel (handoff 20 §7.7).
+  clearScribeDrafts();
+  clearScribeState();
   clearCareonAssistantHistory();
   clearCareonAssistantSession();
 }

@@ -1,0 +1,13 @@
+{
+  "diarizationFields": {
+    "model": "gpt-4o-transcribe-diarize",
+    "language": "en",
+    "prompt": "Nederlandstalig medisch consult tussen behandelaar en patiënt. Schrijf medicijnnamen, doseringen en medische termen correct. Transcribeer letterlijk; voeg niets toe.",
+    "response_format": "diarized_json",
+    "chunking_strategy": "auto"
+  },
+  "vertexRegionAccepted": "us-central1",
+  "vertexUrl": "https://us-central1-aiplatform.googleapis.com/v1/projects/synthetic-audit/locations/us-central1/publishers/google/models/configured-model:generateContent",
+  "nameShapedReferenceAccepted": true,
+  "externalNetworkCalls": 0
+}

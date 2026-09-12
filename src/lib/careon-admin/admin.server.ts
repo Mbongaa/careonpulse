@@ -1,6 +1,7 @@
 import { isFacturatieInstellingen } from "@/lib/careon-facturatie/types";
 import { isHrState } from "@/lib/careon-hr/types";
 import { isMiddelenState } from "@/lib/careon-middelen/types";
+import { isScribeInstellingen } from "@/lib/careon-scribe/types";
 
 // Datalaag voor het beheerdashboard (handoff 13, fase 4). Uitsluitend
 // aangeroepen vanuit (admin)-servercomponenten en /api/admin-routes NADAT de
@@ -461,6 +462,14 @@ export const ADMIN_REGISTRATIES: readonly AdminRegistratie[] = [
     tijdKolom: "saved_at",
     heeftRevisie: true,
   },
+  // Careon Scribe (handoff 20 §3): append-only snapshot per organisatie, met
+  // revisie — die revisie is óók het bewijsanker van de toestemmingstekst.
+  {
+    table: "careon_scribe_instellingen",
+    label: "Careon AI-instellingen",
+    tijdKolom: "saved_at",
+    heeftRevisie: true,
+  },
 ];
 
 /**
@@ -590,6 +599,9 @@ const ORG_AFHANKELIJKHEDEN: readonly { table: string; label: string }[] = [
   { table: "careon_facturatie_facturen", label: "facturen" },
   { table: "careon_facturatie_nummers", label: "factuurnummers" },
   { table: "careon_facturatie_maillog", label: "factuur-maillog" },
+  // Careon Scribe (handoff 20 §3): consulten verwijzen naar organizations; de
+  // instellingen komen via ADMIN_REGISTRATIES hieronder mee.
+  { table: "careon_scribe_sessies", label: "consulten" },
   ...ADMIN_REGISTRATIES.map((bron) => ({ table: bron.table, label: bron.label })),
 ];
 
@@ -627,6 +639,9 @@ const HERSTEL_GUARDS: Record<string, (state: unknown) => boolean> = {
   // Handoff 15: zonder eigen guard zou herstel hier met isMiddelenState
   // valideren en elke echte facturatie-revisie met 422 weigeren.
   careon_facturatie_instellingen: isFacturatieInstellingen,
+  // Handoff 20: zonder eigen guard zou een scribe-revisie met isMiddelenState
+  // worden gevalideerd en dus altijd met 422 worden geweigerd.
+  careon_scribe_instellingen: isScribeInstellingen,
 };
 
 export const ADMIN_HERSTELBAAR: readonly (AdminRegistratie & { geldig: (state: unknown) => boolean })[] =

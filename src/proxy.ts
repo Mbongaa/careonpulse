@@ -39,6 +39,7 @@ export async function proxy(request: NextRequest) {
   const needsAuth =
     path.startsWith("/dashboard") ||
     path.startsWith("/facturatie") ||
+    path.startsWith("/scribe") ||
     path.startsWith("/admin") ||
     path.startsWith("/modules") ||
     path.startsWith("/oauth");

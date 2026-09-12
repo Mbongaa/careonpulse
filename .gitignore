@@ -13,6 +13,9 @@
 /.next/
 /.next-wsl/
 /.next-wsl-stale*/
+/.next-e2e/
+# Raw browser capture is retained locally; the synthetic analysis is versioned.
+/docs/platform/audits/scribe-remediation-2026-09-10/epd-retry/trace.zip
 /out/
 
 # production

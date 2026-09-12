@@ -8,9 +8,11 @@ This repository uses the shadcn `radix-nova` style. The shadcn CLI reports `base
 
 <!-- BEGIN:nextjs-agent-rules -->
 
-# Next.js: ALWAYS read docs before coding
+# This is NOT the Next.js you know
 
-Before any Next.js work, find and read the relevant doc in `node_modules/next/dist/docs/`. Your training data is outdated — the docs are the source of truth.
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
 
@@ -87,6 +89,66 @@ Nieuwe lokale conventies sinds 09-08-2026:
 - **Demo-pad (B12)**: de e2e-suite draait demo-only, dus facturatie heeft een volwaardige localStorage-implementatie (`storage.client.ts`, sleutel `careon-facturatie-v1`, onvoorwaardelijk in `wisCareonCaches()`), inclusief de client-side nummerteller — de enige, gedocumenteerde uitzondering op "nummering is DB-werk".
 
 
+## Careon Scribe (handoff 20)
+
+Nieuwe lokale conventies sinds 07-09-2026 (`agent-handoff/20-clinical-scribe.md`; blueprint **D24 — voorgesteld**):
+
+- **Rolpredicaat-paar**: elke laag leidt scribe-toegang af van `magScribeGebruiken()` / `magScribeBeheren()`
+  (`src/lib/careon-scribe-rol.ts`) resp. `app.mag_scribe_gebruiken()` / `app.mag_scribe_beheren()` (SQL,
+  `20260907120000`) — nooit een eigen rolvergelijking. Anders dan bij facturatie heeft de SQL-kant **geen kale
+  `app.is_superadmin() or …`-tak**: het lidmaatschap is altijd een conjunct, dus een platformbeheerder zonder
+  lidmaatschap valt volledig buiten de module. Toegang loopt bovendien per **gemachtigde behandelaar**
+  (`careon_scribe_gemachtigden`), niet per rol alleen.
+- **Eigen-sessie-policy**: inhoudstabellen (segmenten, staat, notities, taken) dragen naast het rolpredicaat de helper
+  `app.scribe_eigen_sessie(sessie_id, org_id)` in **using én with check**. Voeg nooit een kale, rolblinde policy toe
+  naast deze policies — permissieve policies worden ge-OR'd en één zo'n policy neutraliseert de eigenaarsafscherming
+  (de enige bewuste uitzondering is de select op `careon_scribe_instellingen`).
+- **Statusovergangen en retentie zijn DB-werk**: de client zet nooit `status` of een `*_verwijder_na`-kolom.
+  Alles loopt via de RPC's (`careon_scribe_status_zetten`, `careon_scribe_notitie_bewerken`,
+  `careon_scribe_voeg_segmenten_toe`) — **`security invoker`**, dus RLS geldt onverkort — en de
+  bevriestriggers, die de bevroren kolommen alleen doorlaten met de GUC `careon.scribe_rpc` of onder de service-role.
+  De bypass zit dus in die GUC plus de eigen rechten van de aanroeper, niet in definer-privilege. Retentie wordt in de
+  database berekend uit de laatste instellingenrevisie, nooit uit een door de client meegegeven datum.
+  Schrijf hier nooit een `security definer`-RPC in `public` met execute voor `authenticated`: `verify-auth-postgres.py`
+  en `verify-scribe-postgres.py` falen daarop. Pruning en de beheerdersacties verwijderen/vrijgeven gebruiken
+  uitsluitend service-role-RPC's; die beheerdersacties valideren de actuele, server-geauthenticeerde actor opnieuw.
+  De additieve migratie `20260910120000_scribe_audit_integrity.sql` trekt de oude revisievrije goedkeurings-RPC
+  en directe inhoudswrites in. Notitiewrites vereisen `bewerkRevisie`, binden goedkeuring aan de actuele
+  staat/transcriptbron en serialiseren met statusovergangen. De oorspronkelijke toegepaste migratie blijft intact.
+- **Correcties op de klinische staat lopen via `PATCH …/sessies/[id]/staat`** (N6/S7): "Intrekken", zelf aanvullen en
+  de overgenomen EPD-lijst sturen één mutatie per feit met de **versie** die de client las (optimistische
+  concurrency; 409 bij drift). Elke mutatie merkt de rij `doorBehandelaar: true` en een latere analysepas laat haar
+  staan; een ingetrokken feit blijft doorgehaald zichtbaar in plaats van te verdwijnen. De geplakte EPD-lijst verlaat
+  de browser niet — alleen de deterministisch herkende feiten gaan mee.
+- **Beheerdersvlak**: `/scribe/instellingen` draagt naast de moduleschakelaar de **activatievoorwaarden** (N21 — DPIA
+  met datum en eigenaar, bevestigde verwerkersovereenkomst, goedgekeurde toestemmingstekst; zolang er één ontbreekt
+  blijft `ingeschakeld: true` geblokkeerd, in de UI én in de PUT-route), de **machtigingen** per behandelaar (S12) en
+  de twee schakelaars voor **externe verwerking** (N19 — `transcriptieAan`, `aiAnalyseAan`, beide standaard uit).
+  `/scribe/logboek` (N20) geeft de org_admin het eigen scribe-auditbeeld, metadata-only: nooit transcripttekst,
+  verslaginhoud of dossierreferentie. Beide pagina's staan achter `requireScribeBeheerPage()` en de routes erachter
+  achter `requireOrgAdmin()` plus RLS.
+- **Opt-in AI, drie sloten**: een provideraanroep vraagt `CAREON_SCRIBE_LIVE=1` **én** de organisatieschakelaar
+  (`transcriptieAan` voor de audioroute, `aiAnalyseAan` voor de analyse/verslaggeneratie) **én** een volledig
+  geconfigureerde provider. Ontbreekt er één, dan werkt de module deterministisch; automatische extractie ondersteunt
+  Nederlands. Het lokale Engelse pad bewaart exacte gesprekscitaten en ondersteunt een beperkte reeks letterlijke
+  feiten uit expliciet door de behandelaar bevestigde sprekersregels; alle Engelse secties blijven afzonderlijk
+  te beoordelen, ongewijzigde gesprekscitaten vereisen bewerking en klinische beoordelingen blijven handmatig.
+  Dit is geen klinische of productieacceptatie; zie `docs/platform/SCRIBE_ENGINE_ACCEPTANCE_2026-09-11.md`.
+  Een onvolledig
+  geconfigureerde transcriptieprovider faalt closed met 503 en handmatige invoer. Server-side env, nooit
+  `NEXT_PUBLIC_`.
+- **Audio wordt nooit opgeslagen**: geen Storage-bucket, geen tijdelijk bestand, en nooit audio-bytes of
+  transcripttekst in `console.*`, telemetrie of audit-events.
+- **Harde navigatie de module in**: `Permissions-Policy: microphone=(self)` geldt alleen op `/scribe*` en per document,
+  dus elke ingang naar `/scribe` is een `<a href>` of `window.location.assign` — nooit `next/link`. Binnen `/scribe`
+  mag clientnavigatie wel.
+- **Demo-pad (B12)**: volwaardige localStorage-implementatie (`storage.client.ts`, sleutel `careon-scribe-v1`),
+  onvoorwaardelijk in **beide** wispaden — `wisCareonCaches()` én de uitlogflow van `careon-auth.ts`.
+- **Shell-tegel achtergehouden**: het moduleregister houdt `shellReady: false`, dus `enabled: false` en
+  `launchUrl: null`; zet die niet aan tot het D12-fase-2-microfoonprofiel in de shell staat (`verify:mobile` bewaakt
+  het).
+
+
 ## Co-location-based structure
 
 Keep feature code close to the route that owns it.
@@ -136,7 +198,7 @@ Keep a component inside its route until it is reused by another feature. Do not 
 
 This repository is one module of the **Careon Pulse** multi-module platform: a Flutter shell app + a Supabase identity hub (OAuth 2.1 / OIDC) + independent modules (this dashboard and the HumHub communication platform with Microsoft ACS/Teams calling). JaaS remains a disabled fallback; native calling and recording/AI retain their release gates.
 
-Platform-level architecture, the decision log (D1–D23), the roadmap, and cross-repo rules live in `docs/platform/PLATFORM_BLUEPRINT.md`. Read it before any work that touches authentication, organizations/roles, tile entitlements, the OAuth 2.1 server configuration, Microsoft Entra/Graph, or integration with other modules. Decisions marked **Confirmed** there must not be changed silently — propose alternatives explicitly with consequences.
+Platform-level architecture, the decision log (D1–D24, of which D24 is proposed), the roadmap, and cross-repo rules live in `docs/platform/PLATFORM_BLUEPRINT.md`. Read it before any work that touches authentication, organizations/roles, tile entitlements, the OAuth 2.1 server configuration, Microsoft Entra/Graph, or integration with other modules. Decisions marked **Confirmed** there must not be changed silently — propose alternatives explicitly with consequences.
 
 Current platform state, phase progress, and next milestones are tracked in `docs/platform/PROJECT_STATUS.md` — update it when a milestone changes state. The cross-session product-readiness backlog, consequences and acceptance evidence live in `docs/platform/PLATFORM_GAP_REGISTER.md`; read it before platform-gap work and update the relevant item whenever work starts or its status changes.
 

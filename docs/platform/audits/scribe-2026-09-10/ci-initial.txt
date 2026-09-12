@@ -1,0 +1,49 @@
+
+> studio-admin@2.2.0 verify:ci
+> npm run check && npm run typecheck && npm run verify:data-hygiene && npm run verify:careon && npm run verify:production && npm run verify:assistant && npm run verify:runtime && npm run verify:scribe && npm run verify:identity && npm run verify:facturatie-atomic && npm run verify:epd-atomic && npm run verify:mobile && npm run verify:facturatie-storage && npm run verify:tgc-sync && npm run verify:tgc-queue && npm run audit:production
+
+
+> studio-admin@2.2.0 check
+> biome check
+
+tsconfig.json format ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Formatter would have printed the following content:
+  
+     2  2 │     "compilerOptions": {
+     3  3 │       "target": "ES2017",
+     4    │ - ····"lib":·[
+     5    │ - ······"dom",
+     6    │ - ······"dom.iterable",
+     7    │ - ······"esnext"
+     8    │ - ····],
+        4 │ + ····"lib":·["dom",·"dom.iterable",·"esnext"],
+     9  5 │       "allowJs": true,
+    10  6 │       "skipLibCheck": true,
+    ····· │ 
+    24 20 │       ],
+    25 21 │       "paths": {
+    26    │ - ······"@/*":·[
+    27    │ - ········"./src/*"
+    28    │ - ······]
+       22 │ + ······"@/*":·["./src/*"]
+    29 23 │       }
+    30 24 │     },
+    ····· │ 
+    40 34 │       ".next-e2e/dev/types/**/*.ts"
+    41 35 │     ],
+    42    │ - ··"exclude":·[
+    43    │ - ····"node_modules"
+    44    │ - ··]
+       36 │ + ··"exclude":·["node_modules"]
+    45 37 │   }
+    46 38 │   
+  
+
+Checked 471 files in 8s. No fixes applied.
+Found 1 error.
+check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  × Some errors were emitted while running checks.
+  
+

@@ -23,6 +23,14 @@ const ROUTES = [
   "/facturatie/contacten",
   "/facturatie/instellingen",
   "/facturatie/demo-factuur-3",
+  // Careon Scribe (handoff 20): lijst, beheerdersinstellingen, het org-logboek
+  // (N20), de werkruimte van het actieve demo-consult en de verslagreview van
+  // het afgeronde.
+  "/scribe",
+  "/scribe/instellingen",
+  "/scribe/logboek",
+  "/scribe/demo-consult-1",
+  "/scribe/demo-consult-2",
   // KPI-drilldowns (handoff 08): één cliëntrecord-variant en één event-variant.
   "/dashboard/details/actief",
   "/dashboard/details/noshow",

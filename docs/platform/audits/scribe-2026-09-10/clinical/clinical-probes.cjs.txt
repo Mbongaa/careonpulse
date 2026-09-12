@@ -1,0 +1,83 @@
+/* Read-only, synthetic Careon Scribe audit probes. No live provider calls.
+ * Run from careon-dashboard:
+ * node docs/platform/audits/scribe-2026-09-10/clinical/clinical-probes.cjs.txt
+ */
+const path = require("node:path");
+require("ts-node").register({ project: path.resolve("tsconfig.scripts.json"), transpileOnly: true });
+require("tsconfig-paths/register");
+
+// A process-local stub intercepts EVERY fetch before importing application code.
+// No environment file is loaded and no network call is made.
+let modelReply = {};
+let fetches = 0;
+global.fetch = async () => {
+  fetches += 1;
+  return new Response(JSON.stringify({
+    output_text: JSON.stringify(modelReply),
+    choices: [{ message: { content: JSON.stringify(modelReply) } }],
+  }), { status: 200, headers: { "Content-Type": "application/json" } });
+};
+process.env.CAREON_SCRIBE_LIVE = "1";
+process.env.CAREON_ASSISTANT_LIVE = "1";
+process.env.OPENAI_API_KEY = "synthetic-local-audit-placeholder";
+
+const k = require(path.resolve("src/lib/careon-scribe/klinische-staat"));
+const d = require(path.resolve("src/lib/careon-scribe/deterministisch"));
+const a = require(path.resolve("src/lib/careon-scribe/agent.server"));
+const segment = (tekst, spreker = "patient", volgnummer = 1, bron = "handmatig") => ({
+  id: "synthetic", volgnummer, tekst, spreker, tekstGecorrigeerd: null,
+  correctieBron: null, beginMs: 0, eindMs: 8000, bron,
+  createdAt: "2026-09-10T00:00:00Z",
+});
+const reports = (staat, segmenten) => d.bouwVerslagDeterministisch(staat, segmenten, "soap")
+  .map(({ id, tekst, bron }) => ({ id, tekst, bron }));
+
+async function main() {
+  for (const [name, inputs] of [
+    ["C-01 multiple medicine doses", [segment("Ik gebruik sertraline 50 mg en tramadol 100 mg.")]],
+    ["C-01 decimal dose", [segment("Ik gebruik lorazepam 0,5 mg.")]],
+    ["C-02 normal findings become symptoms", [segment("Ik slaap goed en mijn eetlust is normaal.")]],
+    ["C-03 question becomes allergy", [segment("Bent u allergisch voor penicilline?", "arts")]],
+    ["C-03 question becomes duration/severity", [segment("Bent u sinds drie maanden ernstig somber?", "arts")]],
+    ["C-03 historical question becomes action", [segment("Heeft u eerder bloedonderzoek gehad?", "arts")]],
+    ["C-04 family member becomes patient", [segment("Mijn moeder is depressief en gebruikt sertraline 100 mg.")]],
+    ["C-05 English denial becomes current medicine", [segment("I do not take tramadol.")]],
+    ["C-05 English allergy and symptoms disappear", [segment("I am allergic to amoxicillin. I have felt depressed for three months.")]],
+    ["C-09 stopped medicine remains current", [segment("Ik gebruik sertraline 50 mg."), segment("Ik ben gestopt met sertraline.", "patient", 2)]],
+  ]) {
+    const state = d.extraheerDeterministisch(inputs, "soap");
+    console.log(JSON.stringify({ name, input: inputs.map(x => x.tekst), result: {
+      hoofdklacht: state.hoofdklacht, duur: state.duur, ernst: state.ernst,
+      symptomen: state.symptomen, medicatie: state.medicatie, allergieen: state.allergieen,
+      plan: state.plan, acties: state.acties, report: reports(state, inputs),
+    }}));
+  }
+  const lastSegment = segment("Ik vraag bloedonderzoek aan.", "onbekend", 1, "live");
+  const round = d.deterministischeRonde([lastSegment], [lastSegment], "soap", k.legeKlinischeStaat());
+  console.log(JSON.stringify({ name: "C-06 role assigned after extraction", input: lastSegment, result: {
+    sprekers: round.sprekers, plan: round.staat.plan, acties: round.staat.acties,
+    report: reports(round.staat, [lastSegment]),
+  }}));
+  const headache = segment("Ik heb hoofdpijn.");
+  const context = { staat: k.legeKlinischeStaat(), nieuweSegmenten: [headache], contextSegmenten: [],
+    consultType: "soap", taal: "nl", actorHash: "synthetic", orgId: null, userId: null,
+    aiToegestaan: true, signal: new AbortController().signal };
+  for (const source of [[], [0], [999]]) {
+    const state = k.legeKlinischeStaat();
+    state.medicatie = [{ tekst: "lithium 900 mg", naam: "lithium", dosering: "900 mg",
+      gebruik: "huidig", bron: source, ingetrokken: false }];
+    modelReply = { staat: state, sprekers: [], correcties: [] };
+    const result = await a.analyseerSegmenten(context);
+    console.log(JSON.stringify({ name: "C-07 invalid model provenance", input: headache.tekst,
+      modelSource: source, result: { bron: result.bron, medicatie: result.staat.medicatie,
+        report: reports(result.staat, [headache]) } }));
+  }
+  const state = k.legeKlinischeStaat();
+  state.hoofdklacht = "Geen suïcidaliteit";
+  modelReply = { staat: state, sprekers: [], correcties: [] };
+  const result = await a.analyseerSegmenten(context);
+  console.log(JSON.stringify({ name: "C-08 scalar risk polarity bypass", input: headache.tekst,
+    result: { bron: result.bron, hoofdklacht: result.staat.hoofdklacht, report: reports(result.staat, [headache]) } }));
+  console.log(JSON.stringify({ mockFetchCalls: fetches, externalNetworkCalls: 0 }));
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -433,3 +433,146 @@ verzendroute 503 en kan er niets verstuurd worden. Vóór activering:
    gereserveerd) en er is bewust **geen automatische herverzending**: een
    hangende poging wordt door de onderhoudscron als mislukt gemarkeerd en de
    beheerder gebruikt "Opnieuw versturen" (dubbel-verzendrisico).
+
+## Careon Scribe (handoff 20)
+
+- **AVG — nieuwe verwerking (voorgesteld besluit D24, 07-09-2026).** De scribe
+  legt woordelijke consulttekst vast: transcriptsegmenten en de daaruit
+  afgeleide klinische staat, verslagversies en vervolgacties. Die tekst is
+  **bijzondere-categoriedata (art. 9 AVG)** en kan direct identificerend zijn —
+  een naam, geboortedatum of adres kan hardop worden uitgesproken. Dit is een
+  bewuste, gedocumenteerde uitzondering op de pseudonimiseringslijn van het
+  dashboard en op de "geen vrije tekst"-regel van
+  `docs/CARECHECK_INTEGRATION_BOUNDARY.md`, en geldt uitsluitend voor de
+  tijdelijke werkkopie. De sessiemetadata draagt alleen een korte,
+  gevalideerde **dossierreferentie** (gebruik geen BSN, geboortedatum of naam) plus de
+  bevroren toestemmingstekst, de bijbehorende instellingenrevisie en het
+  tijdstip.
+  De validator blokkeert BSN-/datumvormen en ongeldige tekens, maar kan een
+  persoonsnaam niet betrouwbaar van een alfanumerieke referentie onderscheiden.
+- **Audio wordt niet opgeslagen.** De browser stuurt korte, op zichzelf staande
+  fragmenten naar een eigen route; de server geeft ze door aan de
+  transcriptieprovider en gooit ze weg. Geen Storage-bucket, geen tijdelijk
+  bestand, en nooit audio of transcripttekst in een logregel.
+- **Bewaartermijn (instelbaar per organisatie, standaard kort).** Transcript en
+  klinische staat volgen altijd de kortste termijn: **direct** gewist bij
+  "Overgenomen in het EPD" en bij annuleren, anders na
+  `transcriptRetentieDagen` (standaard 30). Verslag en sessiemetadata
+  verdwijnen bij de dagelijkse opschoning, uiterlijk 24 uur na de termijn
+  (standaard 30 dagen na overname; 0 = direct). Audit-events blijven 365 dagen,
+  inhoudsloze providertelemetrie 90 dagen.
+- **Wie leest wat.** De inhoud is **eigenaar-gebonden**: alleen de behandelaar
+  die het consult voerde leest transcript, staat, verslag en taken. Een
+  `org_admin` ziet de consultlijst als metadata **zonder** dossierreferentie en
+  consulttype, mag een consult verwijderen (geauditeerd, met rol) en mag
+  eenmalig en geauditeerd het **goedgekeurde verslag** — nooit het transcript —
+  vrijgeven aan één aangewezen collega (offboarding). Superadmins zonder
+  lidmaatschap van de organisatie vallen volledig buiten de module.
+- **De organisatie beslist zelf over externe verwerking.** Naast de platformvlag
+  `CAREON_SCRIBE_LIVE` staan in `/scribe/instellingen` twee schakelaars die
+  bepalen of gespreksinhoud het platform verlaat: "Audiofragmenten laten
+  transcriberen" (`transcriptieAan`) en "AI-analyse van het transcript
+  inschakelen" (`aiAnalyseAan`). Beide staan **standaard uit**. Er gaat pas een
+  fragment of transcript naar een verwerker als de platformvlag áán staat, de
+  organisatieschakelaar áán staat én de provider volledig geconfigureerd is;
+  ontbreekt er één, dan draait de module deterministisch en voert de
+  behandelaar gesprekstekst handmatig in. De twee schakelaars onder "Klinische
+  ondersteuning" gaan uitsluitend over wat het scherm toont en raken geen
+  enkele verwerking.
+- **Activatievoorwaarden staan in het product, niet alleen in dit document.**
+  `/scribe/instellingen` legt de DPIA-datum met eigenaar (een functie of
+  afdeling, nooit een persoonsgegeven van een cliënt), de bevestigde
+  verwerkersovereenkomst en de datum waarop de toestemmingstekst is goedgekeurd
+  vast. Zolang er één ontbreekt, blijft de moduleschakelaar uit — in de UI én in
+  de PUT-route, die de overgang naar `ingeschakeld: true` met 400 weigert en de
+  ontbrekende punten noemt.
+- **De organisatie ziet haar eigen logboek.** `/scribe/logboek` geeft de
+  `org_admin` de scribe-auditregels van de eigen organisatie (wie opende welk
+  consult, wat is geëxporteerd, wat verwijderde of gaf een beheerder vrij), met
+  filters op handeling en periode en een CSV-download — nodig voor NEN 7513 en
+  een inzageverzoek (art. 15 AVG), zonder tussenkomst van de
+  Careon-superadmin. De regels zijn **metadata-only**: nooit transcripttekst,
+  verslaginhoud of dossierreferentie.
+- **Correcties op de klinische staat blijven van de behandelaar.** Een verkeerd
+  geëxtraheerd feit wordt ingetrokken (het blijft doorgehaald zichtbaar, het
+  verdwijnt niet stil), ontbrekende medicatie of allergieën vult de behandelaar
+  zelf aan, en de actuele EPD-lijst kan geplakt worden — die tekst verlaat de
+  browser niet, alleen de deterministisch herkende feiten gaan mee. Elke
+  correctie gaat via `PATCH /api/careon/scribe/sessies/[id]/staat` met de
+  versie die de behandelaar las (409 bij drift) en wordt als
+  `doorBehandelaar` gemarkeerd, zodat een latere analysepas haar niet
+  terugdraait.
+- **Zoeken op dossierreferentie.** De consultlijst heeft een zoekveld op (een
+  deel van) de dossierreferentie plus een periodefilter. De zoekterm gaat door
+  dezelfde validator als de invoer: een BSN- of datumvormige term wordt
+  geweigerd en gaat nooit als filter mee, zodat zo'n reeks niet in een
+  querylog of PostgREST-filter belandt.
+- **Verwerkers.** OpenAI voor extractie, verslag en (optioneel) transcriptie;
+  uitsluitend bij providerkeuze `gemini` daarnaast Google Cloud (Vertex AI,
+  EU-regio) als **nieuwe verwerker met een eigen verwerkersovereenkomst**.
+  Beide zijn inert zolang `CAREON_SCRIBE_LIVE` niet op `1` staat. Consultaudio
+  en -tekst zijn nieuw materiaal ten opzichte van de bestaande
+  assistent-verwerking, dus de bewaartermijn voor API-invoer moet per
+  verwerker schriftelijk geregeld zijn.
+- **Het EPD blijft het juridische dossier.** Careon schrijft niets in CareCheck
+  en automatiseert geen portaalformulier: de behandelaar kopieert of downloadt
+  het goedgekeurde verslag zelf en bevestigt "Overgenomen in het EPD". Een
+  gedownload bestand valt buiten de bewaartermijn van Careon — de UI zegt dat
+  ook.
+
+### Careon Scribe — go-live-checklist
+
+De module is gebouwd maar **opt-in en fail-closed**: zonder
+`CAREON_SCRIBE_LIVE=1` vindt er geen enkele provideraanroep plaats en draait de
+werkstroom deterministisch. Automatische deterministische extractie ondersteunt
+Nederlands; bij Engels moeten de verslagsecties expliciet door de behandelaar
+worden ingevoerd en beoordeeld. De lokale auditfixes en hun verificatie staan in
+`docs/platform/SCRIBE_REMEDIATION_2026-09-10.md`; de nieuwe migratie is nog niet in
+productie toegepast. Vóór activering:
+
+1. **Voorgesteld besluit D24 door de eigenaar bevestigen** (blueprint §2 en
+   §11), inclusief het amendement op D17 dat transcriptie via Gemini op Vertex
+   AI (EU) toestaat naast OpenAI.
+2. **Verwerkersovereenkomst per actieve provider sluiten**, expliciet inclusief
+   de **bewaartermijn voor API-invoer**: zero data retention en uitsluiting van
+   abuse-logging schriftelijk vastgelegd. Zonder die clausule blijft de module
+   uit — "wordt nergens bewaard" geldt anders alleen voor Careon, niet voor de
+   verwerker.
+3. **DPIA vaststellen** voor de consulttranscriptverwerking, met eigenaar en
+   datum, en beide vastleggen onder "Activatievoorwaarden" in
+   `/scribe/instellingen`. Dit is blokkerend voor productie-activatie.
+4. **Toestemmingstekst laten goedkeuren** door de raadsman van de klant en in
+   `/scribe/instellingen` vastleggen, met de goedkeuringsdatum bij de
+   activatievoorwaarden; de sessie bevriest de letterlijke tekst en de revisie
+   per consult. De tekst draagt de plaatshouder
+   `{transcriptRetentieDagen}`, die bij het voorlezen wordt ingevuld met de
+   werkelijke termijn van de organisatie.
+5. **De `org_admin` zet de module aan en machtigt behandelaren** in
+   `/scribe/instellingen`, en kiest de retentietermijnen van de organisatie.
+   De moduleschakelaar blijft geblokkeerd tot alle vier activatievoorwaarden
+   (DPIA-datum, DPIA-eigenaar, bevestigde verwerkersovereenkomst, goedgekeurde
+   toestemmingstekst) zijn vastgelegd; de UI noemt wat er ontbreekt en de
+   PUT-route weigert de overgang. Zonder machtiging krijgt een lid geen
+   toegang — ook niet via PostgREST. Organisatiebeheerders hebben volgens het
+   bestaande rolbeleid zelf gebruiksrecht; deze uitzondering moet bij de
+   organisatieacceptatie bewust worden beoordeeld. Wil de organisatie dat gespreksinhoud
+   daadwerkelijk verwerkt wordt, dan zet zij daarnaast bewust
+   "Audiofragmenten laten transcriberen" en/of "AI-analyse van het transcript
+   inschakelen" aan onder "Externe verwerking" — anders blijft de module
+   deterministisch, ook met `CAREON_SCRIBE_LIVE=1`.
+6. **`CAREON_SCRIBE_LIVE=1` plus de providervariabelen in de Vercel-secret-store
+   zetten** (`CAREON_SCRIBE_TRANSCRIPTION_PROVIDER`,
+   `CAREON_SCRIBE_TRANSCRIPTION_MODEL` en, voor `gemini`, de vier
+   `CAREON_SCRIBE_VERTEX_*`/`CAREON_SCRIBE_GEMINI_MODEL`-waarden) — server-side,
+   **nooit** met een `NEXT_PUBLIC_`-voorvoegsel. Optioneel de quota
+   `CAREON_SCRIBE_RATE_LIMIT_PER_MINUTE` / `_PER_DAY` /
+   `CAREON_SCRIBE_RATE_LIMIT_ORG_PER_DAY`.
+7. **`npm run verify:scribe:live` draaien** tegen de omgeving met sleutels
+   (handmatige poort, nooit in CI) en daarna één echt proefconsult afronden:
+   toestemming, transcriptie, door de behandelaar geschreven
+   beoordelingssecties, goedkeuring per sectie, overname in het EPD en de
+   controle dat het transcript daarna verdwenen is.
+8. **De shell-tegel blijft achtergehouden**: het moduleregister houdt
+   `shellReady: false`, dus de mobiele tegel is uitgeschakeld zonder
+   launch-URL tot het D12-fase-2-microfoonprofiel in de shell staat. Activeer
+   die tegel niet handmatig.

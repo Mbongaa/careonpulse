@@ -1,0 +1,93 @@
+// Bounded visual acceptance against root's existing inert demo server only.
+const { chromium } = require("playwright");
+const { expect } = require("@playwright/test");
+const fs = require("node:fs");
+const path = require("node:path");
+const base = "http://localhost:3299";
+const observations = { capturedAt: new Date().toISOString(), mobile: [], desktop: [], errors: [] };
+
+(async () => {
+  const browser = await chromium.launch({ channel: process.platform === "win32" ? "chromium" : undefined });
+  async function fresh(theme, mobile) {
+    const context = await browser.newContext({
+      viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 1080 },
+      deviceScaleFactor: 1,
+      isMobile: mobile,
+      hasTouch: mobile,
+    });
+    await context.addCookies([{ name: "theme_mode", value: theme, url: base }]);
+    await context.addInitScript(() => { sessionStorage.setItem("careon-auth", "1"); });
+    await context.route("**/*", (route) => {
+      const url = route.request().url();
+      return url.startsWith(base) || url.startsWith("data:") || url.startsWith("blob:") ? route.continue() : route.abort();
+    });
+    const page = await context.newPage();
+    page.on("pageerror", (error) => observations.errors.push({ theme, mobile, message: error.message }));
+    return { page, context };
+  }
+  try {
+    for (const theme of ["dark", "light"]) {
+      const { page, context } = await fresh(theme, true);
+      await page.goto(`${base}/scribe`);
+      const card = page.locator("ul.md\\:hidden > li").filter({ hasText: "D-2026-0417" });
+      await expect(card.getByRole("button", { name: /Verwijder consult/ })).toBeVisible();
+      await expect(card.getByText(/Opschoning:|Verloopt over/)).toBeVisible();
+      await expect(page.locator("html")).toHaveAttribute("data-theme-mode", theme);
+      const geometry = await page.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth }));
+      expect(geometry.width).toBe(390);
+      expect(geometry.scrollWidth).toBeLessThanOrEqual(391);
+      await page.screenshot({ path: path.join(__dirname, `mobile-${theme}-consult-list.png`), fullPage: true, animations: "disabled" });
+      const actions = await card.getByRole("button").evaluateAll((buttons) => buttons.map((button) => {
+        const box = button.getBoundingClientRect();
+        return { text: button.textContent.trim(), label: button.getAttribute("aria-label"), x: box.x, right: box.right, height: box.height };
+      }));
+      for (const action of actions) { expect(action.x).toBeGreaterThanOrEqual(0); expect(action.right).toBeLessThanOrEqual(391); }
+      await card.getByRole("button", { name: /Verwijder consult/ }).click();
+      const dialog = page.getByRole("alertdialog");
+      await expect(dialog.getByRole("heading", { name: "Dit consult verwijderen?" })).toBeVisible();
+      await page.screenshot({ path: path.join(__dirname, `mobile-${theme}-delete-dialog.png`), animations: "disabled" });
+      await dialog.getByRole("button", { name: "Annuleren", exact: true }).click();
+      observations.mobile.push({ theme, geometry, actions, deletionDialogOpenedAndCanceled: true });
+      await context.close();
+    }
+    {
+      const { page, context } = await fresh("light", false);
+      await page.goto(`${base}/scribe/demo-consult-2`);
+      const report = page.getByRole("region", { name: "Verslag", exact: true });
+      await expect(report.getByRole("heading", { name: "Reden van komst", exact: true })).toBeVisible();
+      await expect(report.getByRole("button", { name: "Kopieer sectie" })).toHaveCount(0);
+      await page.screenshot({ path: path.join(__dirname, "desktop-light-report-review.png"), fullPage: true, animations: "disabled" });
+      await report.getByRole("button", { name: "Alles goedkeuren", exact: true }).click();
+      await page.getByRole("alertdialog").getByRole("button", { name: "Goedkeuren", exact: true }).click();
+      await expect(page.getByText("2 beoordelingssecties zijn overgeslagen: schrijf en keur die zelf goed.")).toBeVisible();
+      for (const title of ["Risicotaxatie", "Overwegingen"]) {
+        const article = report.getByRole("article").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
+        const field = article.getByRole("textbox", { name: title, exact: true });
+        await field.fill(`${title}: synthetische visuele controle door de behandelaar.`);
+        await field.press("Tab");
+        await expect(article.getByText("Bewerkt", { exact: true })).toBeVisible();
+        await article.getByRole("button", { name: "Goedkeuren", exact: true }).click();
+        await expect(article.getByText("Goedgekeurd", { exact: true })).toBeVisible();
+      }
+      await expect(page.getByText("Dit verslag is goedgekeurd.", { exact: false })).toBeVisible();
+      const transfer = page.getByRole("button", { name: "Overgenomen in het EPD", exact: true });
+      await expect(transfer).toBeDisabled();
+      await page.getByRole("button", { name: "Verslagtekst tonen", exact: true }).click();
+      await expect(page.getByRole("textbox", { name: "Verslagtekst", exact: true })).toBeVisible();
+      await expect(transfer).toBeDisabled();
+      await expect(page.getByText(/beoordelingssecties? (?:is|zijn) overgeslagen: schrijf en keur die zelf goed/)).toHaveCount(0);
+      await page.screenshot({ path: path.join(__dirname, "desktop-light-report-approved.png"), fullPage: true, animations: "disabled" });
+      const preview = await page.getByRole("textbox", { name: "Verslagtekst", exact: true }).inputValue();
+      observations.desktop.push({ theme: "light", clinicianSectionsRequired: true, approved: true, transferRemainsDisabledAfterShowText: true,
+        riskTextInPreview: preview.includes("Risicotaxatie: synthetische visuele controle door de behandelaar."),
+        considerationTextInPreview: preview.includes("Overwegingen: synthetische visuele controle door de behandelaar."),
+        staleSkippedWarningAfterApproval: await page.getByText(/beoordelingssecties? (?:is|zijn) overgeslagen: schrijf en keur die zelf goed/).count() > 0,
+      });
+      await context.close();
+    }
+  } finally {
+    fs.writeFileSync(path.join(__dirname, "results.json"), JSON.stringify(observations, null, 2));
+    await browser.close();
+  }
+  console.log(JSON.stringify(observations, null, 2));
+})().catch((error) => { console.error(error); process.exitCode = 1; });

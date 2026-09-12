@@ -1,0 +1,196 @@
+
+> studio-admin@2.2.0 verify:ci
+> npm run check && npm run typecheck && npm run verify:data-hygiene && npm run verify:careon && npm run verify:production && npm run verify:assistant && npm run verify:runtime && npm run verify:scribe && npm run verify:identity && npm run verify:facturatie-atomic && npm run verify:epd-atomic && npm run verify:mobile && npm run verify:facturatie-storage && npm run verify:tgc-sync && npm run verify:tgc-queue && npm run audit:production
+
+
+> studio-admin@2.2.0 check
+> biome check
+
+Checked 476 files in 4s. No fixes applied.
+
+> studio-admin@2.2.0 typecheck
+> tsc --noEmit -p tsconfig.typecheck.json
+
+
+> studio-admin@2.2.0 verify:data-hygiene
+> ts-node -P tsconfig.scripts.json src/scripts/verify-data-hygiene.ts
+
+Data hygiene verification: 705 tracked files checked; no production exports or real-looking secrets tracked.
+
+> studio-admin@2.2.0 verify:careon
+> ts-node -r tsconfig-paths/register -P tsconfig.scripts.json src/scripts/verify-careon.ts
+
+
+verify-careon: 1168 passed, 0 failed
+
+> studio-admin@2.2.0 verify:production
+> ts-node -P tsconfig.scripts.json src/scripts/verify-production.ts
+
+(echte export niet aanwezig — sanity-pass overgeslagen)
+
+verify-production: 423 passed, 0 failed
+
+> studio-admin@2.2.0 verify:assistant
+> ts-node -P tsconfig.scripts.json src/scripts/verify-assistant-production.ts
+
+
+Assistant production verification: 145 passed, 0 failed.
+
+> studio-admin@2.2.0 verify:runtime
+> ts-node -r tsconfig-paths/register -P tsconfig.scripts.json src/scripts/verify-runtime-hardening.ts
+
+Runtime hardening verification: 178 passed, 0 failed.
+
+> studio-admin@2.2.0 verify:scribe
+> ts-node -r tsconfig-paths/register -P tsconfig.scripts.json src/scripts/verify-scribe-server.ts && ts-node -r tsconfig-paths/register -P tsconfig.scripts.json src/scripts/verify-scribe-domein.ts && ts-node -r tsconfig-paths/register -P tsconfig.scripts.json src/scripts/verify-scribe-clinical.ts && node src/scripts/verify-scribe-client.cjs && node src/scripts/verify-scribe-routes.cjs
+
+Scribe server verification: 124 passed, 0 failed.
+Scribe domain verification: 97 passed, 0 failed.
+Scribe clinical verification: 120 passed, 0 failed (synthetic inputs; no external provider calls).
+Scribe client lifecycle: all assertions passed (synthetic; no microphone, network or provider).
+verify-scribe-routes: 55 actual handler assertions passed; no network used
+
+> studio-admin@2.2.0 verify:identity
+> node src/scripts/verify-org-identity-boundary.mjs
+
+Organization identity boundary: 11 behavioral checks passed.
+
+> studio-admin@2.2.0 verify:facturatie-atomic
+> node src/scripts/verify-facturatie-atomic.mjs
+
+verify-facturatie-atomic: 21 route/helper checks passed (synthetic, no network)
+
+> studio-admin@2.2.0 verify:epd-atomic
+> node src/scripts/verify-epd-client-atomicity.mjs
+
+PASS five finalized files commit one exact-name manifest
+PASS partial local publication retains preceding complete manifest
+PASS same-name retry cannot overwrite a published file
+PASS hash mismatch and malformed/partial manifests fail closed
+EPD-generatie 1949e7ae-c761-4855-9c9e-bcbec7123994 volledig gepubliceerd (1 cliënten, alle vijf exports).
+EPD-generatie 1949e7ae-c761-4855-9c9e-bcbec7123994 volledig gepubliceerd (1 cliënten, alle vijf exports).
+PASS publisher uses one write RPC and stable replay payload
+PASS next successful local generation replaces manifest without changing prior files
+PASS real guards accept complete synthetic five-slice generation
+PASS invalid or missing financial slice rejects whole managed snapshot
+PASS explicit role-redacted null finance remains a valid member snapshot
+PASS one atomic cache write replaces all slices and removes legacy caches
+PASS quota interruption retains previous entire generation
+PASS corrupt cache and changed financial role prohibit legacy fallback
+PASS each logout/aux/financial clear removes atomic generation cache
+PASS actual account owner guard removes generation on organization switch
+PASS provider performs one read and one complete state/cache transition
+PASS provider replaces newer local per-slice caches with complete generation
+PASS provider malformed bundle preserves previous complete cached generation
+PASS member adoption redacts agenda and clears older financial slices
+PASS unmount and explicit demo choice invalidate pending snapshot adoption
+EPD client atomicity: 19/19 checks passed (offline synthetic data only).
+
+> studio-admin@2.2.0 verify:mobile
+> ts-node -r tsconfig-paths/register -P tsconfig.scripts.json src/scripts/verify-mobile-shell.ts
+
+
+Careon Pulse mobile-shell contract
+
+  ✓ member krijgt drie algemene modules
+  ✓ member krijgt facturatie niet
+  ✓ member krijgt scribe wel
+  ✓ org_admin krijgt facturatie wel
+  ✓ registerschema is v1
+  ✓ minimum shellversie is vastgelegd
+  ✓ tijdstip is deterministisch ISO
+  ✓ interne route wordt absolute HTTPS-URL
+  ✓ Careon deeplink volgt D4-contract
+  ✓ YAAZ-query blijft behouden
+  ✓ launcher lekt geen access token
+  ✓ handoffdoel blijft op de module-origin
+  ✓ protocol-relative handoffdoel wordt geweigerd
+  ✓ backslash handoffdoel wordt geweigerd
+  ✓ YAAZ-deeplink loopt via de OIDC-return-entry
+  ✓ YAAZ-basisstart blijft de normale OIDC-launch
+  ✓ scribe-tegel zit in het shell-register
+  ✓ scribe gebruikt het eigen icoon
+  ✓ scribe is een webview-module
+  ✓ scribe-deeplink volgt D4-contract
+  ✓ scribe vereist het employee-entitlement
+  ✓ scribe staat uit tot de shell microfoonrechten kan geven
+  ✓ scribe levert geen launch-URL uit
+  ✓ uitgeschakelde scribe levert geen handoffdoel
+  ✓ publieke HTTP-module staat uit
+  ✓ publieke HTTP-URL wordt niet uitgeleverd
+  ✓ register weigert organisatie-loze sessie
+  ✓ mobiele route is expliciet dynamisch
+  ✓ mobiele route is no-store
+  ✓ mobiele route varieert op Authorization
+  ✓ mobiele route gebruikt geen service-role
+  ✓ mobiele route vangt identiteitsuitval gecontroleerd af
+  ✓ bearerlaag valideert JWT-claims
+  ✓ bearerlaag bevestigt actuele gebruiker
+  ✓ bearerlaag bindt token aan shell-client
+  ✓ bearerlaag bewaart geen sessie
+  ✓ bearerlaag filtert eigen lidmaatschap
+  ✓ web en shell delen zichtbaarheidspoort
+  ✓ shell-client-id is gedocumenteerd
+  ✓ handoff mint gebruikt dezelfde client-gebonden bearerlaag
+  ✓ handoffcode staat alleen in POST-body
+  ✓ handoffroute stuurt geen code in redirect-URL
+  ✓ WebViewsessie gebruikt server-side OTP-verificatie
+  ✓ handoff bewaart alleen SHA-256-digest
+  ✓ handofftabel heeft geen ruwe tokencolom
+  ✓ handofftabel forceert RLS
+  ✓ handofffuncties zijn service-role-only
+  ✓ handoff is zestig seconden geldig
+  ✓ handoffconsumptie is één atomische update
+  ✓ handoffhergebruik faalt op consumed_at
+  ✓ handoff gebruikt actuele PostgREST-claims
+  ✓ actuele handoff-rolguard herstelt service-only grants
+  ✓ geldige pushregistratie wordt strikt geparseerd
+  ✓ onverwachte pushvelden worden geweigerd
+  ✓ uitschrijven vereist een v4-installatie-id
+  ✓ push-token wordt AES-GCM-versleuteld
+  ✓ push-token-digest is stabiel voor deduplicatie
+  ✓ push-token-ciphertext gebruikt een unieke nonce
+  ✓ versleutelde push-token kan server-side worden hersteld
+  ✓ gemanipuleerde push-token faalt gesloten
+  ✓ pushroute gebruikt dezelfde client-gebonden bearerlaag
+  ✓ pushroute begrenst de request-body
+  ✓ pushroute is no-store
+  ✓ push-audit bevat geen registratietoken
+  ✓ push-token wordt vóór Supabase beschermd
+  ✓ push-server logt geen ruwe token
+  ✓ push-tabel forceert RLS
+  ✓ push-tabel heeft geen ruwe tokencolom
+  ✓ pushfuncties zijn service-role-only
+  ✓ pushregistratie trekt oude accountbinding in
+  ✓ push-encryptiesleutel is gedocumenteerd
+  ✓ native bestandsbrug vereist de exacte shell user-agent
+  ✓ native bestandsbrug vereist het geïnjecteerde kanaal
+  ✓ normale browsers behouden de lokale downloadfallback
+  ✓ native bestandsoverdracht is begrensd op twaalf MiB
+  ✓ native bestandsbericht bevat geen access token
+  ✓ Facturatie gebruikt de gedeelde native bestandsbrug
+  ✓ Databron gebruikt de gedeelde native bestandsbrug
+  ✓ Facturatie-pdf is op elk antwoord private no-store
+
+79/79 checks geslaagd.
+
+> studio-admin@2.2.0 verify:facturatie-storage
+> ts-node -r tsconfig-paths/register -P tsconfig.scripts.json src/scripts/verify-facturatie-storage-backup.ts
+
+Facturatie Storage backup policy: 64/64 checks passed.
+
+> studio-admin@2.2.0 verify:tgc-sync
+> ts-node -P tsconfig.scripts.json src/scripts/verify-tgc-sync.ts
+
+TGC sync-configuratie en alle vijf productieparsers met synthetische fixtures geverifieerd.
+
+> studio-admin@2.2.0 verify:tgc-queue
+> ts-node -P tsconfig.scripts.json src/scripts/verify-tgc-queue.ts
+
+
+TGC queue verification: 122 passed, 0 failed.
+
+> studio-admin@2.2.0 audit:production
+> npm audit --audit-level=high
+
+found 0 vulnerabilities

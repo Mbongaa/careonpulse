@@ -50,6 +50,20 @@ const nextConfig = {
         headers: securityHeaders,
       },
       {
+        // Careon Scribe (handoff 20 S16): alleen deze module mag de microfoon
+        // aanvragen. Next: "the last header key will override the first", dus
+        // deze entry MOET ná de algemene staan — daar blijft microphone=()
+        // gelden voor de rest van de app. `/scribe/:path*` matcht ook /scribe
+        // zelf; dat is aanvaard en gedocumenteerd (de consultlijst vraagt geen
+        // microfoon aan, en de policy geldt per document — de werkruimte wordt
+        // met een documentlading geopend).
+        source: "/scribe/:path*",
+        headers: [
+          ...securityHeaders.filter((header) => header.key !== "Permissions-Policy"),
+          { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" },
+        ],
+      },
+      {
         // The service worker must always revalidate so new deploys take over.
         source: "/sw.js",
         headers: [{ key: "Cache-Control", value: "public, max-age=0, must-revalidate" }],

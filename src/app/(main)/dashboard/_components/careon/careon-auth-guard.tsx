@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import DashboardLoading from "@/app/(main)/dashboard/loading";
 import { CAREON_LOGIN_ROUTE, isCareonAuthed } from "@/lib/careon-auth";
+import { bewaakScribeEigenaar } from "@/lib/careon-scribe/drafts.client";
 
 // Sessiepoort. De server beslist altijd eerst: 200 = echte sessie; uitsluitend
 // 501 + demo:true mag de lokale sessionStorage-vlag gebruiken. Daardoor kan
@@ -26,6 +27,12 @@ export function CareonAuthGuard({ children }: Readonly<{ children: ReactNode }>)
     fetch("/api/auth/session", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         if (response.ok) {
+          const payload = (await response.json()) as { orgId?: string | null; email?: string };
+          if (controller.signal.aborted) return;
+          bewaakScribeEigenaar(
+            typeof payload.orgId === "string" ? payload.orgId : null,
+            typeof payload.email === "string" ? payload.email : "",
+          );
           setStatus("toegang");
           return;
         }

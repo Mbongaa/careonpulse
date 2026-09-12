@@ -1,4 +1,4 @@
-import type { CareonModule } from "../data/careon/careon-modules";
+import { CAREON_MODULES, type CareonModule } from "../data/careon/careon-modules";
 import {
   buildCareonShellRegistry,
   filterCareonModulesForSession,
@@ -50,6 +50,16 @@ const modules: CareonModule[] = [
     href: "/facturatie",
     zichtbaarVoor: "org_admin",
   },
+  // Careon Scribe (handoff 20 §2.1): zichtbaar voor iedere organisatiegebruiker,
+  // maar nog niet shell-klaar — de fase-1-shell weigert microfoonrechten.
+  {
+    id: "careon-scribe",
+    name: "Careon Scribe",
+    description: "Live gespreksverslag tijdens het consult",
+    status: "live",
+    href: "/scribe",
+    hardeNavigatie: true,
+  },
 ];
 
 const memberSession: CareonSession = {
@@ -67,13 +77,57 @@ const now = new Date("2026-08-21T20:00:00.000Z");
 
 console.log("\nCareon Pulse mobile-shell contract\n");
 
-check("member krijgt twee algemene modules", filterCareonModulesForSession(modules, memberSession).length, 2);
+// Klantverzoek 10-09-2026: toets het echte register, naast de synthetische
+// live-modulefixtures die de bestaande autorisatie- en microfoonpoorten bewaken.
+const employeeModules = filterCareonModulesForSession(CAREON_MODULES, memberSession);
+check(
+  "medewerker ziet precies de vijf gevraagde modules in volgorde",
+  employeeModules.map((module) => module.name).join("|"),
+  "Careon Dashboard|YAAZ|Careon Academie/Academy|Careon AI|Careon Kwaliteitshandboek",
+);
+check(
+  "beheerder behoudt Facturatie naast de vijf medewerkersmodules",
+  filterCareonModulesForSession(CAREON_MODULES, adminSession).length,
+  6,
+);
+const employeePreviewRegistry = buildCareonShellRegistry(
+  CAREON_MODULES,
+  memberSession,
+  "https://www.careonpulse.com",
+  now,
+);
+const scribeWebModule = employeeModules.find((module) => module.id === "careon-scribe");
+check("careon-scribe: webtegel is beschikbaar", scribeWebModule?.status, "live");
+check("careon-scribe: webtegel opent de consultmodule", scribeWebModule?.href, "/scribe");
+check("careon-scribe: webtegel laadt een nieuw document voor microfoonrechten", scribeWebModule?.hardeNavigatie, true);
+for (const id of ["careon-academie", "careon-kwaliteitshandboek"]) {
+  const webModule = employeeModules.find((module) => module.id === id);
+  check(`${id}: webtegel is binnenkort beschikbaar`, webModule?.status, "coming-soon");
+  check(`${id}: webtegel heeft geen link`, webModule?.href, undefined);
+}
+for (const id of ["careon-academie", "careon-scribe", "careon-kwaliteitshandboek"]) {
+  const shellModule = employeePreviewRegistry.modules.find((module) => module.id === id);
+  check(`${id}: shelltegel blijft uitgeschakeld`, shellModule?.enabled, false);
+  check(`${id}: shelltegel heeft geen launch-URL`, shellModule?.launchUrl, null);
+  check(
+    `${id}: ook een directe deeplink kan niet starten`,
+    shellModule ? resolveCareonShellTarget(shellModule) : "ontbrekende tegel",
+    null,
+  );
+}
+
+check("member krijgt drie algemene modules", filterCareonModulesForSession(modules, memberSession).length, 3);
 check(
   "member krijgt facturatie niet",
   filterCareonModulesForSession(modules, memberSession).some((m) => m.id === "careon-facturatie"),
   false,
 );
-check("org_admin krijgt facturatie wel", filterCareonModulesForSession(modules, adminSession).length, 3);
+check(
+  "member krijgt scribe wel",
+  filterCareonModulesForSession(modules, memberSession).some((m) => m.id === "careon-scribe"),
+  true,
+);
+check("org_admin krijgt facturatie wel", filterCareonModulesForSession(modules, adminSession).length, 4);
 
 const memberRegistry = buildCareonShellRegistry(modules, memberSession, "https://www.careonpulse.com", now);
 check("registerschema is v1", memberRegistry.schemaVersion, 1);
@@ -119,6 +173,30 @@ check(
   "YAAZ-basisstart blijft de normale OIDC-launch",
   resolveCareonShellTarget(memberRegistry.modules[1]),
   "https://yaaz.example.test/user/auth/external?authclient=careon",
+);
+
+// Careon Scribe in het shell-register (handoff 20 §2.1/§9): de tegel is bekend,
+// maar staat uit en draagt geen launch-URL zolang de shell geen microfoonrechten
+// kan verlenen (D12 fase 2). Zo krijgt niemand in de app een opnamescherm dat
+// stil faalt.
+const scribeEntry = memberRegistry.modules.find((m) => m.id === "careon-scribe");
+check("scribe-tegel zit in het shell-register", scribeEntry !== undefined, true);
+check("scribe gebruikt het eigen icoon", scribeEntry?.icon, "scribe");
+check("scribe is een webview-module", scribeEntry?.type, "webview");
+check("scribe-deeplink volgt D4-contract", scribeEntry?.deepLink, "careonpulse://careon-scribe/scribe");
+check("scribe vereist het employee-entitlement", scribeEntry?.requiredEntitlement, "employee");
+check("scribe staat uit tot de shell microfoonrechten kan geven", scribeEntry?.enabled, false);
+check("scribe levert geen launch-URL uit", scribeEntry?.launchUrl, null);
+check(
+  "uitgeschakelde scribe levert geen handoffdoel",
+  resolveCareonShellTarget(
+    scribeEntry ?? {
+      id: "careon-scribe",
+      launchUrl: null,
+      enabled: false,
+    },
+  ),
+  null,
 );
 
 const onveilig = buildCareonShellRegistry(

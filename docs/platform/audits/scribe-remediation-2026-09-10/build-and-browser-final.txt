@@ -1,0 +1,362 @@
+
+> studio-admin@2.2.0 test:e2e
+> node src/scripts/run-isolated-e2e.mjs
+
+
+> studio-admin@2.2.0 build
+> next build
+
+▲ Next.js 16.3.4 (Turbopack)
+- Environments: .env.local
+✓ Running next.config.mjs took 120ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 45s
+  Running TypeScript ...
+
+  We detected TypeScript in your project and reconfigured your tsconfig.json file for you.
+  The following suggested values were added to your tsconfig.json. These values can be changed to fit your project's needs:
+
+  	- include was updated to add '.next-e2e/run-O8B7r8/types/**/*.ts'
+  	- include was updated to add '.next-e2e/run-O8B7r8/dev/types/**/*.ts'
+
+  Finished TypeScript in 68s ...
+  Collecting page data using 15 workers ...
+  Generating static pages using 15 workers (0/116) ...
+  Generating static pages using 15 workers (29/116) 
+  Generating static pages using 15 workers (58/116) 
+  Generating static pages using 15 workers (87/116) 
+✓ Generating static pages using 15 workers (116/116) in 2.6s
+  Finalizing page optimization ...
+
+Route (app)
+┌ ƒ /
+├ ƒ /_not-found
+├ ƒ /admin
+├ ƒ /admin/activiteit
+├ ƒ /admin/ai-gesprekken
+├ ƒ /admin/gebruikers
+├ ƒ /admin/organisaties
+├ ƒ /admin/organisaties/[id]
+├ ƒ /api/admin/organizations
+├ ƒ /api/admin/rate-limits
+├ ƒ /api/admin/registraties
+├ ƒ /api/admin/users
+├ ƒ /api/assistant
+├ ƒ /api/assistant/audit
+├ ƒ /api/assistant/threads
+├ ƒ /api/assistant/threads/[id]/messages
+├ ƒ /api/auth/callback
+├ ƒ /api/auth/login
+├ ƒ /api/auth/logout
+├ ƒ /api/auth/microsoft
+├ ƒ /api/auth/session
+├ ƒ /api/auth/set-password
+├ ƒ /api/careon/agenda
+├ ƒ /api/careon/declaraties
+├ ƒ /api/careon/facturatie/contacten
+├ ƒ /api/careon/facturatie/contacten/[contactId]
+├ ƒ /api/careon/facturatie/facturen
+├ ƒ /api/careon/facturatie/facturen/[factuurId]
+├ ƒ /api/careon/facturatie/facturen/[factuurId]/credit
+├ ƒ /api/careon/facturatie/facturen/[factuurId]/definitief
+├ ƒ /api/careon/facturatie/facturen/[factuurId]/mail
+├ ƒ /api/careon/facturatie/facturen/[factuurId]/pdf
+├ ƒ /api/careon/facturatie/facturen/[factuurId]/status
+├ ƒ /api/careon/facturatie/instellingen
+├ ƒ /api/careon/facturatie/instellingen/logo
+├ ƒ /api/careon/facturatie/medewerkers
+├ ƒ /api/careon/hr
+├ ƒ /api/careon/middelen
+├ ƒ /api/careon/production
+├ ƒ /api/careon/production/snapshot
+├ ƒ /api/careon/scribe/gemachtigden
+├ ƒ /api/careon/scribe/instellingen
+├ ƒ /api/careon/scribe/logboek
+├ ƒ /api/careon/scribe/sessies
+├ ƒ /api/careon/scribe/sessies/[sessieId]
+├ ƒ /api/careon/scribe/sessies/[sessieId]/analyse
+├ ƒ /api/careon/scribe/sessies/[sessieId]/audio
+├ ƒ /api/careon/scribe/sessies/[sessieId]/export
+├ ƒ /api/careon/scribe/sessies/[sessieId]/notitie
+├ ƒ /api/careon/scribe/sessies/[sessieId]/notitie/[notitieId]
+├ ƒ /api/careon/scribe/sessies/[sessieId]/segmenten
+├ ƒ /api/careon/scribe/sessies/[sessieId]/segmenten/[volgnummer]
+├ ƒ /api/careon/scribe/sessies/[sessieId]/staat
+├ ƒ /api/careon/scribe/sessies/[sessieId]/taken/[taakId]
+├ ƒ /api/careon/scribe/sessies/[sessieId]/vrijgave
+├ ƒ /api/careon/tgc-sync
+├ ƒ /api/careon/toeslagen
+├ ƒ /api/careon/verwijzers
+├ ƒ /api/health/live
+├ ƒ /api/health/ready
+├ ƒ /api/internal/entra-reconciliation
+├ ƒ /api/internal/maintenance
+├ ƒ /api/internal/tgc-worker-monitor
+├ ƒ /api/internal/yaaz-call-directory
+├ ƒ /api/mobile/v1/devices
+├ ƒ /api/mobile/v1/handoffs
+├ ƒ /api/mobile/v1/modules
+├ ƒ /api/mobile/v1/session
+├ ƒ /api/org/entra-members
+├ ƒ /api/org/members
+├ ƒ /auth/v1/login
+├ ƒ /auth/v1/wachtwoord-instellen
+├ ƒ /dashboard
+├ ƒ /dashboard/assistent
+├ ƒ /dashboard/behandelaren
+├ ƒ /dashboard/beheer
+├ ƒ /dashboard/databron
+├ ƒ /dashboard/details/[kpiId]
+├ ƒ /dashboard/directiecockpit
+├ ƒ /dashboard/dossiercontrole
+├ ƒ /dashboard/dossiers-productie
+├ ƒ /dashboard/financieel
+├ ƒ /dashboard/hr
+├ ƒ /dashboard/kwaliteit
+├ ƒ /dashboard/middelen
+├ ƒ /dashboard/patienten
+├ ƒ /dashboard/planning
+├ ƒ /dashboard/signaleringen
+├ ƒ /facturatie
+├ ƒ /facturatie/[factuurId]
+├ ƒ /facturatie/contacten
+├ ƒ /facturatie/instellingen
+├ ○ /icon.svg
+├ ○ /manifest.webmanifest
+├ ƒ /modules
+├ ƒ /oauth/consent
+├ ○ /opengraph-image.png
+├ ○ /robots.txt
+├ ƒ /scribe
+├ ƒ /scribe/[sessieId]
+├ ƒ /scribe/instellingen
+└ ƒ /scribe/logboek
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+[WebServer] (node:98736) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] (node:99132) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 162 tests using 1 worker
+
+(node:88424) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok   1 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /auth/v1/login has no serious/critical violations in light mode (3.8s)
+  ok   2 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /modules has no serious/critical violations in light mode (3.7s)
+  ok   3 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /dashboard/assistent has no serious/critical violations in light mode (6.1s)
+  ok   4 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /dashboard/directiecockpit has no serious/critical violations in light mode (8.9s)
+  ok   5 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /dashboard/signaleringen has no serious/critical violations in light mode (5.6s)
+  ok   6 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /dashboard/patienten has no serious/critical violations in light mode (5.9s)
+  ok   7 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /dashboard/planning has no serious/critical violations in light mode (6.1s)
+  ok   8 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /dashboard/behandelaren has no serious/critical violations in light mode (6.9s)
+  ok   9 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /dashboard/dossiercontrole has no serious/critical violations in light mode (5.0s)
+  ok  10 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /dashboard/dossiers-productie has no serious/critical violations in light mode (7.1s)
+  ok  11 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /dashboard/kwaliteit has no serious/critical violations in light mode (5.1s)
+  ok  12 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /dashboard/financieel has no serious/critical violations in light mode (6.3s)
+  ok  13 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /dashboard/hr has no serious/critical violations in light mode (7.7s)
+  ok  14 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /dashboard/middelen has no serious/critical violations in light mode (11.6s)
+  ok  15 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /dashboard/databron has no serious/critical violations in light mode (5.5s)
+  ok  16 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /facturatie has no serious/critical violations in light mode (4.2s)
+  ok  17 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /facturatie/contacten has no serious/critical violations in light mode (5.8s)
+  ok  18 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /facturatie/instellingen has no serious/critical violations in light mode (4.0s)
+  ok  19 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /facturatie/demo-factuur-3 has no serious/critical violations in light mode (6.7s)
+  ok  20 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /scribe has no serious/critical violations in light mode (4.7s)
+  ok  21 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /scribe/instellingen has no serious/critical violations in light mode (4.9s)
+  ok  22 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /scribe/logboek has no serious/critical violations in light mode (4.1s)
+  ok  23 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /scribe/demo-consult-1 has no serious/critical violations in light mode (4.8s)
+  ok  24 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /scribe/demo-consult-2 has no serious/critical violations in light mode (6.4s)
+  ok  25 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /dashboard/details/actief has no serious/critical violations in light mode (10.2s)
+  ok  26 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (light) › /dashboard/details/noshow has no serious/critical violations in light mode (9.7s)
+  ok  27 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /auth/v1/login has no serious/critical violations in dark mode (3.4s)
+  ok  28 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /modules has no serious/critical violations in dark mode (3.4s)
+  ok  29 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /dashboard/assistent has no serious/critical violations in dark mode (5.6s)
+  ok  30 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /dashboard/directiecockpit has no serious/critical violations in dark mode (8.5s)
+  ok  31 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /dashboard/signaleringen has no serious/critical violations in dark mode (5.4s)
+  ok  32 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /dashboard/patienten has no serious/critical violations in dark mode (5.7s)
+  ok  33 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /dashboard/planning has no serious/critical violations in dark mode (5.8s)
+  ok  34 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /dashboard/behandelaren has no serious/critical violations in dark mode (6.9s)
+  ok  35 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /dashboard/dossiercontrole has no serious/critical violations in dark mode (4.9s)
+  ok  36 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /dashboard/dossiers-productie has no serious/critical violations in dark mode (6.7s)
+  ok  37 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /dashboard/kwaliteit has no serious/critical violations in dark mode (4.9s)
+  ok  38 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /dashboard/financieel has no serious/critical violations in dark mode (6.0s)
+  ok  39 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /dashboard/hr has no serious/critical violations in dark mode (7.5s)
+  ok  40 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /dashboard/middelen has no serious/critical violations in dark mode (10.7s)
+  ok  41 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /dashboard/databron has no serious/critical violations in dark mode (5.0s)
+  ok  42 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /facturatie has no serious/critical violations in dark mode (3.9s)
+  ok  43 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /facturatie/contacten has no serious/critical violations in dark mode (5.4s)
+  ok  44 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /facturatie/instellingen has no serious/critical violations in dark mode (3.7s)
+  ok  45 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /facturatie/demo-factuur-3 has no serious/critical violations in dark mode (6.6s)
+  ok  46 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /scribe has no serious/critical violations in dark mode (4.7s)
+  ok  47 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /scribe/instellingen has no serious/critical violations in dark mode (5.0s)
+  ok  48 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /scribe/logboek has no serious/critical violations in dark mode (4.3s)
+  ok  49 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /scribe/demo-consult-1 has no serious/critical violations in dark mode (5.2s)
+  ok  50 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /scribe/demo-consult-2 has no serious/critical violations in dark mode (6.6s)
+  ok  51 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /dashboard/details/actief has no serious/critical violations in dark mode (9.8s)
+  ok  52 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (dark) › /dashboard/details/noshow has no serious/critical violations in dark mode (9.0s)
+  ok  53 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /auth/v1/login has no serious/critical violations in careon mode (3.3s)
+  ok  54 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /modules has no serious/critical violations in careon mode (3.4s)
+  ok  55 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /dashboard/assistent has no serious/critical violations in careon mode (5.3s)
+  ok  56 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /dashboard/directiecockpit has no serious/critical violations in careon mode (8.0s)
+  ok  57 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /dashboard/signaleringen has no serious/critical violations in careon mode (5.0s)
+  ok  58 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /dashboard/patienten has no serious/critical violations in careon mode (5.3s)
+  ok  59 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /dashboard/planning has no serious/critical violations in careon mode (5.3s)
+  ok  60 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /dashboard/behandelaren has no serious/critical violations in careon mode (6.2s)
+  ok  61 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /dashboard/dossiercontrole has no serious/critical violations in careon mode (4.7s)
+  ok  62 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /dashboard/dossiers-productie has no serious/critical violations in careon mode (5.9s)
+  ok  63 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /dashboard/kwaliteit has no serious/critical violations in careon mode (4.7s)
+  ok  64 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /dashboard/financieel has no serious/critical violations in careon mode (6.0s)
+  ok  65 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /dashboard/hr has no serious/critical violations in careon mode (6.9s)
+  ok  66 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /dashboard/middelen has no serious/critical violations in careon mode (11.0s)
+  ok  67 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /dashboard/databron has no serious/critical violations in careon mode (5.2s)
+  ok  68 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /facturatie has no serious/critical violations in careon mode (3.9s)
+  ok  69 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /facturatie/contacten has no serious/critical violations in careon mode (4.9s)
+  ok  70 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /facturatie/instellingen has no serious/critical violations in careon mode (3.6s)
+  ok  71 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /facturatie/demo-factuur-3 has no serious/critical violations in careon mode (6.3s)
+  ok  72 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /scribe has no serious/critical violations in careon mode (4.4s)
+  ok  73 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /scribe/instellingen has no serious/critical violations in careon mode (4.4s)
+  ok  74 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /scribe/logboek has no serious/critical violations in careon mode (3.9s)
+  ok  75 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /scribe/demo-consult-1 has no serious/critical violations in careon mode (4.7s)
+  ok  76 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /scribe/demo-consult-2 has no serious/critical violations in careon mode (6.1s)
+  ok  77 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /dashboard/details/actief has no serious/critical violations in careon mode (7.9s)
+  ok  78 [desktop-a11y] › e2e\a11y.spec.ts:79:11 › axe wcag2aa (careon) › /dashboard/details/noshow has no serious/critical violations in careon mode (7.3s)
+(node:44192) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  79 [desktop] › e2e\careon.spec.ts:12:7 › auth › browser suite runs only through explicit demo contract (182ms)
+  ok  80 [desktop] › e2e\careon.spec.ts:20:7 › auth › demo keeps Microsoft federation fail-closed (1.7s)
+  ok  81 [desktop] › e2e\careon.spec.ts:28:7 › auth › unauthenticated dashboard visit redirects to login (1.7s)
+  ok  82 [desktop] › e2e\careon.spec.ts:40:7 › auth › login button disabled until both fields filled (1.7s)
+  ok  83 [desktop] › e2e\careon.spec.ts:50:7 › auth › invalid login shows audited error (2.7s)
+  ok  84 [desktop] › e2e\careon.spec.ts:58:7 › auth › username is case-insensitive (2.9s)
+  ok  85 [desktop] › e2e\careon.spec.ts:67:7 › auth › unauthenticated module launcher visit redirects to login (1.6s)
+  ok  86 [desktop] › e2e\careon.spec.ts:73:7 › auth › valid login lands on module launcher; Directie-tegel opens dashboard, logout returns to login (7.4s)
+  ok  87 [desktop] › e2e\careon.spec.ts:164:7 › cockpit + filters › shows audited KPI values and insights carousel (4.5s)
+  ok  88 [desktop] › e2e\careon.spec.ts:175:7 › cockpit + filters › compact desktop header stays inside the viewport (5.0s)
+  ok  89 [desktop] › e2e\careon.spec.ts:198:7 › cockpit + filters › charts expose an Alles (full history) timeframe option (4.2s)
+  ok  90 [desktop] › e2e\careon.spec.ts:206:7 › cockpit + filters › location filter scales KPIs and persists across pages (7.0s)
+  ok  91 [desktop] › e2e\careon.spec.ts:220:7 › cockpit + filters › KPI cards open their drill-down; detail page links onward to the domain page (6.0s)
+  ok  92 [desktop] › e2e\careon.spec.ts:232:7 › cockpit + filters › Totale omzet card drills down to its detail page (4.8s)
+  ok  93 [desktop] › e2e\careon.spec.ts:238:7 › cockpit + filters › bell and urgent panel route to signaleringen (4.1s)
+  ok  94 [desktop] › e2e\careon.spec.ts:246:7 › kpi drill-down › domain KPI card drills down and reconciles with the audited breakdown (4.5s)
+  ok  95 [desktop] › e2e\careon.spec.ts:261:7 › kpi drill-down › dossiercontrole summary tiles open their drill-down (3.0s)
+  ok  96 [desktop] › e2e\careon.spec.ts:270:7 › kpi drill-down › unknown detail id shows the 404 page (1.1s)
+  ok  97 [desktop] › e2e\careon.spec.ts:286:7 › signaleringen › shows severity groups; the whole alert card routes to its domain page (2.2s)
+  ok  98 [desktop] › e2e\careon.spec.ts:301:7 › behandelaren › team filter narrows the clinician table (2.8s)
+  ok  99 [desktop] › e2e\careon.spec.ts:316:7 › assistant api › liveness is healthy and readiness reports missing isolated dependencies (112ms)
+  ok 100 [desktop] › e2e\careon.spec.ts:328:7 › assistant api › health probe reports fallback mode and posts are refused without live AI (69ms)
+  ok 101 [desktop] › e2e\careon.spec.ts:344:7 › assistant layout › page is viewport-contained with the canvas open (no document scroll) (4.5s)
+  ok 102 [desktop] › e2e\careon.spec.ts:362:7 › dossiers & productie › page shows reconciled KPIs and population sections (2.9s)
+  ok 103 [desktop] › e2e\careon.spec.ts:380:7 › dossiers & productie › location filter narrows the medewerker table (3.5s)
+  ok 104 [desktop] › e2e\careon.spec.ts:390:7 › dossiers & productie › cockpit summary links to the page (4.5s)
+  ok 105 [desktop] › e2e\careon.spec.ts:405:7 › middelen & inventaris › page shows counters, registration and inventory (handmatig) (3.7s)
+  ok 106 [desktop] › e2e\careon.spec.ts:438:7 › middelen & inventaris › team tagging via the teams picker (3.4s)
+  ok 107 [desktop] › e2e\careon.spec.ts:449:7 › middelen & inventaris › toggling a middel persists across a reload (4.5s)
+  ok 108 [desktop] › e2e\careon.spec.ts:461:7 › middelen & inventaris › behandelaren shows functie, talen and team panels from the registration (3.5s)
+  ok 109 [desktop] › e2e\careon.spec.ts:484:7 › hr (handmatige registratie) › page shows manual KPIs and the editors (handmatig) (2.7s)
+  ok 110 [desktop] › e2e\careon.spec.ts:499:7 › hr (handmatige registratie) › editing a KPI value persists across a reload (4.6s)
+  ok 111 [desktop] › e2e\careon.spec.ts:509:7 › hr (handmatige registratie) › edited KPI value feeds its drill-down (3.4s)
+  ok 112 [desktop] › e2e\careon.spec.ts:524:7 › hr (handmatige registratie) › edited KPI value feeds the deterministic assistant (6.2s)
+  ok 113 [desktop] › e2e\careon.spec.ts:537:7 › hr (handmatige registratie) › adding and removing a BIG registration (3.6s)
+  ok 114 [desktop] › e2e\careon.spec.ts:555:7 › hr (handmatige registratie) › BIG changes retain expired registrations alongside live remaining days (4.3s)
+  ok 115 [desktop] › e2e\careon.spec.ts:583:7 › databron › AI update entry point keeps the manual import workflow (2.1s)
+  ok 116 [desktop] › e2e\careon.spec.ts:594:7 › databron › API preview flow is explicit and restores demo (4.1s)
+  ok 117 [desktop] › e2e\careon.spec.ts:609:7 › databron › CSV import updates cockpit KPIs and source; invalid CSV shows audited error (5.3s)
+  ok 118 [desktop] › e2e\careon.spec.ts:639:7 › chrome & theming › theme switcher exposes Light, Dark, and Careon modes (6.7s)
+  ok 119 [desktop] › e2e\careon.spec.ts:660:7 › chrome & theming › unknown dashboard route returns 404 page (1.2s)
+  ok 120 [desktop] › e2e\careon.spec.ts:687:7 › facturatie (demo-pad, handoff 15) › lijst toont de demo-facturen met statusbadges (1.8s)
+  ok 121 [desktop] › e2e\careon.spec.ts:701:7 › facturatie (demo-pad, handoff 15) › moduletegel navigeert daadwerkelijk naar /facturatie (1.8s)
+  ok 122 [desktop] › e2e\careon.spec.ts:710:7 › facturatie (demo-pad, handoff 15) › concept bewerken: regel toevoegen, totalen en blob-pdf-voorbeeld (4.0s)
+  ok 123 [desktop] › e2e\careon.spec.ts:726:7 › facturatie (demo-pad, handoff 15) › concept verwijderen vanuit de editor keert terug naar de lijst (4.2s)
+  ok 124 [desktop] › e2e\careon.spec.ts:736:7 › facturatie (demo-pad, handoff 15) › definitief maken kent het volgende demo-nummer toe en wordt read-only (9.1s)
+  ok 125 [desktop] › e2e\careon.spec.ts:770:7 › facturatie (demo-pad, handoff 15) › factuur per e-mail versturen (fase B, demo-simulatie) (3.6s)
+  ok 126 [desktop] › e2e\careon.spec.ts:780:7 › facturatie (demo-pad, handoff 15) › instellingen: sjabloonbibliotheek opent detailweergave per sjabloon (2.2s)
+  ok 127 [desktop] › e2e\careon.spec.ts:802:7 › facturatie (demo-pad, handoff 15) › editor: factuur wisselt van sjabloon (6.2s)
+  ok 128 [desktop] › e2e\careon.spec.ts:815:7 › facturatie (demo-pad, handoff 15) › contacten: toevoegen, bewerken, verwijderen en medewerker overnemen (4.3s)
+  ok 129 [desktop] › e2e\careon.spec.ts:868:7 › scribe (demo-pad, handoff 20) › microfoonpolicy geldt uitsluitend onder /scribe (629ms)
+  ok 130 [desktop] › e2e\careon.spec.ts:895:7 › scribe (demo-pad, handoff 20) › moduletegel opent /scribe met een documentlading; lijst toont de demo-consulten (3.6s)
+  ok 131 [desktop] › e2e\careon.spec.ts:941:7 › scribe (demo-pad, handoff 20) › lijst: zoeken op dossierreferentie, BSN-term geweigerd, 1-gebaseerde paginering (5.4s)
+  ok 132 [desktop] › e2e\careon.spec.ts:996:7 › scribe (demo-pad, handoff 20) › nieuw consult eist toestemming en weigert een BSN-vormige referentie (4.1s)
+  ok 133 [desktop] › e2e\careon.spec.ts:1037:7 › scribe (demo-pad, handoff 20) › werkruimte: getempode demo-opname, volledig afspelen, aanwijzingen en verouderde analyse (7.7s)
+  x  134 [desktop] › e2e\careon.spec.ts:1108:7 › scribe (demo-pad, handoff 20) › consultstaat corrigeren: feit intrekken en de EPD-lijst overnemen (6.7s)
+(node:88564) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 135 [desktop] › e2e\careon.spec.ts:1108:7 › scribe (demo-pad, handoff 20) › consultstaat corrigeren: feit intrekken en de EPD-lijst overnemen (retry #1) (5.6s)
+  ok 136 [desktop] › e2e\careon.spec.ts:1142:7 › scribe (demo-pad, handoff 20) › handmatige invoer blijft behouden tijdens verzenden en blokkeert afronden (2.8s)
+  ok 137 [desktop] › e2e\careon.spec.ts:1172:7 › scribe (demo-pad, handoff 20) › annuleren wist handmatige concepten (2.9s)
+  ok 138 [desktop] › e2e\careon.spec.ts:1183:7 › scribe (demo-pad, handoff 20) › verslagreview: beoordelingssecties blijven van de behandelaar, daarna overname in het EPD (7.1s)
+  ok 139 [desktop] › e2e\careon.spec.ts:1293:7 › scribe (demo-pad, handoff 20) › verslagformaat wisselen genereert het verslag opnieuw in het gekozen formaat (2.6s)
+  ok 140 [desktop] › e2e\careon.spec.ts:1316:7 › scribe (demo-pad, handoff 20) › werkkopie wissen na afronden wist transcript en verslag (4.3s)
+  ok 141 [desktop] › e2e\careon.spec.ts:1336:7 › scribe (demo-pad, handoff 20) › vrijgave gaat alleen naar gemachtigde collega's en is intrekbaar (8.1s)
+  ok 142 [desktop] › e2e\careon.spec.ts:1382:7 › scribe (demo-pad, handoff 20) › instellingen: activatievoorwaarden bewaken de moduleschakelaar en alles overleeft een herlading (5.6s)
+  ok 143 [desktop] › e2e\careon.spec.ts:1439:7 › scribe (demo-pad, handoff 20) › logboek toont de handelingen van deze demo als metadata en levert een CSV (3.6s)
+  ok 144 [desktop] › e2e\production.spec.ts:34:7 › productie-modus › import toont validatierapport en activeert productie (2.6s)
+  ok 145 [desktop] › e2e\production.spec.ts:52:7 › productie-modus › cockpit toont banner, live data en demo-badges (5.7s)
+  ok 146 [desktop] › e2e\production.spec.ts:72:7 › productie-modus › productie filtert echt op vestiging en verbergt team- en periodefilter (6.8s)
+  ok 147 [desktop] › e2e\production.spec.ts:90:7 › productie-modus › productie overleeft herladen en herstel demo-data zet alles terug (6.4s)
+  ok 148 [desktop] › e2e\production.spec.ts:104:7 › productie-modus › signaleringen tonen live regels plus wacht-op-data-sectie (3.7s)
+  ok 149 [desktop] › e2e\production.spec.ts:112:7 › productie-modus › productie-exclusieve analyses: zorgvraagtypering, behandelduur, wachtlijstfases, extra controles (5.4s)
+  ok 150 [desktop] › e2e\production.spec.ts:133:7 › productie-modus › KPI-drilldown toont echte records met deeplink; domein zonder export blijft demo (8.1s)
+  ok 151 [desktop] › e2e\production.spec.ts:158:7 › productie-modus › trends en demo-vervangingen: wachttijd-trend, zorgvorm, hoog-risico, datakwaliteit, kwaliteitsscore (5.9s)
+  ok 152 [desktop] › e2e\pwa.spec.ts:14:7 › pwa › manifest is served with install-ready fields (143ms)
+  ok 153 [desktop] › e2e\pwa.spec.ts:28:7 › pwa › service worker, icons and offline page are served (120ms)
+  ok 154 [desktop] › e2e\pwa.spec.ts:43:7 › pwa › service worker activates and serves the offline fallback (4.0s)
+(node:94116) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 155 [mobile] › e2e\careon.spec.ts:667:7 › chrome & theming › mobile: cockpit renders and sidebar drawer opens @mobile (4.9s)
+  ok 156 [mobile] › e2e\mobile.spec.ts:44:7 › mobile: no horizontal overflow on any route (careon) @mobile (26.6s)
+  ok 157 [mobile] › e2e\mobile.spec.ts:44:7 › mobile: no horizontal overflow on any route (light) @mobile (26.9s)
+  ok 158 [mobile] › e2e\mobile.spec.ts:69:5 › mobile: filter popover exposes Periode/Locatie/Team @mobile (2.9s)
+  ok 159 [mobile] › e2e\mobile.spec.ts:85:5 › mobile: assistant canvas opens in a full-height drawer @mobile (6.5s)
+  ok 160 [mobile] › e2e\mobile.spec.ts:126:5 › mobile: assistant thread sheet opens and closes @mobile (3.2s)
+  ok 161 [mobile] › e2e\mobile.spec.ts:150:5 › mobile: no horizontal overflow on the scribe routes @mobile (8.2s)
+  ok 162 [mobile] › e2e\mobile.spec.ts:179:5 › mobile: signaalstrip toont het medicatiesignaal boven de tabs @mobile (2.8s)
+  ok 163 [mobile] › e2e\mobile.spec.ts:198:5 › mobile: scribe privacyacties en opschoning blijven beschikbaar @mobile (2.5s)
+
+
+  1) [desktop] › e2e\careon.spec.ts:1108:7 › scribe (demo-pad, handoff 20) › consultstaat corrigeren: feit intrekken en de EPD-lijst overnemen 
+
+    Error: locator.check: Clicking the checkbox did not change its state
+    Call log:
+      - waiting for getByRole('region', { name: 'AI-notities' }).first().getByLabel('Ik heb de actuele medicatie- en allergielijst uit het EPD gecontroleerd, inclusief ontbrekende middelen.')
+        - locator resolved to <button value="on" id="_r_s_" type="button" role="checkbox" aria-checked="false" data-slot="checkbox" data-state="unchecked" class="peer relative flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-input transition-colors outline-none group-has-disabled/field:opacity-50 after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-in…></button>
+      - attempting click action
+        - waiting for element to be visible, enabled and stable
+        - element is visible, enabled and stable
+        - scrolling into view if needed
+        - done scrolling
+        - performing click action
+        - click action done
+        - waiting for scheduled navigations to finish
+        - navigations have finished
+
+
+      1135 |         "Ik heb de actuele medicatie- en allergielijst uit het EPD gecontroleerd, inclusief ontbrekende middelen.",
+      1136 |       )
+    > 1137 |       .check();
+           |        ^
+      1138 |     await expect(notities.getByText("Beoordeeld", { exact: true })).toBeVisible();
+      1139 |     await expect(page.getByText(/dit is geen volledige medicatiebewaking/)).toBeVisible();
+      1140 |   });
+        at C:\Users\HP\Desktop\Erbil project\ZSG dashoard\careon-dashboard\e2e\careon.spec.ts:1137:8
+
+    Error Context: test-results\careon-scribe-demo-pad-han-53444-n-en-de-EPD-lijst-overnemen-desktop\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\careon-scribe-demo-pad-han-53444-n-en-de-EPD-lijst-overnemen-desktop\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\careon-scribe-demo-pad-han-53444-n-en-de-EPD-lijst-overnemen-desktop\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  Slow test file: [desktop-a11y] › e2e\a11y.spec.ts (7.7m)
+  Consider running tests from slow files in parallel. See: https://playwright.dev/docs/test-parallel
+  1 flaky
+    [desktop] › e2e\careon.spec.ts:1108:7 › scribe (demo-pad, handoff 20) › consultstaat corrigeren: feit intrekken en de EPD-lijst overnemen 
+  161 passed (14.8m)

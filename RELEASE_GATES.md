@@ -425,5 +425,96 @@ delegated Graph module in `platform-deploy`.
   registrations, `xms_edov`, admin consent, secret owners/expiry and the SharePoint drive.
   Exact message and acceptance matrix: `agent-handoff/17-microsoft365-yaaz-deliverable.md`.
 
+## Superseding feature — Careon Scribe (2026-09-07)
+
+**10 September 2026 correction:** the delivery results below are historical baseline evidence. The independent
+audit found 35 engineering issues despite those passing tests. Phased remediation, the additive migration,
+new negative/concurrency/lifecycle tests and current verification are tracked in
+[SCRIBE_REMEDIATION_2026-09-10.md](docs/platform/SCRIBE_REMEDIATION_2026-09-10.md). Local verification is not a
+production deployment or activation. D24 remains Proposed and G20 remains In progress for release and external acceptance.
+
+**Final local remediation evidence:** all 35 findings have fixes and regression coverage; the optimized build succeeds,
+all 162 browser scenarios complete (161 direct passes plus one EPD test-timing retry, corrected and then repeated five
+times without retries), six visual captures pass, and npm reports zero vulnerabilities. Real Scribe PostgreSQL passes
+105 baseline + 125 upgraded checks; related authorization/invoice/EPD suites pass 247/26/37. The full quality output,
+exact retry analysis and source manifests are linked from the remediation report. The new additive migration
+`20260910120000_scribe_audit_integrity.sql` and matching app still require coordinated release and legacy-data review.
+
+Klant-goedgekeurde uitbreiding buiten de 10 geauditeerde secties (handoff 20, `agent-handoff/20-clinical-scribe.md`;
+blueprint-beslisregel **D24 — voorgesteld, wacht op bevestiging door de eigenaar**): live gespreksondersteuning tijdens
+het consult op een eigen routesectie `/scribe` met eigen moduleschil, eigen Supabase-schema
+(`20260907120000_careon_scribe.sql`: acht tabellen, eigenaar-gebonden RLS, DB-afgedwongen statusovergangen en retentie
+via `security invoker`-RPC's + bevriestriggers (GUC `careon.scribe_rpc`; de enige definer-RPC is de service-role-only
+`careon_prune_scribe`)) en **geen Storage-object** — Careon slaat geen audio op. Toegang loopt per
+gemachtigde behandelaar op vier lagen (launcher-tegel, `requireScribePage()`, sessie-/machtigingscheck per route, RLS
+`app.mag_scribe_gebruiken` / `app.mag_scribe_beheren` zonder kale superadmin-tak). Alles is **opt-in en fail-closed**:
+zonder `CAREON_SCRIBE_LIVE=1` vindt er geen enkele provideraanroep plaats en draait de volledige werkstroom
+deterministisch; daarnaast beslist de organisatie zelf per schakelaar of gespreksinhoud het platform verlaat
+(`transcriptieAan`, `aiAnalyseAan`, beide standaard uit), en de module blijft per organisatie uit tot een `org_admin`
+hem aanzet — wat pas mag nadat de **activatievoorwaarden** (DPIA met datum en eigenaar, bevestigde
+verwerkersovereenkomst, goedgekeurde toestemmingstekst) in `/scribe/instellingen` zijn vastgelegd — en behandelaren
+machtigt.
+
+**Bewuste security-header-wijziging** (`next.config.mjs`, bewaakt door `verify:runtime` + Playwright-asserties op de
+daadwerkelijke responseheaders): een tweede headers-entry `/scribe/:path*` vervangt `microphone=()` door
+`Permissions-Policy: camera=(), microphone=(self), geolocation=()`. De algemene bron houdt `microphone=()` voor de rest
+van de app. Omdat de policy **per document** geldt, is elke ingang naar `/scribe` een harde navigatie (`<a href>` /
+`window.location.assign`, geen `next/link`); zonder dat blijft de striktere policy van `/modules` van kracht en faalt
+`getUserMedia` stil. De CSP blijft ongewijzigd.
+
+Toegevoegde poorten (gemeten bij oplevering 2026-09-07; details in handoff 20 §0.1):
+
+- **`verify:careon`** — eigen sectie "Scribe" (138 scribe-asserties): moduleregister (tegel, `href`, `hardeNavigatie`, geen
+  beeldmerk), rolpredicaat-waarheidstabel, guards (`diagnose` geweigerd; sessie/segment/notitie/instellingen),
+  `isPatientReferentie` (BSN, geboortedatum, lengte, tekenset) en `veiligeBestandsnaam`, de acht verslagformaten en de
+  ★-set zonder "diagnose", recursieve strict-schema-normalisatie, de additieve merge van de klinische staat, de
+  deterministische medicatieveiligheid, de deterministische extractie op het demoscript, verslagopbouw,
+  overlapontdubbeling, retentieberekening, seed-consistentie en de OpenAI-/Vertex-verzoekopbouw. Totaal na deze
+  levering: **1168/0**.
+- **`verify:runtime`** — bronchecks op de migratie (RLS + `careon_active_account` op alle acht tabellen, de
+  eigen-sessie-uitdrukking in élke inhoudspolicy, geen kale rolblinde policy, consentvenster in de insert-policy,
+  bevries-/geen-delete-triggers met het GUC-patroon, RPC's aanwezig, prune service-role-only, quota-scope `scribe` op
+  drie plekken, geen `storage.buckets`), op de routes (quota vóór het lezen van de body, `readJsonBodyLimited` overal,
+  geen kale `request.json()`, geen audio-bytes of inhoud in logs, audit op lezen/instellingen/verwijderen), op
+  `next.config.mjs` (`microphone=(self)` uitsluitend onder `/scribe`), `proxy.ts` (`/scribe` in `needsAuth`), de
+  layout-gate en de twee cache-wispaden (72 scribe-checks). Totaal na deze levering: **178/0**.
+- **`verify:scribe`** — de modulespecifieke suite naast de bestaande verify-scripts (`verify-scribe-server.ts` **93/0** — routes, gates,
+  provider-adapters, quota, audit; `verify-scribe-domein.ts` **97/0** — staat, merge, medicatieregels, formaten, retentie,
+  exporttekst).
+- **`verify:mobile`** — scribe-presentatie in het shell-register (`icon: "scribe"`, `deepLinkPath: "/scribe"`,
+  `type: "webview"`, `requiredEntitlement: "employee"`) en de **onthouden tegel**: `shellReady: false` ⇒
+  `enabled: false` en `launchUrl: null` zolang het D12-fase-2-microfoonprofiel ontbreekt. Bestaande tellingen zijn
+  bijgesteld. Totaal: **79/79**.
+- **`src/scripts/verify-scribe-postgres.py`** — DB-regressie op een lokale synthetische PostgreSQL (huisstijl
+  `verify-auth-postgres.py`): superadmin zonder lidmaatschap ziet nul sessies; een lid zonder machtiging kan geen
+  sessie inserten en een gemachtigde wel; een segment op andermans sessie faalt; `org_admin` leest metadata maar geen
+  segmenten; de client kan `status`/`*_verwijder_na` niet zetten; RPC-overgangen; notitie-goedkeuring weigert een lege
+  ★-sectie; de vrijgave-ontvanger leest alleen het goedgekeurde verslag; de prune wist volgens beide kolommen; de
+  restrictieve `careon_active_account`-policy staat op alle acht tabellen. Uitkomst: **105/105** (lokale PostgreSQL 15);
+  de bestaande regressies blijven groen (auth 247, facturatie 26, EPD 37).
+- **Playwright** — blok "scribe (demo-pad, handoff 20)" in `e2e/careon.spec.ts`: tegel als `<a href>` mét
+  navigation-entry als bewijs van de documentlading, consult starten met toestemmingspoort (ingevulde
+  retentie-plaatshouder) en referentievalidatie, zoeken op dossierreferentie met geweigerde BSN-term en
+  1-gebaseerde paginering, getempode "Demo-opname" naast "Volledig afspelen", verouderde analyse na een
+  sprekercorrectie, staatcorrecties ("Intrekken" en de overgenomen EPD-lijst), verslagreview met ★-secties buiten
+  "Alles goedkeuren" (risicocitaten uit het risicosegment) en het gatenvinkje dat alleen bij ontbrekende fragmenten
+  verschijnt, "Verslagtekst tonen"/download vóór "Overgenomen", formaat wisselen met hergeneratie, werkkopie wissen
+  met grond, vrijgave aan uitsluitend gemachtigde collega's plus intrekken, instellingen met
+  activatievoorwaarden-poort en de schakelaars voor externe verwerking, het org-logboek met CSV-download, en de
+  uitlogtest inclusief `careon-scribe-v1`. Daarnaast de vijf scribe-routes in `e2e/a11y.spec.ts` en
+  `e2e/mobile.spec.ts` (inclusief `/scribe/logboek`), de mobiele signaalstrip-gate en de header-asserties op de echte
+  responseheaders. Totaal: 12 scribe-tests in `careon.spec.ts`, vijf scribe-routes in `a11y.spec.ts` (licht + donker) en
+  `mobile.spec.ts`; volledige suite **159/159** (2026-09-07).
+- **Live smoke `npm run verify:scribe:live`** — handmatige poort naast `verify:ci`, nooit in CI, alleen met sleutels én
+  `CAREON_SCRIBE_LIVE=1`: TTS-fragment → audioroute → analyse (medicatie + regelwaarschuwing) → notitie met lege
+  ★-secties. Uitgevoerd op 2026-09-07 tegen een lokale productiebuild met provider OpenAI: **21/21** (vaste
+  smoke-organisatie `smoke-scribe-live`, consult na afloop gewist).
+
+**Activering blijft een aparte stap**: de module is gebouwd, niet in gebruik. Vóór `CAREON_SCRIBE_LIVE=1` in productie
+moeten D24 bevestigd zijn, de verwerkersovereenkomsten inclusief de bewaartermijn voor API-invoer (ZDR) getekend, de
+DPIA vastgesteld en de toestemmingstekst goedgekeurd; daarna zet een `org_admin` de module per organisatie aan en
+machtigt hij behandelaren. Go-live-checklist: `PRODUCTION_MODE.md`; openstaande poorten: G20 in
+`docs/platform/PLATFORM_GAP_REGISTER.md`.
+
 ## Definition of done
 All gates 🟢, then final full pass: check → tsc → build → server smoke → gates table re-verified in one go, loop stops.

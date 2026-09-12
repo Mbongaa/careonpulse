@@ -1,0 +1,350 @@
+- banner:
+  - generic: Careon Pulse
+  - generic: Technology · Growth · Care
+  - paragraph: Careon AI
+  - paragraph: TGC Groep
+  - link "Naar modules":
+    - /url: /modules
+  - button "Uitloggen":
+    - text: Uitloggen
+- navigation "Careon AI":
+  - link "Consulten":
+    - /url: /scribe
+  - link "Logboek":
+    - /url: /scribe/logboek
+  - link "Instellingen":
+    - /url: /scribe/instellingen
+- main:
+  - heading "QA-EN-A03 Psychiatrisch consult" [level=1]:
+    - text: QA-EN-A03
+    - generic: Psychiatrisch consult
+  - paragraph: Loopt 0:36
+  - button "Consult afronden":
+    - text: Consult afronden
+  - button "Annuleren":
+    - text: Annuleren
+  - paragraph: Lokale demo-opslag — geen centrale registratie.
+  - button "Demo-opname" [disabled]:
+    - text: Demo-opname
+  - button "Volledig afspelen" [disabled]:
+    - text: Volledig afspelen
+  - generic: Het demo-consult is volledig afgespeeld
+  - paragraph: "Demo-opname: er wordt geen microfoon gebruikt en er wordt geen audio verwerkt."
+  - region "Transcript":
+    - heading "Transcript" [level=2]
+    - generic: 30 regels
+    - region "Transcriptregels":
+      - list:
+        - generic: 00:00
+        - 'button "Spreker van regel 1: Arts — wijzigen"': Arts
+        - paragraph:
+          - generic: §1
+          - text: Goedemiddag, fijn dat u er bent. Waarvoor komt u vandaag bij mij?
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 00:08
+        - 'button "Spreker van regel 2: Patiënt — wijzigen"': Patiënt
+        - paragraph:
+          - generic: §2
+          - text: Ik voel me al een tijd erg somber en ik krijg bijna niets meer gedaan.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 00:16
+        - 'button "Spreker van regel 3: Arts — wijzigen"': Arts
+        - paragraph:
+          - generic: §3
+          - text: Hoe lang speelt die somberheid al?
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 00:24
+        - 'button "Spreker van regel 4: Patiënt — wijzigen"': Patiënt
+        - paragraph:
+          - generic: §4
+          - text: Sinds drie maanden ongeveer, en het wordt geleidelijk erger.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 00:32
+        - 'button "Spreker van regel 5: Patiënt — wijzigen"': Patiënt
+        - paragraph:
+          - generic: §5
+          - text: Ik slaap heel slecht, ik lig uren wakker en ik pieker de hele nacht door.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 00:40
+        - 'button "Spreker van regel 6: Arts — wijzigen"': Arts
+        - paragraph:
+          - generic: §6
+          - text: En hoe is uw eetlust?
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 00:48
+        - 'button "Spreker van regel 7: Patiënt — wijzigen"': Patiënt
+        - paragraph:
+          - generic: §7
+          - text: Mijn eetlust is verminderd, ik ben ongeveer vier kilo afgevallen.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 00:56
+        - 'button "Spreker van regel 8: Arts — wijzigen"': Arts
+        - paragraph:
+          - generic: §8
+          - text: Zijn er dingen die het erger maken?
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 01:04
+        - 'button "Spreker van regel 9: Patiënt — wijzigen"': Patiënt
+        - paragraph:
+          - generic: §9
+          - text: Werkstress vooral; er is een reorganisatie op mijn werk en de druk is hoog.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 01:12
+        - 'button "Spreker van regel 10: Patiënt — wijzigen"': Patiënt
+        - paragraph:
+          - generic: §10
+          - text: Als ik ga wandelen met mijn hond voelt het even wat lichter.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 01:20
+        - 'button "Spreker van regel 11: Arts — wijzigen"': Arts
+        - paragraph:
+          - generic: §11
+          - text: Gebruikt u alcohol of andere middelen?
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 01:28
+        - 'button "Spreker van regel 12: Patiënt — wijzigen"': Patiënt
+        - paragraph:
+          - generic: §12
+          - text: In het weekend drink ik vier glazen wijn op een avond, doordeweeks niet. Roken doe ik niet.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 01:36
+        - 'button "Spreker van regel 13: Arts — wijzigen"': Arts
+        - paragraph:
+          - generic: §13
+          - text: "Ik wil u iets vragen wat ik iedereen vraag: denkt u er weleens aan om een einde aan uw leven te maken?"
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 01:44
+        - 'button "Spreker van regel 14: Patiënt — wijzigen"': Patiënt
+        - paragraph:
+          - generic: §14
+          - text: Nee, daar denk ik niet aan. Ik wil gewoon dat het beter gaat.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 01:52
+        - 'button "Spreker van regel 15: Arts — wijzigen"': Arts
+        - paragraph:
+          - generic: §15
+          - text: Welke medicijnen gebruikt u op dit moment?
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 02:00
+        - 'button "Spreker van regel 16: Patiënt — wijzigen"': Patiënt
+        - paragraph:
+          - generic: §16
+          - text: Ik gebruik sertraline vijftig milligram, sinds zes weken.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 02:08
+        - 'button "Spreker van regel 17: Patiënt — wijzigen"': Patiënt
+        - paragraph:
+          - generic: §17
+          - text: En sinds vorige week gebruik ik tramadol voor mijn rugpijn.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 02:16
+        - 'button "Spreker van regel 18: Arts — wijzigen"': Arts
+        - paragraph:
+          - generic: §18
+          - text: Bent u ergens allergisch voor?
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 02:24
+        - 'button "Spreker van regel 19: Patiënt — wijzigen"': Patiënt
+        - paragraph:
+          - generic: §19
+          - text: Ik ben allergisch voor amoxicilline, daar krijg ik uitslag van.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 02:32
+        - 'button "Spreker van regel 20: Arts — wijzigen"': Arts
+        - paragraph:
+          - generic: §20
+          - text: Bent u eerder behandeld voor psychische klachten, en komt er in uw familie iets voor?
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 02:40
+        - 'button "Spreker van regel 21: Patiënt — wijzigen"': Patiënt
+        - paragraph:
+          - generic: §21
+          - text: In 2022 heb ik een burn-out gehad, toen ben ik drie maanden thuis geweest.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 02:48
+        - 'button "Spreker van regel 22: Patiënt — wijzigen"': Patiënt
+        - paragraph:
+          - generic: §22
+          - text: Mijn moeder heeft een depressie gehad toen ik jong was.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 02:56
+        - 'button "Spreker van regel 23: Arts — wijzigen"': Arts
+        - paragraph:
+          - generic: §23
+          - text: Dit zou kunnen passen bij een depressieve episode, maar ik wil een schildklierafwijking uitsluiten.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 03:04
+        - 'button "Spreker van regel 24: Arts — wijzigen"': Arts
+        - paragraph:
+          - generic: §24
+          - text: De rugpijn en de tramadol beïnvloeden mogelijk ook het slapen.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 03:12
+        - 'button "Spreker van regel 25: Arts — wijzigen"': Arts
+        - paragraph:
+          - generic: §25
+          - text: Ik wil de sertraline ophogen naar honderd milligram.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 03:20
+        - 'button "Spreker van regel 26: Arts — wijzigen"': Arts
+        - paragraph:
+          - generic: §26
+          - text: Ik vraag via de huisarts een TSH-bepaling aan om de schildklier te laten controleren.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 03:28
+        - 'button "Spreker van regel 27: Arts — wijzigen"': Arts
+        - paragraph:
+          - generic: §27
+          - text: Ik overleg met de huisarts over de tramadol.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 03:36
+        - 'button "Spreker van regel 28: Arts — wijzigen"': Arts
+        - paragraph:
+          - generic: §28
+          - text: We doen psycho-educatie en ik geef u adviezen over slaaphygiëne.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 03:44
+        - 'button "Spreker van regel 29: Arts — wijzigen"': Arts
+        - paragraph:
+          - generic: §29
+          - text: We maken een vervolgafspraak over twee weken.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+        - generic: 03:52
+        - 'button "Spreker van regel 30: Patiënt — wijzigen"': Patiënt
+        - paragraph:
+          - generic: §30
+          - text: Dat is goed, dank u wel.
+        - button "Tekst corrigeren":
+          - text: Tekst corrigeren
+    - button "Nieuwe regels":
+      - text: Nieuwe regels
+    - generic: Gesprekstekst handmatig toevoegen
+    - textbox "Gesprekstekst handmatig toevoegen":
+      - /placeholder: Typ wat er is gezegd…
+    - generic: Spreker
+    - combobox "Spreker":
+      - option "Arts" [selected]
+      - option "Patiënt"
+      - option "Overig"
+      - option "Onbekend"
+    - button "Regel toevoegen" [disabled]:
+      - text: Regel toevoegen
+  - region "AI-notities":
+    - heading "Notities" [level=2]
+    - generic: Demo
+    - button "Nu analyseren":
+      - text: Nu analyseren
+    - region "AI-notities":
+      - paragraph: Automatische extractie van dit Engelstalige consult is niet beschikbaar. Controleer het transcript en vul iedere verslagsectie zelf in; ontbrekende feiten zijn niet automatisch beoordeeld.
+      - term: Hoofdklacht
+      - definition: Nog niet besproken
+      - term: Duur
+      - definition: Nog niet besproken
+      - term: Beloop
+      - definition: Nog niet besproken
+      - term: Ernst
+      - definition: Nog niet besproken
+      - term: Symptomen
+      - definition: Nog niet besproken
+      - term: Begeleidende symptomen
+      - definition: Nog niet besproken
+      - term: Uitlokkende factoren
+      - definition: Nog niet besproken
+      - term: Verlichtende factoren
+      - definition: Nog niet besproken
+      - term: Medicatie
+      - definition: Nog niet besproken
+      - term: Allergieën
+      - definition: Nog niet besproken
+      - definition:
+        - paragraph: Zelf aanvullen
+        - generic: Middel
+        - textbox "Middel":
+          - /placeholder: Bijv. sertraline
+        - generic: Dosering
+        - textbox "Dosering":
+          - /placeholder: Bijv. 50 mg
+        - generic: Gebruik
+        - combobox "Gebruik":
+          - option "Huidig gebruik" [selected]
+          - option "Gestopt"
+          - option "Voorgesteld"
+          - option "Onbekend"
+        - button "Medicatie toevoegen" [disabled]
+        - generic: Allergie of intolerantie
+        - textbox "Allergie of intolerantie":
+          - /placeholder: Bijv. amoxicilline
+        - generic: Aard
+        - combobox "Aard":
+          - option "Allergie" [selected]
+          - option "Intolerantie"
+          - option "Onbekend"
+        - button "Allergie toevoegen" [disabled]
+        - generic: Actuele medicatie & allergieën uit het EPD
+        - button "EPD-lijst plakken"
+        - checkbox "Ik heb de actuele medicatie- en allergielijst uit het EPD gecontroleerd, inclusief ontbrekende middelen."
+        - generic: Ik heb de actuele medicatie- en allergielijst uit het EPD gecontroleerd, inclusief ontbrekende middelen.
+        - paragraph: De lijst blijft in dit consult; Careon haalt niets uit het EPD op en schrijft er niets naartoe.
+      - term: Voorgeschiedenis
+      - definition: Nog niet besproken
+      - term: Familieanamnese
+      - definition: Nog niet besproken
+      - term: Leefstijl
+      - definition: Nog niet besproken
+      - term: Psychisch functioneren
+      - definition: Nog niet besproken
+      - term: Metingen
+      - definition: Nog niet besproken
+      - term: Onderzoek
+      - definition: Nog niet besproken
+      - term: Plan
+      - definition: Nog niet besproken
+  - region "Klinische aanwijzingen":
+    - heading "Aanwijzingen" [level=2]
+    - region "Klinische aanwijzingen":
+      - heading "Overweeg te vragen naar" [level=3]
+      - paragraph: Nog geen suggesties.
+      - heading "Klinische overwegingen" [level=3]
+      - paragraph: Beoordeling door behandelaar vereist
+      - paragraph: Dit paneel toont uw eigen uitgesproken overwegingen; alleen de AI-analyse voegt signalen toe.
+      - paragraph: Nog geen uitgesproken overwegingen.
+      - heading "Medicatieveiligheid" [level=3]
+      - note: Alleen gecontroleerd wat in dit gesprek is genoemd — dit is geen volledige medicatiebewaking.
+      - paragraph: Gecontroleerde medicatieregels
+      - paragraph: Geen gecontroleerde signalen.
+      - paragraph: AI-signalen — niet geverifieerd, controleer in het Farmacotherapeutisch Kompas
+      - paragraph: Geen AI-signalen.
+      - heading "Vervolgacties" [level=3]
+      - paragraph: Nog geen vervolgacties voorgesteld.
+- region "Notifications alt+T"
+- button "Open Next.js Dev Tools":
+- alert

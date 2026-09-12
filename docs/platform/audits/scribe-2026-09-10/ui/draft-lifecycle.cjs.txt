@@ -1,0 +1,51 @@
+// Audit-only execution of source-extracted draft/cache functions with in-memory storage.
+// Run from careon-dashboard: node docs/platform/audits/scribe-2026-09-10/ui/draft-lifecycle.cjs.txt
+const fs = require("node:fs");
+const path = require("node:path");
+const ts = require("typescript");
+const vm = require("node:vm");
+const assert = require("node:assert/strict");
+const root = process.cwd();
+const storageSource = fs.readFileSync(path.join(root, "src/lib/careon-scribe/storage.client.ts"), "utf8");
+const clearFunction = storageSource.match(/export function clearScribeState\(\): void \{[\s\S]*?\n\}/)[0];
+function memoryStorage() {
+  const map = new Map();
+  return { setItem: (key, value) => map.set(key, value), getItem: (key) => map.get(key) ?? null, removeItem: (key) => map.delete(key) };
+}
+const localStorage = memoryStorage();
+const sessionStorage = memoryStorage();
+localStorage.setItem("careon-scribe-v1", "synthetic demo state");
+sessionStorage.setItem("careon-scribe-concept-synthetic-consult", "SYNTHETIC DRAFT ONLY");
+const clearContext = { exports: {}, SCRIBE_CACHE_KEY: "careon-scribe-v1", window: { localStorage, sessionStorage } };
+vm.runInNewContext(ts.transpileModule(clearFunction, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, clearContext);
+clearContext.exports.clearScribeState();
+assert.equal(localStorage.getItem("careon-scribe-v1"), null);
+assert.notEqual(sessionStorage.getItem("careon-scribe-concept-synthetic-consult"), null);
+console.log("clear_scribe_cache", JSON.stringify({ demoCacheCleared: true, clinicalDraftCleared: false, expectedDraftCleared: true }));
+
+const source = fs.readFileSync(path.join(root, "src/app/(main)/scribe/_components/handmatige-invoer.tsx"), "utf8");
+const change = source.match(/  const wijzig = \(waarde: string\) => \{[\s\S]*?\n  \};/)[0];
+const add = source.match(/  const voegToe = async \(\) => \{[\s\S]*?\n  \};/)[0];
+let displayed = "FIRST SYNTHETIC SENTENCE";
+let draft = displayed;
+let finishUpload;
+let submitted;
+const context = {
+  tekst: displayed, spreker: "arts", sessieId: "synthetic-consult",
+  setTekst: (value) => { displayed = value; },
+  bewaarConcept: (id, value) => { draft = value; },
+  wisHandmatigConcept: () => { draft = ""; },
+  setBezig() {}, setMislukt() {},
+  onToevoegen: (text) => { submitted = text; return new Promise((resolve) => { finishUpload = resolve; }); },
+};
+vm.runInNewContext(ts.transpileModule(`${change}\n${add}\nglobalThis.handlers = { wijzig, voegToe };`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
+(async () => {
+  const pending = context.handlers.voegToe();
+  context.handlers.wijzig("SECOND SYNTHETIC SENTENCE TYPED WHILE SAVING");
+  finishUpload(true);
+  await pending;
+  assert.equal(submitted, "FIRST SYNTHETIC SENTENCE");
+  assert.equal(displayed, "");
+  assert.equal(draft, "");
+  console.log("typing_during_submit", JSON.stringify({ firstSentenceSubmitted: true, secondSentenceSubmitted: false, secondSentenceStillInEditor: false, secondSentenceStillInDraft: false }));
+})().catch((error) => { console.error(error); process.exitCode = 1; });

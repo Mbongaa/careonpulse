@@ -1,0 +1,94 @@
+// Audit-only synthetic flows against the root agent's already-running inert demo server.
+// Never starts a server or contacts a provider. Each flow gets a fresh browser context.
+const { chromium } = require("playwright");
+const fs = require("node:fs");
+const path = require("node:path");
+const assert = require("node:assert/strict");
+const base = "http://localhost:3299";
+const evidence = __dirname;
+const results = {};
+
+(async () => {
+  const browser = await chromium.launch({ channel: process.platform === "win32" ? "chromium" : undefined, args: ["--disable-gpu"] });
+  async function fresh() {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
+    await context.addInitScript(() => { sessionStorage.setItem("careon-auth", "1"); });
+    const page = await context.newPage();
+    await page.goto(`${base}/scribe/demo-consult-1`);
+    await page.getByRole("button", { name: "Volledig afspelen", exact: true }).waitFor();
+    return { context, page };
+  }
+  try {
+    {
+      const { context, page } = await fresh();
+      await page.getByRole("button", { name: "Volledig afspelen", exact: true }).click();
+      const notes = page.getByRole("region", { name: "AI-notities", exact: true }).first();
+      await notes.getByRole("button", { name: "EPD-lijst plakken", exact: true }).waitFor();
+      await notes.getByRole("button", { name: "EPD-lijst plakken", exact: true }).click();
+      await notes.getByLabel("Actuele medicatie & allergieën uit het EPD", { exact: true }).fill("lorazepam 1 mg zo nodig\nlithium 400 mg dagelijks");
+      await notes.getByRole("button", { name: "Lijst overnemen", exact: true }).click();
+      await page.getByRole("alert").filter({ hasText: /gewijzigd|versie|opnieuw/i }).first().waitFor();
+      results.multiItemEpd = await page.evaluate(() => {
+        const state = JSON.parse(localStorage.getItem("careon-scribe-v1"));
+        const clinical = state.staat["demo-consult-1"];
+        return { alerts: [...document.querySelectorAll('[role="alert"]')].map((node) => node.textContent), medications: clinical.staat.medicatie.map(({ naam, dosering, doorBehandelaar }) => ({ naam, dosering, doorBehandelaar })), version: clinical.versie };
+      });
+      assert.ok(results.multiItemEpd.medications.some((row) => row.naam === "lorazepam" && row.doorBehandelaar));
+      assert.ok(!results.multiItemEpd.medications.some((row) => row.naam === "lithium" && row.doorBehandelaar));
+      await page.screenshot({ path: path.join(evidence, "multi-item-epd-partial.png"), fullPage: true });
+      await context.close();
+    }
+    {
+      const { context, page } = await fresh();
+      await page.getByLabel("Gesprekstekst handmatig toevoegen", { exact: true }).fill("SYNTHETIC AUDIT DRAFT — no patient data");
+      await page.getByRole("button", { name: "Uitloggen", exact: true }).click();
+      await page.waitForURL(/\/auth\/v1\/login/);
+      results.logoutDraft = await page.evaluate(() => ({ auth: sessionStorage.getItem("careon-auth"), demoCache: localStorage.getItem("careon-scribe-v1"), clinicalDraft: sessionStorage.getItem("careon-scribe-concept-demo-consult-1") }));
+      assert.equal(results.logoutDraft.auth, null);
+      assert.equal(results.logoutDraft.demoCache, null);
+      assert.ok(results.logoutDraft.clinicalDraft);
+      await page.screenshot({ path: path.join(evidence, "logout-with-draft-residue.png"), fullPage: true });
+      await context.close();
+    }
+    {
+      const { context, page } = await fresh();
+      await page.getByLabel("Gesprekstekst handmatig toevoegen", { exact: true }).fill("SYNTHETIC CANCELLED DRAFT — no patient data");
+      await page.getByRole("button", { name: "Annuleren", exact: true }).click();
+      await page.getByRole("button", { name: "Consult annuleren", exact: true }).click();
+      await page.getByRole("button", { name: "Volledig afspelen", exact: true }).waitFor({ state: "hidden" });
+      results.cancelDraft = await page.evaluate(() => ({ draft: sessionStorage.getItem("careon-scribe-concept-demo-consult-1"), session: JSON.parse(localStorage.getItem("careon-scribe-v1")).sessies.find((row) => row.id === "demo-consult-1").status }));
+      assert.equal(results.cancelDraft.session, "geannuleerd");
+      assert.ok(results.cancelDraft.draft);
+      await page.screenshot({ path: path.join(evidence, "cancelled-consult-draft-residue.png"), fullPage: true });
+      await context.close();
+    }
+    {
+      const { context, page } = await fresh();
+      let release;
+      let intercepted;
+      const seen = new Promise((resolve) => { intercepted = resolve; });
+      await page.route("**/api/careon/scribe/sessies/demo-consult-1/segmenten", async (route) => {
+        intercepted();
+        await new Promise((resolve) => { release = resolve; });
+        await route.fulfill({ status: 501, contentType: "application/json", body: '{"demo":true}' });
+      });
+      const input = page.getByLabel("Gesprekstekst handmatig toevoegen", { exact: true });
+      await input.fill("FIRST SYNTHETIC SENTENCE");
+      await page.getByRole("button", { name: "Regel toevoegen", exact: true }).click();
+      await seen;
+      await input.fill("SECOND SYNTHETIC SENTENCE TYPED WHILE SAVING");
+      release();
+      await page.getByText("FIRST SYNTHETIC SENTENCE", { exact: false }).first().waitFor();
+      results.typingDuringSubmit = await page.evaluate(() => ({ field: document.querySelector("textarea").value, draft: sessionStorage.getItem("careon-scribe-concept-demo-consult-1"), saved: JSON.parse(localStorage.getItem("careon-scribe-v1")).segmenten["demo-consult-1"].map((row) => row.tekst) }));
+      assert.equal(results.typingDuringSubmit.field, "");
+      assert.equal(results.typingDuringSubmit.draft, null);
+      assert.ok(!results.typingDuringSubmit.saved.some((text) => text.includes("SECOND SYNTHETIC")));
+      await page.screenshot({ path: path.join(evidence, "typing-during-submit-lost.png"), fullPage: true });
+      await context.close();
+    }
+  } finally {
+    fs.writeFileSync(path.join(evidence, "browser-output.json"), JSON.stringify(results, null, 2));
+    console.log(JSON.stringify(results, null, 2));
+    await browser.close();
+  }
+})().catch((error) => { console.error(error); process.exitCode = 1; });

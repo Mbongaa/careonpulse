@@ -890,6 +890,402 @@ async function main() {
     globalThis.fetch = originalFetch;
   }
 
+  // ── Careon Scribe (handoff 20 §9) ─────────────────────────────────────────
+  // Bronchecks: de dingen die pas in productie zichtbaar worden — een policy
+  // zonder eigenaarspredicaat, een audioroute die bytes bewaart of logt, een
+  // microfoonpolicy die te breed staat, of een quota-scope die maar op twee
+  // van de drie plekken is geregistreerd.
+  const leesBron = (relatief: string): string => {
+    const volledig = path.resolve(process.cwd(), relatief);
+    return fs.existsSync(volledig) ? fs.readFileSync(volledig, "utf8") : "";
+  };
+
+  const scribeMigratie = leesBron("supabase/migrations/20260907120000_careon_scribe.sql");
+  const scribeTabellen = [
+    "careon_scribe_sessies",
+    "careon_scribe_segmenten",
+    "careon_scribe_staat",
+    "careon_scribe_notities",
+    "careon_scribe_taken",
+    "careon_scribe_instellingen",
+    "careon_scribe_gemachtigden",
+    "careon_scribe_vrijgaven",
+  ];
+  check("scribe-migratie aanwezig", scribeMigratie.length > 0);
+  check(
+    "scribe: RLS aan op alle acht tabellen",
+    scribeTabellen.every((tabel) => scribeMigratie.includes(`alter table public.${tabel} enable row level security`)),
+  );
+  check(
+    "scribe: anon heeft nergens rechten",
+    scribeTabellen.every((tabel) => scribeMigratie.includes(`revoke all on table public.${tabel} from anon`)),
+  );
+  check(
+    "scribe: careon_active_account restrictief op alle acht tabellen",
+    scribeTabellen.every((tabel) => scribeMigratie.includes(`create policy careon_active_account on public.${tabel}`)),
+  );
+  // De inhoudstabellen mogen uitsluitend via het eigen ouderconsult te bereiken
+  // zijn: zonder scribe_eigen_sessie zou een gemachtigde collega andermans
+  // transcript kunnen lezen zolang de org klopt.
+  const inhoudsTabellen = ["careon_scribe_segmenten", "careon_scribe_staat", "careon_scribe_taken"];
+  const inhoudsPolicies = inhoudsTabellen.flatMap((tabel) =>
+    ["select", "insert", "update", "delete"].map((verb) => {
+      const start = scribeMigratie.indexOf(`create policy ${tabel}_${verb} on public.${tabel}`);
+      if (start < 0) return "";
+      return scribeMigratie.slice(start, start + 900);
+    }),
+  );
+  check(
+    "scribe: alle inhoudspolicies bestaan",
+    inhoudsPolicies.every((blok) => blok.length > 0),
+  );
+  check(
+    "scribe: elke inhoudspolicy eist het eigen ouderconsult",
+    inhoudsPolicies.every((blok) => blok.includes("app.scribe_eigen_sessie(")),
+  );
+  check(
+    "scribe: elke inhoudspolicy eist de eigen behandelaar",
+    inhoudsPolicies.every((blok) => blok.includes("behandelaar_id = (select auth.uid())")),
+  );
+  // is_org_member is rolblind; alleen de instellingen-select mag hem gebruiken.
+  const orgMemberPosities = [...scribeMigratie.matchAll(/app\.is_org_member\(/g)].map((treffer) => treffer.index ?? 0);
+  check(
+    "scribe: is_org_member alleen in de instellingen-select",
+    orgMemberPosities.length === 1 &&
+      scribeMigratie
+        .slice(Math.max(0, orgMemberPosities[0] - 300), orgMemberPosities[0])
+        .includes("careon_scribe_instellingen_select"),
+  );
+  // De vorige vorm matchte twee toevallige spellingen ("select app.is_superadmin() or"
+  // en een regeleinde erachter). Elke andere lay-out — haakjes, een regelafbreking
+  // vóór `or`, of de tak in een policy in plaats van in het predicaat — glipte
+  // erdoor. Nu telbaar en body-scoped: mag_scribe_gebruiken kent het predicaat
+  // helemaal niet, mag_scribe_beheren precies één keer en dan BINNEN de
+  // organization_members-EXISTS (C57).
+  const scribeFunctieBodies = [
+    ...scribeMigratie.matchAll(
+      /create or replace function (app\.mag_scribe_\w+)\([^)]*\)[\s\S]*?as \$\$([\s\S]*?)\$\$;/g,
+    ),
+  ];
+  check("scribe: beide rolpredicaten gevonden", scribeFunctieBodies.length === 2);
+  check(
+    "scribe: geen kale superadmin-tak in de predicaten",
+    scribeFunctieBodies.length === 2 &&
+      scribeFunctieBodies.every(([, naam, body]) => {
+        const totaal = (body.match(/app\.is_superadmin\(\)/g) ?? []).length;
+        if (naam === "app.mag_scribe_gebruiken") return totaal === 0;
+        if (totaal !== 1) return false;
+        const exists = body.slice(body.indexOf("exists ("));
+        const lidmaatschap = exists.slice(0, exists.indexOf("\n  );") + 1);
+        return lidmaatschap.includes("public.organization_members") && lidmaatschap.includes("app.is_superadmin()");
+      }),
+  );
+  // Een superadmin-tak in een POLICY zou net zo goed een bypass zijn en werd
+  // tot nu toe helemaal niet getoetst.
+  const scribePolicyDeel = scribeMigratie.slice(scribeMigratie.indexOf("-- ── 10. RLS"));
+  check("scribe: geen superadmin-tak in de policies", !scribePolicyDeel.includes("app.is_superadmin()"));
+  check(
+    "scribe: toestemmingsvenster staat in de sessie-insert-policy",
+    scribeMigratie.includes("consent_bevestigd_op between now() - interval '10 minutes'"),
+  );
+  check(
+    "scribe: instellingen-insert eist beheer",
+    scribeMigratie.includes("create policy careon_scribe_instellingen_insert") &&
+      scribeMigratie.includes("with check (app.mag_scribe_beheren(org_id))"),
+  );
+  check(
+    "scribe: bevriestriggers aanwezig",
+    ["careon_scribe_sessie_bevries", "careon_scribe_segment_bevries", "careon_scribe_notitie_bevries"].every((naam) =>
+      scribeMigratie.includes(naam),
+    ),
+  );
+  check(
+    "scribe: goedgekeurd verslag is niet te verwijderen",
+    scribeMigratie.includes("careon_scribe_notitie_geen_delete"),
+  );
+  check(
+    "scribe: statuskolommen alleen via de RPC-GUC of de service-role",
+    scribeMigratie.includes("current_setting('careon.scribe_rpc', true)") &&
+      scribeMigratie.includes("auth.jwt() ->> 'role', '') = 'service_role'"),
+  );
+  check(
+    "scribe: de drie RPC's bestaan",
+    ["careon_scribe_voeg_segmenten_toe", "careon_scribe_status_zetten", "careon_scribe_notitie_goedkeuren"].every(
+      (naam) => scribeMigratie.includes(`create or replace function public.${naam}`),
+    ),
+  );
+  check(
+    "scribe: opschoning is voorbehouden aan de service-role",
+    scribeMigratie.includes("create or replace function public.careon_prune_scribe") &&
+      scribeMigratie.includes("scribe: opschonen is voorbehouden aan de service-role"),
+  );
+  check(
+    "scribe: quota-scope op alle drie de plekken",
+    scribeMigratie.includes("careon_assistant_rate_limits_scope_valid") &&
+      /check \(scope in \([^)]*'scribe'\)\)/.test(scribeMigratie) &&
+      /p_scope not in \([^)]*'scribe'\)/.test(scribeMigratie),
+  );
+  check("scribe: geen Storage-bucket", !scribeMigratie.includes("storage.buckets"));
+
+  // Routes.
+  const scribeRouteMap = path.resolve(process.cwd(), "src/app/api/careon/scribe");
+  const scribeRoutes: string[] = [];
+  const loopRoutes = (map: string) => {
+    if (!fs.existsSync(map)) return;
+    for (const item of fs.readdirSync(map, { withFileTypes: true })) {
+      const volledig = path.join(map, item.name);
+      if (item.isDirectory()) loopRoutes(volledig);
+      else if (item.name === "route.ts") scribeRoutes.push(volledig);
+    }
+  };
+  loopRoutes(scribeRouteMap);
+  const routeBronnen = new Map(scribeRoutes.map((bestand) => [bestand, fs.readFileSync(bestand, "utf8")]));
+  check(`scribe: alle vijftien routebestanden bestaan (gevonden ${scribeRoutes.length})`, scribeRoutes.length === 15);
+  check(
+    "scribe: elke route draait op node",
+    [...routeBronnen.values()].every((bron) => bron.includes('export const runtime = "nodejs"')),
+  );
+  check(
+    "scribe: elke route gaat door de machtigingscontrole",
+    [...routeBronnen.values()].every((bron) => bron.includes("eisScribeMachtiging(")),
+  );
+  check(
+    "scribe: geen kale request.json() in een route",
+    [...routeBronnen.values()].every((bron) => !bron.includes("request.json()")),
+  );
+  // audio (binair, eigen begrensde lezer), export, logboek en analyse (GET/POST
+  // zonder lichaam) lezen geen JSON; al het andere moet begrensd lezen.
+  const zonderJsonLichaam = ["/audio/route.ts", "/export/route.ts", "/analyse/route.ts", "/logboek/route.ts"];
+  check(
+    "scribe: JSON-routes lezen begrensd",
+    [...routeBronnen.entries()].every(
+      ([bestand, bron]) =>
+        zonderJsonLichaam.some((staart) => bestand.replace(/\\/g, "/").endsWith(staart)) ||
+        bron.includes("readJsonBodyLimited"),
+    ),
+  );
+  check(
+    "scribe: geen rechtstreekse quota-fetch",
+    [...routeBronnen.values()].every((bron) => !bron.includes("careon_consume_assistant_quota")),
+  );
+
+  const audioRoute = leesBron("src/app/api/careon/scribe/sessies/[sessieId]/audio/route.ts");
+  check("scribe-audioroute bestaat", audioRoute.length > 0);
+  check("scribe-audioroute heeft een eigen tijdslimiet", audioRoute.includes("export const maxDuration = 60"));
+  check("scribe-audioroute bewaart geen audio in Storage", !audioRoute.includes("storage/v1"));
+  check(
+    "scribe-audioroute schrijft geen bytes naar de database",
+    !audioRoute.includes("audio_bytes") && !audioRoute.includes("base64"),
+  );
+  check("scribe-audioroute logt geen inhoud", !/console\.[a-z]+\([^)]*(audio|tekst|segmenten)/.test(audioRoute));
+  check(
+    "scribe-audioroute weigert zonder provider met 503",
+    audioRoute.includes("Transcriptie is nog niet geactiveerd voor dit platform.") &&
+      audioRoute.includes("status: 503"),
+  );
+  check("scribe-audioroute kent een MIME-allowlist met 415", audioRoute.includes("status: 415"));
+  check(
+    "scribe-audioroute rekent quota af vóór het lichaam",
+    audioRoute.indexOf("eisScribeQuota(") > 0 &&
+      audioRoute.indexOf("eisScribeQuota(") < audioRoute.indexOf("await leesAudioBegrensd(request"),
+  );
+  check(
+    "scribe-audioroute legt een plaatshouder vast bij providerfouten",
+    audioRoute.includes('bron: "systeem"') && audioRoute.includes("p_ontbrekend: true"),
+  );
+
+  const scribeDetailRoute = leesBron("src/app/api/careon/scribe/sessies/[sessieId]/route.ts");
+  check("scribe: transcript lezen wordt geauditeerd", scribeDetailRoute.includes('action: "scribe.transcript.read"'));
+  check(
+    "scribe: verwijderen wordt geauditeerd met rol",
+    scribeDetailRoute.includes('action: "scribe.sessie.verwijderd"') &&
+      scribeDetailRoute.includes("rol: verwijderd.rol") &&
+      scribeDetailRoute.includes("verwijderd.id !== sessieId"),
+  );
+  const scribeInstellingenRoute = leesBron("src/app/api/careon/scribe/instellingen/route.ts");
+  check(
+    "scribe: instellingen wijzigen wordt geauditeerd",
+    scribeInstellingenRoute.includes('action: "scribe.instellingen.gewijzigd"'),
+  );
+  check(
+    "scribe: providerstatus lekt geen sleutels",
+    !scribeInstellingenRoute.includes("OPENAI_API_KEY") && !scribeInstellingenRoute.includes("SERVICE_ACCOUNT"),
+  );
+
+  const scribeAgent = leesBron("src/lib/careon-scribe/agent.server.ts");
+  const analyseBlok = scribeAgent.slice(
+    scribeAgent.indexOf("export async function analyseerSegmenten"),
+    scribeAgent.indexOf("// ── Verslag"),
+  );
+  const verslagBlok = scribeAgent.slice(scribeAgent.indexOf("export async function genereerVerslag"));
+  check(
+    "scribe-agent roept geen provider aan zonder scribeLive()",
+    scribeAgent.includes("return scribeLive() && isAssistantLive();") &&
+      analyseBlok.indexOf("scribeAgentToegestaan(") > 0 &&
+      analyseBlok.indexOf("scribeAgentToegestaan(") < analyseBlok.indexOf("roepModelAan(") &&
+      verslagBlok.indexOf("scribeAgentToegestaan(") > 0 &&
+      verslagBlok.indexOf("scribeAgentToegestaan(") < verslagBlok.indexOf("roepModelAan("),
+  );
+  // N19 — de organisatiepoort is een CONJUNCT naast de platformvlag: zonder
+  // `instellingen.aiAnalyseAan` verlaat er geen fragment het platform, ook niet
+  // wanneer CAREON_SCRIBE_LIVE aan staat.
+  check(
+    "scribe-agent eist ook de organisatiekeuze (N19)",
+    scribeAgent.includes("return scribeAgentLive() && context.aiToegestaan;") &&
+      scribeAgent.includes("aiToegestaan: boolean"),
+  );
+  const scribeServer = leesBron("src/lib/careon-scribe/scribe.server.ts");
+  check(
+    "scribe: de analyseronde geeft de organisatiekeuze door",
+    scribeServer.includes("aiToegestaan: instellingen.aiAnalyseAan"),
+  );
+  check(
+    "scribe: de verslagroute geeft de organisatiekeuze door",
+    leesBron("src/app/api/careon/scribe/sessies/[sessieId]/notitie/route.ts").includes(
+      "aiToegestaan: instellingen.aiAnalyseAan",
+    ),
+  );
+  check(
+    "scribe: de audioroute eist de organisatiekeuze vóór de provider",
+    audioRoute.indexOf("instellingen.transcriptieAan") > 0 &&
+      audioRoute.indexOf("instellingen.transcriptieAan") <
+        audioRoute.indexOf("const provider = transcriptieProvider()"),
+  );
+  // C6/C8/C30 — `not.eq` matcht geen NULL en elk vers segment heeft
+  // correctie_bron IS NULL; die vorm mag nergens in de scribe-code terugkomen.
+  check(
+    "scribe: AI-correcties gebruiken een NULL-veilig filter",
+    scribeServer.includes('params.set("or", "(correctie_bron.is.null,correctie_bron.eq.ai)")'),
+  );
+  // Commentaar eerst weg: de uitleg bij bouwCorrectieFilter noemt de foute vorm
+  // met opzet, en die zin mag de assertie niet laten struikelen.
+  const zonderCommentaar = (bron: string) => bron.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  check(
+    "scribe: nergens een not.eq-filter in de scribe-code",
+    [scribeServer, ...routeBronnen.values()].every((bron) => !zonderCommentaar(bron).includes("not.eq.")),
+  );
+  // C7 — de zwaarste route van de module draait tot zes analyserondes; zonder
+  // eigen tijdslimiet en zonder klokbudget wordt zij midden in de reeks afgekapt.
+  check(
+    "scribe: de afrondroute draagt een eigen tijdslimiet en klokbudget",
+    scribeDetailRoute.includes("export const maxDuration = 60") &&
+      scribeDetailRoute.includes("ANALYSE_BUDGET_MS") &&
+      scribeDetailRoute.includes("Date.now() < uiterlijk"),
+  );
+  check(
+    "scribe: elke route die de agent aanroept rekent quota af",
+    [...routeBronnen.values()].every(
+      (bron) =>
+        !(bron.includes("voerScribeAnalyseUit(") || bron.includes("genereerVerslag(")) ||
+        (bron.includes("eisScribeQuota(") && bron.includes("export const maxDuration =")),
+    ),
+  );
+  // C12/C34 — de beheerdersverwijdering telt de goedgekeurde verslagen zelf,
+  // metadata-only, en faalt gesloten.
+  check(
+    "scribe: de beheerdersverwijdering telt verslagen metadata-only",
+    scribeDetailRoute.includes("telGoedgekeurdeNotities(") && scribeDetailRoute.includes("onbekend"),
+  );
+  check(
+    "scribe: de verslagtelling leest nooit sectie-inhoud",
+    scribeServer.includes("export async function telGoedgekeurdeNotities") &&
+      /telGoedgekeurdeNotities[\s\S]{0,600}select: "id"/.test(scribeServer),
+  );
+  // C3/C10 — de beheerderslezing draagt een kolomlijst zonder de twee velden
+  // die S12/V3 belooft weg te laten, en de policy geeft hem niets meer.
+  check(
+    "scribe: de beheerderslezing laat referentie en consulttype weg",
+    scribeServer.includes("export const SESSIE_METADATA_SELECT") &&
+      !/SESSIE_METADATA_SELECT =[\s\S]{0,600}patient_referentie/.test(scribeServer) &&
+      !/SESSIE_METADATA_SELECT =[\s\S]{0,600}consult_type/.test(scribeServer),
+  );
+  check(
+    "scribe: de sessie-selectpolicy kent geen beheerderstak meer",
+    /create policy careon_scribe_sessies_select[\s\S]{0,600}?\);/.test(scribeMigratie) &&
+      !/create policy careon_scribe_sessies_select[\s\S]{0,600}?app\.mag_scribe_beheren/.test(scribeMigratie),
+  );
+  // N21 — de activatievoorwaarden staan in de database, niet alleen in de route.
+  check(
+    "scribe: scribe_ingeschakeld eist de activatievoorwaarden",
+    /scribe_ingeschakeld[\s\S]{0,900}dpiaVastgesteldOp[\s\S]{0,300}verwerkersovereenkomstBevestigd/.test(
+      scribeMigratie,
+    ),
+  );
+  check(
+    "scribe: PUT /instellingen weigert activatie zonder bewijs",
+    scribeInstellingenRoute.includes("activatieVoorwaardenOntbrekend(body.state)"),
+  );
+  // N20 — het logboek is metadata en blijft binnen de eigen organisatie.
+  const logboekRoute = leesBron("src/app/api/careon/scribe/logboek/route.ts");
+  check("scribe-logboek bestaat", logboekRoute.length > 0);
+  check(
+    "scribe-logboek staat achter requireOrgAdmin en filtert op de eigen org",
+    logboekRoute.includes("requireOrgAdmin()") &&
+      /org_id: `eq\.\$\{orgId\}`/.test(logboekRoute) &&
+      logboekRoute.includes('"like.scribe.*"'),
+  );
+  check("scribe-logboek geeft alleen scalaire details terug", logboekRoute.includes("function scalaireDetails"));
+  check("scribe-agent slaat niets op bij de provider", scribeAgent.includes("store: false"));
+  check("scribe-agent draagt zijn eigen promptversie", scribeAgent.includes('SCRIBE_PROMPT_VERSION = "careon-scribe-'));
+  check(
+    "scribe-telemetrie draagt geen inhoud",
+    scribeAgent.includes('feature: "scribe"') && !/metadata: \{[^}]*tekst/.test(scribeAgent),
+  );
+  const assistantRuntime = leesBron("src/lib/careon-assistant/runtime.server.ts");
+  check("AssistantEvent draagt promptVersion", assistantRuntime.includes("promptVersion?: string"));
+  check(
+    "writeAssistantEvent schrijft de modulepromptversie",
+    assistantRuntime.includes("prompt_version: event.promptVersion ?? ASSISTANT_PROMPT_VERSION"),
+  );
+  check(
+    "scribe-quota lopen via het fail-closed assistentpad",
+    assistantRuntime.includes("export function enforceScribeRateLimit") &&
+      assistantRuntime.includes("export function enforceScribeOrgRateLimit"),
+  );
+
+  // Schil, headers en caches (bestanden van de UI-kant; blijft een harde eis).
+  const nextConfig = leesBron("next.config.mjs");
+  check("scribe: microfoon uitsluitend onder /scribe", nextConfig.includes('source: "/scribe/:path*"'));
+  check(
+    "scribe: microfoonpolicy staat alleen in de scribe-entry",
+    (nextConfig.match(/microphone=\(self\)/g) ?? []).length === 1,
+  );
+  // De vorige vorm plakte een NIET-BESTAAND bestand (src/lib/security-headers.ts,
+  // leesBron geeft daar "" terug) voor de config en matchte daarna élk
+  // voorkomen van `microphone=()` — ook het woord in het commentaar erboven.
+  // Nu: commentaar eruit, en de algemene entry op zijn EXACTE waarde pinnen (C53).
+  const nextConfigCode = nextConfig.replace(/\/\/.*$/gm, "");
+  check(
+    "scribe: de algemene headers houden microphone=()",
+    /\{\s*key:\s*"Permissions-Policy",\s*value:\s*"camera=\(\), microphone=\(\), geolocation=\(\)"\s*\}/.test(
+      nextConfigCode,
+    ),
+  );
+  const proxyBron = leesBron("src/proxy.ts");
+  check("scribe: /scribe vereist authenticatie in de proxy", proxyBron.includes('path.startsWith("/scribe")'));
+  const scribeLayout = leesBron("src/app/(main)/scribe/layout.tsx");
+  check(
+    "scribe-schil gaat door CareonAuthGuard én requireScribePage",
+    scribeLayout.includes("<CareonAuthGuard>") && scribeLayout.includes("requireScribePage()"),
+  );
+  check(
+    "scribe-paginagate leidt niet-gemachtigden terug naar de launcher",
+    leesBron("src/lib/supabase/session.server.ts").includes("/modules?scribe=niet-gemachtigd"),
+  );
+  check(
+    "scribe: lokale consultstaat wordt bij eigenaarswissel gewist",
+    leesBron("src/lib/careon-tenant/cache-owner.client.ts").includes("clearScribeState()"),
+  );
+  check(
+    "scribe: uitloggen wist de lokale consultstaat",
+    leesBron("src/lib/careon-auth.ts").includes("clearScribeState()"),
+  );
+  const launcher = leesBron("src/app/(main)/modules/_components/module-launcher.tsx");
+  check(
+    "scribe-tegel is een documentlading",
+    launcher.includes("hardeNavigatie === true") && launcher.includes("<a href={mod.href}"),
+  );
+
   console.log(`Runtime hardening verification: ${passes} passed, ${failures} failed.`);
   process.exit(failures === 0 ? 0 : 1);
 }

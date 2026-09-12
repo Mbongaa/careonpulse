@@ -18,7 +18,14 @@ export const metadata: Metadata = {
   description: "Kies een module binnen de Careon Pulse-omgeving.",
 };
 
-export default async function Page() {
+export default async function Page({
+  searchParams,
+}: Readonly<{ searchParams: Promise<{ scribe?: string | string[] }> }>) {
+  // requireScribePage() stuurt een niet-gemachtigde gebruiker terug met
+  // ?scribe=niet-gemachtigd. Bewust géén extra DB-query hier: de melding is
+  // uitleg, geen autorisatiebeslissing (handoff 20 §2.1/§2.3).
+  const { scribe } = await searchParams;
+  const scribeMelding = (Array.isArray(scribe) ? scribe[0] : scribe) === "niet-gemachtigd";
   // Platformbeheerders zonder organisatie horen op het superadmin-dashboard;
   // de launcher is organisatiegebonden. Superadmins mét lidmaatschap mogen de
   // launcher bewust bezoeken (login stuurt ze al direct naar /admin).
@@ -39,7 +46,12 @@ export default async function Page() {
 
   return (
     <CareonAuthGuard>
-      <ModuleLauncher modules={modules} financieelZichtbaar={financieelZichtbaar} orgNaam={orgNaam} />
+      <ModuleLauncher
+        modules={modules}
+        financieelZichtbaar={financieelZichtbaar}
+        orgNaam={orgNaam}
+        scribeMelding={scribeMelding}
+      />
     </CareonAuthGuard>
   );
 }

@@ -180,6 +180,55 @@ export async function requireFacturatiePage(): Promise<CareonSessionResult> {
 }
 
 /**
+ * Scribe-pagina's (server components): hetzelfde patroon als
+ * requireFacturatiePage(), met één verschil — Careon Scribe kent naast
+ * beheerders ook GEMACHTIGDE behandelaren (handoff 20 §2.2/§2.3, S12), dus de
+ * gate doet één extra query op careon_scribe_gemachtigden. Demo/misconfigured
+ * vallen door naar de client, die dan op het lokale demo-pad draait (B12).
+ * Een superadmin zónder org-lidmaatschap valt buiten de module (elke dataroute
+ * eist een organisatie) en hoort op /admin; wie wél lid is maar niet gemachtigd
+ * is, gaat terug naar de launcher met een melding.
+ */
+export async function requireScribePage(): Promise<CareonSessionResult> {
+  const result = await getCareonSession();
+  if (result.status === "ok") {
+    const { magScribeGebruiken } = await import("@/lib/careon-scribe-rol");
+    const { isScribeGemachtigd } = await import("@/lib/careon-scribe/scribe.server");
+    const gemachtigd = await isScribeGemachtigd(result.session);
+    if (!magScribeGebruiken({ ...result.session, gemachtigd })) {
+      redirect(result.session.isSuperadmin && !result.session.orgId ? "/admin" : "/modules?scribe=niet-gemachtigd");
+    }
+  }
+  return result;
+}
+
+/**
+ * Scribe-BEHEERpagina's (instellingen, logboek): laag 2 van de vier
+ * afschermingslagen (§7.5). requireScribePage() is de gemachtigden-gate, niet
+ * de beheerdersgate: zonder deze functie kreeg elke gemachtigde behandelaar die
+ * /scribe/instellingen intypte het volledige beheerscherm te zien — met een
+ * gemachtigdenkaart die vervolgens 403 gaf. Geen datalek (elke schrijfroute
+ * eist requireOrgAdmin én app.mag_scribe_beheren), wel een half werkend scherm
+ * waar een duidelijke weigering hoort.
+ *
+ * Bewust hetzelfde patroon als requireScribePage():
+ *   * het rolpredicaat magScribeBeheren(), nooit een eigen rolvergelijking;
+ *   * demo/misconfigured vallen door naar de client (B12) — Playwright draait
+ *     zonder Supabase en laadt deze pagina's;
+ *   * terug naar /scribe, want de behandelaar hoort wél in de module.
+ */
+export async function requireScribeBeheerPage(): Promise<CareonSessionResult> {
+  const result = await getCareonSession();
+  if (result.status === "ok") {
+    const { magScribeBeheren } = await import("@/lib/careon-scribe-rol");
+    if (!magScribeBeheren(result.session)) {
+      redirect(result.session.isSuperadmin && !result.session.orgId ? "/admin" : "/scribe");
+    }
+  }
+  return result;
+}
+
+/**
  * Organisatiebeheer-routes: org_admin binnen de eigen organisatie (een
  * superadmin mét org-lidmaatschap telt ook). Gewone leden krijgen 403 —
  * beheer is een rol, geen lidmaatschapsrecht. Cross-org beheer blijft

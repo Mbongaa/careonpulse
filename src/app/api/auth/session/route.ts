@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { magFacturatieZien } from "@/lib/careon-facturatie-rol";
 import { magFinancieelZien } from "@/lib/careon-financieel-rol";
+import { magScribeBeheren } from "@/lib/careon-scribe-rol";
 import { getCareonSession } from "@/lib/supabase/session.server";
 
 // Sessie-informatie voor de UI (accountweergave, admin-toegang). Lekt niets:
@@ -40,6 +41,8 @@ export async function GET() {
       isSuperadmin: session.isSuperadmin,
       financieelZichtbaar: magFinancieelZien(session),
       facturatieZichtbaar: magFacturatieZien(session),
+      // Tegelzichtbaarheid, geen autorisatie (handoff 20 §2.2).
+      scribeZichtbaar: magScribeBeheren(session) || session.orgRole === "member",
     },
     { headers: { "Cache-Control": "no-store" } },
   );

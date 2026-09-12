@@ -1,0 +1,131 @@
+// Audit-only reproductions. No network, browser, microphone or application edits.
+// Run from careon-dashboard: node docs/platform/audits/scribe-2026-09-10/ui/recorder-lifecycle.cjs.txt
+const fs = require("node:fs");
+const path = require("node:path");
+const ts = require("typescript");
+const vm = require("node:vm");
+const assert = require("node:assert/strict");
+const root = process.cwd();
+const source = fs.readFileSync(path.join(root, "src/lib/careon-scribe/opname.client.ts"), "utf8");
+const compiled = ts.transpileModule(source, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+
+function harness(options = {}) {
+  const listeners = new Map();
+  const cleanups = [];
+  const uploads = [];
+  const errors = [];
+  const processors = [];
+  const tracks = [];
+  const states = [];
+  const stream = () => {
+    const track = { stopped: false, stop() { this.stopped = true; } };
+    tracks.push(track);
+    return { getTracks: () => [track] };
+  };
+  class AudioContext {
+    constructor() { this.sampleRate = 16000; this.state = "running"; }
+    createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+    createScriptProcessor() {
+      const processor = { connect() {}, disconnect() {} };
+      processors.push(processor);
+      return processor;
+    }
+    createGain() { return { gain: { value: 1 }, connect() {} }; }
+    close() { this.state = "closed"; return Promise.resolve(); }
+  }
+  const react = {
+    useCallback: (callback) => callback,
+    useRef: (value) => ({ current: value }),
+    useState: (initial) => {
+      const index = states.length;
+      states.push(initial);
+      return [initial, (value) => { states[index] = typeof value === "function" ? value(states[index]) : value; }];
+    },
+    useEffect: (effect) => { const cleanup = effect(); if (cleanup) cleanups.push(cleanup); },
+  };
+  const context = {
+    exports: {},
+    require: (name) => name === "react" ? react : {
+      stuurAudioFragment: async (id, blob, input) => {
+        uploads.push(input);
+        return options.failUpload
+          ? { ok: false, status: 400, fout: "synthetic upload failure" }
+          : { ok: true, segmenten: [], segmentTeller: uploads.length };
+      },
+      voegSegmentToe: async () => options.failGap
+        ? { ok: false, status: 0, fout: "synthetic gap persistence failure" }
+        : { ok: true, segmenten: [] },
+    },
+    AudioContext, Blob, Float32Array, ArrayBuffer, DataView, Date, Math, Number, Promise,
+    crypto: require("node:crypto").webcrypto,
+    navigator: {
+      onLine: true,
+      mediaDevices: { getUserMedia: options.getUserMedia ? () => options.getUserMedia(stream) : async () => stream() },
+    },
+    window: {
+      setTimeout,
+      addEventListener: (type, listener) => listeners.set(type, listener),
+      removeEventListener: (type) => listeners.delete(type),
+    },
+  };
+  vm.runInNewContext(compiled, context);
+  const hook = context.exports.useScribeOpname({
+    sessieId: "synthetic-consult", onSegmenten() {}, onGat() {}, onFout: (error) => errors.push(error),
+  });
+  const feed = (blocks) => {
+    for (let index = 0; index < blocks; index += 1) {
+      processors.at(-1).onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array(4096).fill(0.1) } });
+    }
+  };
+  return { hook, listeners, cleanups, uploads, errors, tracks, states, feed };
+}
+
+const tick = async () => { for (let index = 0; index < 20; index += 1) await Promise.resolve(); };
+
+(async () => {
+  let finishPermission;
+  const pending = harness({ getUserMedia: (stream) => new Promise((resolve) => {
+    finishPermission = () => resolve(stream());
+  }) });
+  const starting = pending.hook.start();
+  pending.cleanups.forEach((cleanup) => cleanup());
+  finishPermission();
+  await starting;
+  assert.equal(pending.tracks[0].stopped, false);
+  console.log("pending_permission_unmount", JSON.stringify({ trackStopped: pending.tracks[0].stopped, expected: true }));
+
+  const paused = harness();
+  await paused.hook.start();
+  paused.feed(4);
+  paused.hook.pauzeer();
+  let prevented = false;
+  paused.listeners.get("beforeunload")({ preventDefault() { prevented = true; } });
+  assert.equal(prevented, false);
+  console.log("paused_unsent_buffer", JSON.stringify({ bufferedSeconds: 1.024, unloadWarning: prevented, expected: true }));
+  await paused.hook.stop();
+
+  const restarted = harness();
+  await restarted.hook.start();
+  restarted.feed(32);
+  await restarted.hook.stop();
+  await tick();
+  await restarted.hook.start();
+  restarted.feed(32);
+  await restarted.hook.stop();
+  await tick();
+  const offsets = restarted.uploads.map((input) => input.offsetMs);
+  assert.equal(offsets.filter((offset) => offset === 0).length, 2);
+  console.log("restart_offsets", JSON.stringify(restarted.uploads.map(({ offsetMs, duurMs }) => ({ offsetMs, duurMs }))));
+
+  const gaps = harness({ failUpload: true, failGap: true });
+  await gaps.hook.start();
+  gaps.feed(32);
+  await tick();
+  await gaps.hook.stop();
+  await tick();
+  assert.equal(gaps.states[2], 0);
+  assert.ok(gaps.states[4] > 0);
+  console.log("unpersisted_gaps_allow_completion", JSON.stringify({ status: gaps.states[0], queueLength: gaps.states[2], localGaps: gaps.states[4], computedQueueEmpty: gaps.states[2] === 0 }));
+})().catch((error) => { console.error(error); process.exitCode = 1; });

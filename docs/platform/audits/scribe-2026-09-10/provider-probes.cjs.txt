@@ -1,0 +1,22 @@
+// Audit-only pure configuration/request-shape probes. Run from careon-dashboard.
+const path = require("node:path");
+require("ts-node").register({ project: path.resolve("tsconfig.scripts.json"), transpileOnly: true });
+require("tsconfig-paths/register");
+global.fetch = async () => { throw new Error("Network forbidden in provider-shape audit"); };
+process.env.CAREON_SCRIBE_LIVE = "0";
+process.env.CAREON_ASSISTANT_LIVE = "0";
+const t = require(path.resolve("src/lib/careon-scribe/transcriptie.server"));
+const { isPatientReferentie } = require(path.resolve("src/lib/careon-scribe/types"));
+const request = { audio: new Uint8Array([0, 1]), mime: "audio/wav", taal: "en", contextTekst: "" };
+process.env.CAREON_SCRIBE_VERTEX_PROJECT_ID = "synthetic-audit";
+process.env.CAREON_SCRIBE_GEMINI_MODEL = "configured-model";
+process.env.CAREON_SCRIBE_VERTEX_SERVICE_ACCOUNT_JSON = "synthetic-not-a-secret";
+process.env.CAREON_SCRIBE_VERTEX_LOCATION = "us-central1";
+const configuration = t.vertexConfiguratie();
+console.log(JSON.stringify({
+  diarizationFields: t.bouwOpenAITranscriptieVerzoek(request, "gpt-4o-transcribe-diarize").velden,
+  vertexRegionAccepted: configuration.locatie,
+  vertexUrl: t.bouwVertexTranscriptieVerzoek(request, configuration).url,
+  nameShapedReferenceAccepted: isPatientReferentie("Jane Example"),
+  externalNetworkCalls: 0,
+}, null, 2));

@@ -1,0 +1,6 @@
+2026-09-10 final source verification
+All 105 final source hashes match after CI, build, full browser and targeted repeat verification.
+Compared with the build snapshot, only the documented EPD test waiting assertion differs; application/configuration files are unchanged.
+Original migration SHA256: ca771ede84b8720916d1fd8acf75944286079e36fa886540baf6b796e9fad7a3 (unchanged).
+Full browser: 161 passed directly, 1 passed on retry; exit 0. Corrected EPD test: 5/5 passed with retries disabled.
+Final verify:ci exit 0; npm audit: zero vulnerabilities. Temporary build TypeScript include paths restored.

@@ -1,0 +1,44 @@
+{
+  "multiItemEpd": {
+    "alerts": [
+      "De consultstaat is intussen bijgewerkt. Bekijk de nieuwe stand en probeer opnieuw.",
+      "Mogelijke interactie sertraline × tramadol: verhoogd risico op serotonerge toxiciteit (serotoninesyndroom). Controleer vóór voorschrijven.§16§17§24§27Mogelijke interactie lorazepam × tramadol: versterkte sedatie en ademhalingsdepressie. Controleer vóór voorschrijven.§17§24§27"
+    ],
+    "medications": [
+      {
+        "naam": "sertraline",
+        "dosering": "50 mg"
+      },
+      {
+        "naam": "tramadol",
+        "dosering": null
+      },
+      {
+        "naam": "sertraline",
+        "dosering": "100 mg"
+      },
+      {
+        "naam": "lorazepam",
+        "dosering": "1 mg",
+        "doorBehandelaar": true
+      }
+    ],
+    "version": 3
+  },
+  "logoutDraft": {
+    "auth": null,
+    "demoCache": null,
+    "clinicalDraft": "SYNTHETIC AUDIT DRAFT — no patient data"
+  },
+  "cancelDraft": {
+    "draft": "SYNTHETIC CANCELLED DRAFT — no patient data",
+    "session": "geannuleerd"
+  },
+  "typingDuringSubmit": {
+    "field": "",
+    "draft": null,
+    "saved": [
+      "FIRST SYNTHETIC SENTENCE"
+    ]
+  }
+}

@@ -5,6 +5,8 @@ import { clearFacturatieState } from "./careon-facturatie/storage.client";
 import { clearHrState } from "./careon-hr/storage.client";
 import { clearMiddelenState } from "./careon-middelen/storage.client";
 import { clearAuxFacts, clearProductionState } from "./careon-production/storage.client";
+import { bewaakScribeEigenaar, clearScribeDrafts } from "./careon-scribe/drafts.client";
+import { clearScribeState } from "./careon-scribe/storage.client";
 import { bewaakCacheEigenaar, CAREON_DEMO_EIGENAAR, careonCacheEigenaar } from "./careon-tenant/cache-owner.client";
 import { flushOnbewaardeRegistraties, type OnbewaardeRegistraties } from "./careon-tenant/pending.client";
 import { isSupabaseAuthConfigured } from "./supabase/config";
@@ -108,6 +110,10 @@ export async function careonPostLoginRoute(): Promise<string> {
       demo?: boolean;
     } | null;
     if (response.ok) {
+      bewaakScribeEigenaar(
+        typeof payload?.orgId === "string" ? payload.orgId : null,
+        typeof payload?.email === "string" ? payload.email : "",
+      );
       bewaakCacheEigenaar(
         careonCacheEigenaar({
           authed: true,
@@ -158,6 +164,11 @@ export async function careonLogoutMetSignaal(): Promise<CareonLogoutResultaat> {
   // Facturatie: centraal werk staat al via autosave in Supabase; de lokale
   // sleutel draagt alleen demo-staat en verdwijnt — zelfde lijn als productie.
   clearFacturatieState();
+  // Careon Scribe: onvoorwaardelijk. Een consulttranscript is
+  // bijzondere-categoriedata en mag geen browsersessie overleven, ook niet
+  // wanneer het nog niet centraal staat (handoff 20 §7.7).
+  clearScribeDrafts();
+  clearScribeState();
   // HR en middelen zijn handmatige registraties zonder tweede bron: een cache
   // die nog niet centraal staat wissen betekent definitief verlies. Die blijft
   // staan tot dezelfde eigenaar hem alsnog kan wegschrijven; een ándere

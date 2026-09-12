@@ -86,9 +86,9 @@ test.describe("auth", () => {
     // statische merkteken.
     await expect(page.locator('[data-careon-mark="loop"]')).toHaveCount(1);
     await expect(page.locator("header").locator('[data-careon-mark="once"]')).toHaveCount(1);
-    await expect(
-      page.getByRole("link", { name: /Careon Pulse Directie/ }).locator('[data-careon-mark="none"]'),
-    ).toHaveCount(1);
+    await expect(page.getByRole("link", { name: /Careon Dashboard/ }).locator('[data-careon-mark="none"]')).toHaveCount(
+      1,
+    );
     await expect(page.getByRole("link", { name: /Facturatie/ }).locator("[data-careon-mark]")).toHaveCount(0);
 
     // YAAZ: met NEXT_PUBLIC_YAAZ_URL in de build is de tegel een externe link
@@ -109,7 +109,17 @@ test.describe("auth", () => {
     // Facturatie-tegel (handoff 15): zichtbaar in demo (B12).
     await expect(page.getByRole("link", { name: /Facturatie/ })).toBeVisible();
 
-    await page.getByRole("link", { name: /Careon Pulse Directie/ }).click();
+    for (const name of ["Careon Academie/Academy", "Careon Kwaliteitshandboek"]) {
+      const kaart = page.locator('[aria-disabled="true"]').filter({ hasText: name });
+      await expect(kaart.getByText(name, { exact: true })).toBeVisible();
+      await expect(kaart.getByText("Binnenkort beschikbaar")).toBeVisible();
+      await expect(page.getByRole("link", { name, exact: false })).toHaveCount(0);
+    }
+    // Careon AI is bereikbaar via de tegel; de module bewaakt zelf haar
+    // machtigingen en de organisatie-instellingen voor externe verwerking.
+    await expect(page.getByRole("link", { name: /Careon AI/ })).toHaveAttribute("href", "/scribe");
+
+    await page.getByRole("link", { name: /Careon Dashboard/ }).click();
     await page.waitForURL("**/dashboard/directiecockpit");
     await expect(page.getByRole("heading", { name: "Directiecockpit" })).toBeVisible();
 
@@ -118,6 +128,10 @@ test.describe("auth", () => {
       window.localStorage.setItem("careon-middelen-v2", '{"sensitive":true}');
       window.localStorage.setItem("careon-hr-v2", '{"sensitive":true}');
       window.localStorage.setItem("careon-facturatie-v1", '{"sensitive":true}');
+      // Careon AI (handoff 20 §7.7): een consulttranscript is
+      // bijzondere-categoriedata en mag geen browsersessie overleven.
+      window.localStorage.setItem("careon-scribe-v1", '{"sensitive":true}');
+      window.sessionStorage.setItem("careon-scribe-concept-synthetic", "synthetic clinical draft");
       window.sessionStorage.setItem("careon-assistant-session-v1", "session-test");
       const cache = await window.caches.open("careon-sensitive-test");
       await cache.put("/dashboard/sensitive", new Response("sensitive"));
@@ -132,6 +146,8 @@ test.describe("auth", () => {
       middelen: window.localStorage.getItem("careon-middelen-v2"),
       hr: window.localStorage.getItem("careon-hr-v2"),
       facturatie: window.localStorage.getItem("careon-facturatie-v1"),
+      scribe: window.localStorage.getItem("careon-scribe-v1"),
+      scribeDraft: window.sessionStorage.getItem("careon-scribe-concept-synthetic"),
       sensitiveCache: (await window.caches.keys()).includes("careon-sensitive-test"),
     }));
     expect(cleared).toEqual({
@@ -141,6 +157,8 @@ test.describe("auth", () => {
       middelen: null,
       hr: null,
       facturatie: null,
+      scribe: null,
+      scribeDraft: null,
       sensitiveCache: false,
     });
   });
@@ -853,5 +871,612 @@ test.describe("facturatie (demo-pad, handoff 15)", () => {
     // Medewerkers-unie (B11): overnemen maakt een los contact aan.
     await page.getByRole("button", { name: "Overnemen als contact" }).first().click();
     await expect(page.getByText("al contact").first()).toBeVisible();
+  });
+});
+
+test.describe("scribe (demo-pad, handoff 20)", () => {
+  test.beforeEach(async ({ page }) => {
+    await loginViaSession(page);
+  });
+
+  test("microfoonpolicy geldt uitsluitend onder /scribe", async ({ page }) => {
+    // §8/S16: de scribe-headerentry VERVANGT de algemene Permissions-Policy,
+    // hij komt er niet naast. Daarom worden de daadwerkelijke responseheaders
+    // geteld — één regel per document — en niet alleen de inhoud gelezen.
+    const permissionsPolicies = async (route: string) => {
+      const response = await page.request.get(route);
+      expect(response.status(), route).toBe(200);
+      return response
+        .headersArray()
+        .filter((header) => header.name.toLowerCase() === "permissions-policy")
+        .map((header) => header.value);
+    };
+
+    const cockpit = await permissionsPolicies("/dashboard/directiecockpit");
+    expect(cockpit).toHaveLength(1);
+    expect(cockpit[0]).toContain("microphone=()");
+
+    const lijst = await permissionsPolicies("/scribe");
+    expect(lijst).toHaveLength(1);
+    expect(lijst[0]).toContain("microphone=(self)");
+    expect(lijst[0]).toContain("camera=()");
+
+    const werkruimte = await permissionsPolicies("/scribe/demo-consult-1");
+    expect(werkruimte).toHaveLength(1);
+    expect(werkruimte[0]).toContain("microphone=(self)");
+  });
+
+  test("Careon AI-tegel opent consulten met een nieuw document en microfoontoestemming", async ({ page }) => {
+    await page.goto("/modules");
+    const tegel = page.getByRole("link", { name: /Careon AI/ });
+    await expect(tegel).toHaveAttribute("href", "/scribe");
+    await expect(tegel.getByText("Binnenkort beschikbaar")).toHaveCount(0);
+
+    // De tegel zelf moet een nieuw document laden: een Next-link behoudt de
+    // microfoonblokkade van /modules en breekt de opnamewerkruimte.
+    await tegel.click();
+    await page.waitForURL("**/scribe");
+    await expect(page.getByRole("heading", { name: "Consulten" })).toBeVisible();
+
+    // Bewijs dát het een documentlading was: bij clientnavigatie zou de
+    // navigation-entry nog /modules heten (en zou microphone=() blijven gelden).
+    const navigatieBron = await page.evaluate(() => performance.getEntriesByType("navigation")[0]?.name ?? null);
+    expect(navigatieBron).toContain("/scribe");
+
+    // De toegekende policy is in het document zelf zichtbaar; de API ontbreekt
+    // in oudere engines, dan blijft alleen de headerassertie hierboven over.
+    const microfoonToegestaan = await page.evaluate(() => {
+      const doc = document as Document & {
+        permissionsPolicy?: { allowsFeature(feature: string): boolean };
+        featurePolicy?: { allowsFeature(feature: string): boolean };
+      };
+      const policy = doc.permissionsPolicy ?? doc.featurePolicy;
+      return policy ? policy.allowsFeature("microphone") : null;
+    });
+    if (microfoonToegestaan !== null) expect(microfoonToegestaan).toBe(true);
+
+    await expect(page.getByText("Lokale demo-opslag", { exact: false }).first()).toBeVisible();
+
+    // Drie demo-consulten met hun statusbadges (§7.7). Gescoped op de tabel:
+    // de mobiele kaartlijst staat op desktop wél in de DOM (md:hidden).
+    const tabel = page.getByRole("table");
+    const rij = (referentie: string) => tabel.getByRole("row").filter({ hasText: referentie });
+    await expect(rij("D-2026-0417")).toContainText("Actief");
+    await expect(rij("D-2026-0392")).toContainText("Te beoordelen");
+    await expect(rij("D-2026-0355")).toContainText("Overgenomen");
+
+    await page.getByRole("button", { name: "Te beoordelen" }).click();
+    await expect(rij("D-2026-0392")).toBeVisible();
+    await expect(tabel.getByText("D-2026-0417")).toHaveCount(0);
+  });
+
+  test("lijst: zoeken op dossierreferentie, BSN-term geweigerd, 1-gebaseerde paginering", async ({ page }) => {
+    await page.goto("/scribe");
+    const tabel = page.getByRole("table");
+    const rij = (referentie: string) => tabel.getByRole("row").filter({ hasText: referentie });
+    await expect(rij("D-2026-0417")).toBeVisible();
+
+    // N16 — zoeken op een deel van de dossierreferentie (debounce van 300 ms).
+    const zoek = page.getByLabel("Zoek op dossierreferentie");
+    await zoek.fill("0392");
+    await expect(rij("D-2026-0392")).toBeVisible();
+    await expect(tabel.getByText("D-2026-0417")).toHaveCount(0);
+
+    // S3 — een BSN-vormige term wordt geweigerd en gaat nooit als filter mee:
+    // de lijst valt terug op ongefilterd in plaats van op nul treffers.
+    await zoek.fill("123456782");
+    await expect(
+      page.getByText("Gebruik een deel van het dossiernummer; nooit een BSN of geboortedatum."),
+    ).toBeVisible();
+    await expect(rij("D-2026-0417")).toBeVisible();
+    await zoek.fill("");
+    await expect(rij("D-2026-0355")).toBeVisible();
+
+    // C31 — de paginering is 1-GEBASEERD; met een 0-gebaseerde teller leverde
+    // "Volgende" tweemaal dezelfde eerste pagina. Daarvoor zijn meer dan 25
+    // consulten nodig, dus de demo-opslag krijgt er hier extra rijen bij.
+    await page.evaluate(() => {
+      const raw = window.localStorage.getItem("careon-scribe-v1");
+      if (raw === null) throw new Error("demo-opslag ontbreekt");
+      const state = JSON.parse(raw) as { sessies: Record<string, unknown>[] };
+      const basis = state.sessies[0];
+      for (let index = 0; index < 30; index += 1) {
+        state.sessies.push({
+          ...basis,
+          id: `demo-extra-${index}`,
+          patientReferentie: `D-2026-9${String(index).padStart(3, "0")}`,
+          // Ouder dan de drie demo-consulten, zodat de sortering vastligt.
+          createdAt: new Date(Date.parse("2026-01-01T00:00:00.000Z") + index * 60_000).toISOString(),
+        });
+      }
+      window.localStorage.setItem("careon-scribe-v1", JSON.stringify(state));
+    });
+    await page.reload();
+    await expect(page.getByText("Pagina 1")).toBeVisible();
+    await expect(rij("D-2026-0417")).toBeVisible();
+
+    await page.getByRole("button", { name: "Volgende" }).click();
+    await expect(page.getByText("Pagina 2")).toBeVisible();
+    await expect(rij("D-2026-9000")).toBeVisible();
+    await expect(tabel.getByText("D-2026-0417")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Vorige" }).click();
+    await expect(page.getByText("Pagina 1")).toBeVisible();
+    await expect(rij("D-2026-0417")).toBeVisible();
+  });
+
+  test("nieuw consult eist toestemming en weigert een BSN-vormige referentie", async ({ page }) => {
+    await page.goto("/scribe");
+    await page.getByRole("button", { name: "Nieuw consult" }).click();
+    await expect(page.getByRole("heading", { name: "Nieuw consult" })).toBeVisible();
+    // De instellingen zijn geladen zodra het standaardformaat staat; pas dan
+    // draagt het formulier de juiste consentrevisie (S13, anders 409).
+    await expect(page.getByLabel("Consulttype")).toHaveValue("psychiatrie");
+
+    // N10 — de plaatshouder is ingevuld met de werkelijke transcripttermijn;
+    // de cliënt hoort nooit een `{…}` of een termijn die niet geldt.
+    await expect(
+      page.getByText("de uitgeschreven transcripttekst 30 dagen bewaard blijft", { exact: false }),
+    ).toBeVisible();
+    await expect(page.getByText("{transcriptRetentieDagen}", { exact: false })).toHaveCount(0);
+
+    const starten = page.getByRole("button", { name: "Consult starten" });
+    await expect(starten).toBeDisabled();
+    await expect(
+      page.getByText("Zonder aangevinkte toestemmingsverklaring kan er geen consult starten."),
+    ).toBeVisible();
+
+    // S3: een BSN-vormige reeks wordt geweigerd, met melding.
+    await page.getByLabel("Dossierreferentie", { exact: true }).fill("123456782");
+    await expect(page.getByText("Deze dossierreferentie is niet toegestaan.", { exact: false })).toBeVisible();
+    await expect(starten).toBeDisabled();
+
+    await page.getByLabel("Dossierreferentie", { exact: true }).fill("D-2026-0512");
+    await expect(page.getByText("Deze dossierreferentie is niet toegestaan.", { exact: false })).toHaveCount(0);
+    // Geldige referentie, nog steeds geen toestemming: blijft geblokkeerd.
+    await expect(starten).toBeDisabled();
+
+    await page.getByLabel(/De cliënt is geïnformeerd/).click();
+    await expect(starten).toBeEnabled();
+    await starten.click();
+
+    await page.waitForURL(/\/scribe\/lokaal-/);
+    await expect(page.getByRole("heading", { name: /D-2026-0512/ })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Transcript" }).getByText("Nog geen transcript.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Volledig afspelen" })).toBeVisible();
+  });
+
+  test("werkruimte: getempode demo-opname, volledig afspelen, aanwijzingen en verouderde analyse", async ({ page }) => {
+    await page.goto("/scribe/demo-consult-1");
+    await expect(page.getByRole("heading", { name: /D-2026-0417/ })).toBeVisible();
+
+    // C20/S14 — "Demo-opname" speelt het gescripte consult getempo af
+    // (DEMO_SEGMENT_INTERVAL_MS = 1,5 s). Een paar seconden volstaan als bewijs;
+    // de rest gaat via "Volledig afspelen".
+    const transcript = page.getByRole("region", { name: "Transcript" });
+    await page.getByRole("button", { name: "Demo-opname", exact: true }).click();
+    await expect
+      .poll(async () => transcript.locator('li[id^="scribe-segment-"]').count(), { timeout: 15_000 })
+      .toBeGreaterThanOrEqual(2);
+    await page.getByRole("button", { name: "Demo-opname stoppen" }).click();
+    await expect(page.getByRole("button", { name: "Demo-opname", exact: true })).toBeVisible();
+
+    // "Volledig afspelen" zet de rest van het consult in één keer neer en
+    // analyseert daarna deterministisch.
+    await page.getByRole("button", { name: "Volledig afspelen" }).click();
+    await expect(transcript.getByText("30 regels")).toBeVisible();
+    await expect(page.getByText("Het Nederlandse demo-consult is volledig afgespeeld")).toBeVisible();
+
+    // Paneel B — gestructureerde consultstaat uit de deterministische laag.
+    const notities = page.getByRole("region", { name: "AI-notities" });
+    await expect(notities.getByText("Hoofdklacht")).toBeVisible();
+    await expect(notities.getByText("somberheid", { exact: true }).first()).toBeVisible();
+    await expect(notities.getByText("drie maanden", { exact: true })).toBeVisible();
+    await expect(notities.getByText("sertraline 50 mg (huidig)")).toBeVisible();
+    await expect(notities.getByText("Deterministische analyse").or(notities.getByText("Demo")).first()).toBeVisible();
+
+    // Paneel C — gecontroleerde regel apart van de (hier lege) AI-signalen.
+    const aanwijzingen = page.getByRole("region", { name: "Klinische aanwijzingen" });
+    await expect(aanwijzingen.getByText("Gecontroleerde medicatieregels")).toBeVisible();
+    await expect(
+      aanwijzingen.getByText(
+        "Mogelijke interactie sertraline × tramadol: verhoogd risico op serotonerge toxiciteit (serotoninesyndroom). Controleer vóór voorschrijven.",
+      ),
+    ).toBeVisible();
+    await expect(aanwijzingen.getByText("Farmacotherapeutisch Kompas", { exact: false })).toBeVisible();
+    await expect(aanwijzingen.getByText("Geen AI-signalen.")).toBeVisible();
+
+    // S10: risicocategorie zonder polariteit — het checklist-item schuift naar
+    // "besproken" en verdwijnt nooit.
+    await expect(aanwijzingen.getByText("Suïcidaliteit uitvragen — besproken")).toBeVisible();
+    await expect(aanwijzingen.getByText("Beoordeling door behandelaar vereist")).toBeVisible();
+    await expect(
+      aanwijzingen.getByText(
+        "Dit zou kunnen passen bij een depressieve episode, maar ik wil een schildklierafwijking uitsluiten.",
+      ),
+    ).toBeVisible();
+    await expect(
+      aanwijzingen.getByText("De rugpijn en de tramadol beïnvloeden mogelijk ook het slapen."),
+    ).toBeVisible();
+
+    // S8: een sprekercorrectie op een geanalyseerd segment veroudert de analyse
+    // en dwingt heranalyse af.
+    await transcript.getByRole("button", { name: /^Spreker van regel 1: Arts/ }).click();
+    await page.getByRole("menuitem", { name: "Bevestig Patiënt voor regel 1" }).click();
+    await expect(
+      transcript.getByRole("button", { name: "Spreker van regel 1: Patiënt · bevestigd — kiezen en bevestigen" }),
+    ).toBeVisible();
+    await expect(
+      notities.getByText("Analyse verouderd sinds uw correctie — opnieuw analyseren voordat u het verslag opstelt."),
+    ).toBeVisible();
+    await notities.getByRole("button", { name: "Opnieuw analyseren" }).click();
+    await expect(notities.getByRole("button", { name: "Nu analyseren" })).toBeVisible();
+    await expect(notities.getByText("Analyse verouderd", { exact: false })).toHaveCount(0);
+
+    // Afronden schakelt over naar de verslagreview van hetzelfde consult.
+    await page.getByRole("button", { name: "Consult afronden" }).click();
+    const verslag = page.getByRole("region", { name: "Verslag" });
+    await expect(verslag.getByRole("heading", { name: "Reden van komst" })).toBeVisible();
+    await expect(verslag.getByRole("heading", { name: "Risicotaxatie" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Consult afronden" })).toHaveCount(0);
+  });
+
+  test("consultstaat corrigeren: feit intrekken en de EPD-lijst overnemen", async ({ page }) => {
+    await page.goto("/scribe/demo-consult-1");
+    await page.getByRole("button", { name: "Volledig afspelen" }).click();
+
+    const notities = page.getByRole("region", { name: "AI-notities" }).first();
+    await expect(notities.getByText("tramadol (huidig)")).toBeVisible();
+
+    // N6/S7 — intrekken haalt het feit uit het verslag, maar laat de regel
+    // doorgehaald staan: een weglating mag nooit stil gebeuren.
+    await notities.getByRole("button", { name: "Intrekken: tramadol (huidig)" }).click();
+    await expect(notities.getByRole("button", { name: "Intrekken: tramadol (huidig)" })).toHaveCount(0);
+    await expect(notities.locator("li").filter({ hasText: "tramadol (huidig)" }).first()).toHaveClass(/line-through/);
+
+    // N6 — de geplakte EPD-lijst gaat door dezelfde deterministische extractie
+    // als het transcript; alleen de gevonden feiten belanden in de staat.
+    await notities.getByRole("button", { name: "EPD-lijst plakken" }).click();
+    await notities
+      .getByLabel("Actuele medicatie & allergieën uit het EPD")
+      .fill("lorazepam 1 mg zo nodig\nlithium 400 mg dagelijks\nAllergie voor amoxicilline");
+    await notities.getByRole("button", { name: "Lijst overnemen" }).click();
+    await expect(page.getByText(/2 middel\(en\) en 1 allergie\(ën\) uit het EPD toegevoegd/)).toBeVisible();
+    await expect(notities.getByText("lorazepam 1 mg (huidig)")).toBeVisible();
+    await expect(notities.getByText("Zelf aangevuld").first()).toBeVisible();
+    await expect(notities.getByText("lithium 400 mg (huidig)")).toBeVisible();
+    await expect(notities.getByText("Beoordeeld", { exact: true })).toHaveCount(0);
+    const epdBeoordeling = notities.getByLabel(
+      "Ik heb de actuele medicatie- en allergielijst uit het EPD gecontroleerd, inclusief ontbrekende middelen.",
+    );
+    await epdBeoordeling.click();
+    await expect(epdBeoordeling).toBeChecked();
+    await expect(notities.getByText("Beoordeeld", { exact: true })).toBeVisible();
+    await expect(page.getByText(/dit is geen volledige medicatiebewaking/)).toBeVisible();
+  });
+
+  test("handmatige invoer blijft behouden tijdens verzenden en blokkeert afronden", async ({ page }) => {
+    await page.goto("/scribe/demo-consult-1");
+    const veld = page.getByLabel("Gesprekstekst handmatig toevoegen", { exact: true });
+    let release: () => void = () => undefined;
+    let markSeen: () => void = () => undefined;
+    const seen = new Promise<void>((resolve) => {
+      markSeen = resolve;
+    });
+    await page.route("**/api/careon/scribe/sessies/demo-consult-1/segmenten", async (route) => {
+      markSeen();
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await route.fulfill({ status: 501, contentType: "application/json", body: '{"demo":true}' });
+    });
+    await veld.fill("Eerste synthetische zin.");
+    await expect(page.getByRole("button", { name: "Consult afronden", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "Regel toevoegen", exact: true }).click();
+    await seen;
+    await veld.fill("Tweede synthetische zin tijdens verzenden.");
+    release();
+    await expect(page.getByRole("region", { name: "Transcriptregels" })).toContainText("Eerste synthetische zin.");
+    await expect(veld).toHaveValue("Tweede synthetische zin tijdens verzenden.");
+    await expect(page.getByRole("button", { name: "Consult afronden", exact: true })).toBeDisabled();
+    await page.unroute("**/api/careon/scribe/sessies/demo-consult-1/segmenten");
+    await page.getByRole("button", { name: "Regel toevoegen", exact: true }).click();
+    await expect(veld).toHaveValue("");
+    await expect(page.getByRole("button", { name: "Consult afronden", exact: true })).toBeEnabled();
+  });
+
+  test("annuleren wist handmatige concepten", async ({ page }) => {
+    await page.goto("/scribe/demo-consult-1");
+    await page
+      .getByLabel("Gesprekstekst handmatig toevoegen", { exact: true })
+      .fill("Synthetisch concept voor intrekking.");
+    await page.getByRole("button", { name: "Annuleren", exact: true }).click();
+    await page.getByRole("button", { name: "Consult annuleren", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Consult afronden", exact: true })).toHaveCount(0);
+    await expect
+      .poll(() => page.evaluate(() => sessionStorage.getItem("careon-scribe-concept-demo-consult-1")))
+      .toBeNull();
+  });
+
+  test("verslagreview: beoordelingssecties blijven van de behandelaar, daarna overname in het EPD", async ({
+    page,
+  }) => {
+    await page.goto("/scribe/demo-consult-2");
+    const verslag = page.getByRole("region", { name: "Verslag" });
+    const sectie = (titel: string) =>
+      page.getByRole("article").filter({ has: page.getByRole("heading", { name: titel }) });
+
+    // N7 — de deterministische secties dragen lopende zinnen, geen opsomming
+    // van trefwoorden.
+    await expect(sectie("Reden van komst").getByRole("textbox", { name: "Reden van komst" })).toHaveValue(
+      /^Cliënt meldt somberheid sinds drie maanden/,
+    );
+
+    await expect(verslag.getByRole("button", { name: "Kopieer sectie" })).toHaveCount(0);
+
+    // S10/N3: ★-secties komen leeg binnen, met citaten uit hún eigen onderwerp —
+    // de risicotaxatie citeert het risicosegment (§13), niet de overwegingen.
+    const risicotaxatie = sectie("Risicotaxatie");
+    await expect(risicotaxatie.getByText("Leeg", { exact: true })).toBeVisible();
+    await expect(risicotaxatie.getByText("Uitspraken hierover in dit consult: §13")).toBeVisible();
+    await expect(risicotaxatie.getByRole("textbox", { name: "Risicotaxatie" })).toHaveValue("");
+    await expect(sectie("Overwegingen").getByText("Uitspraken hierover in dit consult: §23, §24")).toBeVisible();
+
+    // "Alles goedkeuren" slaat ze over en meldt dat. De dialoog sluit zichzelf:
+    // de actieknop roept alleen preventDefault aan zolang een bevestiging
+    // ontbreekt, en dit demo-consult heeft geen ontbrekende fragmenten.
+    await verslag.getByRole("button", { name: "Alles goedkeuren" }).click();
+    const goedkeurDialoog = page.getByRole("alertdialog");
+    // N22 — het gatenvinkje verschijnt uitsluitend bij ontbrekende fragmenten.
+    await expect(goedkeurDialoog.getByLabel("Ik heb de ontbrekende fragmenten aangevuld of beoordeeld.")).toHaveCount(
+      0,
+    );
+    await goedkeurDialoog.getByRole("button", { name: "Goedkeuren" }).click();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await expect(
+      page.getByText("2 beoordelingssecties zijn overgeslagen: schrijf en keur die zelf goed."),
+    ).toBeVisible();
+    await expect(sectie("Reden van komst").getByText("Goedgekeurd", { exact: true })).toBeVisible();
+    await expect(risicotaxatie.getByText("Leeg", { exact: true })).toBeVisible();
+
+    // Zelf schrijven en per sectie goedkeuren; pas dan is het verslag vast.
+    for (const titel of ["Risicotaxatie", "Overwegingen"]) {
+      const blok = sectie(titel);
+      const veld = blok.getByRole("textbox", { name: titel });
+      await veld.fill(`${titel}: beoordeling door de behandelaar, vastgesteld tijdens het consult.`);
+      await veld.press("Tab");
+      await expect(blok.getByText("Bewerkt", { exact: true })).toBeVisible();
+      await blok.getByRole("button", { name: "Goedkeuren" }).click();
+      await expect(blok.getByText("Goedgekeurd", { exact: true })).toBeVisible();
+      if (titel === "Risicotaxatie") {
+        await expect(
+          page.getByText("1 beoordelingssectie is overgeslagen: schrijf en keur die zelf goed."),
+        ).toBeVisible();
+      }
+    }
+
+    await expect(page.getByText("Dit verslag is goedgekeurd.", { exact: false })).toBeVisible();
+    await expect(
+      page.getByText(/beoordelingssecties? (?:is|zijn) overgeslagen: schrijf en keur die zelf goed/),
+    ).toHaveCount(0);
+
+    // S2/N14: overname kan pas nadat het verslag ergens anders terecht kán
+    // komen. "Verslagtekst tonen" is de derde, altijd werkende weg naast
+    // kopiëren en downloaden.
+    const overgenomen = page.getByRole("button", { name: "Overgenomen in het EPD" });
+    await expect(overgenomen).toBeDisabled();
+    await expect(
+      page.getByText(
+        "Kopieer of download het volledige actuele verslag eerst; pas daarna kunt u de overname bevestigen.",
+      ),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Verslagtekst tonen" }).click();
+    await expect(page.getByRole("textbox", { name: "Verslagtekst" })).toBeVisible();
+    await expect(overgenomen).toBeDisabled();
+
+    // C28 — de bestandsnaam draagt de consultdatum, niet vandaag.
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Downloaden (.txt)" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename().startsWith("consult-")).toBe(true);
+    expect(download.suggestedFilename().endsWith(".txt")).toBe(true);
+    await expect(overgenomen).toBeEnabled();
+    const exportChannels = await page.evaluate(() => {
+      const state = JSON.parse(window.localStorage.getItem("careon-scribe-v1") ?? "{}");
+      return state.logboek
+        .filter((row: { handeling: string }) => row.handeling === "scribe.export")
+        .map((row: { detail: { kanaal?: string } }) => row.detail.kanaal);
+    });
+    expect(exportChannels).toContain("bestand");
+    expect(exportChannels).not.toContain("klembord");
+
+    await overgenomen.click();
+    const dialoog = page.getByRole("alertdialog");
+    // Dialoogtekst afgeleid uit berekenRetentie + de organisatie-instellingen.
+    await expect(dialoog.getByText("Het transcript wordt direct gewist", { exact: false })).toBeVisible();
+    await expect(dialoog.getByText("het verslag blijft zichtbaar tot", { exact: false })).toBeVisible();
+    const bevestigen = dialoog.getByRole("button", { name: "Bevestigen" });
+    await expect(bevestigen).toBeDisabled();
+    await dialoog.getByLabel("Ik heb het verslag in het EPD opgeslagen").click();
+    await expect(bevestigen).toBeEnabled();
+    await bevestigen.click();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+
+    // S15: het transcript is direct weg, het goedgekeurde verslag blijft.
+    await expect(page.getByRole("region", { name: "Transcript" }).getByText("Nog geen transcript.")).toBeVisible();
+    await expect(verslag.getByRole("heading", { name: "Reden van komst" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Overgenomen in het EPD" })).toHaveCount(0);
+  });
+
+  test("verslagformaat wisselen genereert het verslag opnieuw in het gekozen formaat", async ({ page }) => {
+    await page.goto("/scribe/demo-consult-2");
+    const verslag = page.getByRole("region", { name: "Verslag" });
+    await expect(verslag.getByRole("heading", { name: "Reden van komst" })).toBeVisible();
+    await expect(verslag.getByText("Versie 1")).toBeVisible();
+
+    // N18 — het formaat is tot de goedkeuring te wisselen.
+    await page.getByLabel("Verslagformaat").selectOption("verpleegkundig");
+    await page.getByRole("button", { name: "Verslag opnieuw genereren" }).click();
+
+    await expect(verslag.getByText("Versie 2")).toBeVisible();
+    await expect(verslag.getByRole("heading", { name: "Observaties" })).toBeVisible();
+    await expect(verslag.getByRole("heading", { name: "Reden van komst" })).toHaveCount(0);
+
+    // N4 — ook de verpleegkundige rapportage heeft een ★-sectie, dus "Alles
+    // goedkeuren" kan haar niet in twee klikken definitief maken.
+    const evaluatie = page
+      .getByRole("article")
+      .filter({ has: page.getByRole("heading", { name: "Reactie & evaluatie" }) });
+    await expect(evaluatie.getByText("Beoordeling door behandelaar")).toBeVisible();
+    await expect(evaluatie.getByRole("textbox", { name: "Reactie & evaluatie" })).toHaveValue("");
+  });
+
+  test("werkkopie wissen na afronden wist transcript en verslag", async ({ page }) => {
+    await page.goto("/scribe/demo-consult-2");
+    await expect(page.getByRole("region", { name: "Verslag" }).getByRole("heading", { name: "Beleid" })).toBeVisible();
+
+    // N11 — de cliënt kan de toestemming ná het consult intrekken; de grond
+    // gaat metadata-only mee in het logboek.
+    await page.getByRole("button", { name: "Toestemming ingetrokken — werkkopie wissen" }).click();
+    const dialoog = page.getByRole("alertdialog");
+    await dialoog.getByLabel("Grond").selectOption("toestemming_ingetrokken");
+    await dialoog.getByRole("button", { name: "Werkkopie wissen" }).click();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+
+    await expect(page.getByRole("region", { name: "Transcript" }).getByText("Nog geen transcript.")).toBeVisible();
+    await expect(page.getByText("Er is nog geen verslag opgesteld voor dit consult.")).toBeVisible();
+
+    await page.goto("/scribe");
+    const tabel = page.getByRole("table");
+    await expect(tabel.getByRole("row").filter({ hasText: "D-2026-0392" })).toContainText("Geannuleerd");
+  });
+
+  test("vrijgave gaat alleen naar gemachtigde collega's en is intrekbaar", async ({ page }) => {
+    await page.goto("/scribe/demo-consult-2");
+    const verslag = page.getByRole("region", { name: "Verslag" });
+    const sectie = (titel: string) =>
+      page.getByRole("article").filter({ has: page.getByRole("heading", { name: titel }) });
+
+    await verslag.getByRole("button", { name: "Alles goedkeuren" }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Goedkeuren" }).click();
+    for (const titel of ["Risicotaxatie", "Overwegingen"]) {
+      const blok = sectie(titel);
+      const veld = blok.getByRole("textbox", { name: titel });
+      await veld.fill(`${titel}: beoordeling door de behandelaar.`);
+      await veld.press("Tab");
+      await blok.getByRole("button", { name: "Goedkeuren" }).click();
+      await expect(blok.getByText("Goedgekeurd", { exact: true })).toBeVisible();
+    }
+    await expect(page.getByText("Dit verslag is goedgekeurd.", { exact: false })).toBeVisible();
+
+    await page.goto("/scribe");
+    const tabel = page.getByRole("table");
+    const rij = tabel.getByRole("row").filter({ hasText: "D-2026-0392" });
+    await expect(rij).toContainText("Goedgekeurd");
+
+    // N11/S12 — de keuzelijst toont uitsluitend GEMACHTIGDE collega's, en nooit
+    // de handelende gebruiker zelf.
+    await rij.getByRole("button", { name: "Verslag vrijgeven" }).click();
+    const vrijgave = page.getByRole("alertdialog");
+    const collega = vrijgave.getByLabel("Collega");
+    await expect(collega.locator("option")).toHaveText([/S\. de Wit/]);
+    await expect(collega.getByText("J. Bakker")).toHaveCount(0);
+    await expect(collega.getByText("Demo Behandelaar")).toHaveCount(0);
+
+    await vrijgave.getByLabel("Reden").fill("Behandelaar uit dienst per 1 oktober.");
+    await vrijgave.getByRole("button", { name: "Vrijgeven" }).click();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await expect(page.getByText("Het goedgekeurde verslag is vrijgegeven; de vrijgave is geauditeerd.")).toBeVisible();
+
+    // N11 — en die vrijgave is weer in te trekken, met een grond.
+    await rij.getByRole("button", { name: "Vrijgave intrekken" }).click();
+    const intrekken = page.getByRole("alertdialog");
+    await intrekken.getByLabel("Grond").selectOption("overig");
+    await intrekken.getByRole("button", { name: "Vrijgave intrekken" }).click();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await expect(page.getByText("De vrijgave is ingetrokken; de collega ziet het verslag niet meer.")).toBeVisible();
+  });
+
+  test("instellingen: activatievoorwaarden bewaken de moduleschakelaar en alles overleeft een herlading", async ({
+    page,
+  }) => {
+    await page.goto("/scribe/instellingen");
+    await expect(page.getByRole("heading", { name: "Careon AI-instellingen" })).toBeVisible();
+
+    await page.getByLabel("Standaard consulttype").selectOption("soap");
+    await page.getByLabel("Transcript bewaren (dagen)").fill("7");
+    const medicatie = page.getByLabel(/Medicatiesignalen tonen/);
+    await expect(medicatie).toHaveAttribute("aria-checked", "true");
+    await medicatie.click();
+
+    // N19 — externe verwerking staat standaard uit en is een eigen keuze van de
+    // organisatie, los van de platformvlag.
+    const transcriptie = page.getByLabel(/Audiofragmenten laten transcriberen/);
+    const aiAnalyse = page.getByLabel(/AI-analyse van het transcript inschakelen/);
+    await expect(transcriptie).toHaveAttribute("aria-checked", "false");
+    await expect(aiAnalyse).toHaveAttribute("aria-checked", "false");
+    await transcriptie.click();
+    await aiAnalyse.click();
+
+    // exact: "Machtigingen opslaan" bevat dezelfde substring (strict mode).
+    await page.getByRole("button", { name: "Opslaan", exact: true }).click();
+    await expect(page.getByText("De instellingen zijn opgeslagen.")).toBeVisible();
+
+    // S12: machtigen is een aparte handeling met een eigen opslagknop.
+    const bakker = page.getByLabel(/J\. Bakker/);
+    await expect(bakker).toHaveAttribute("aria-checked", "false");
+    await bakker.click();
+    await page.getByRole("button", { name: "Machtigingen opslaan" }).click();
+    await expect(page.getByText("De machtigingen zijn opgeslagen.")).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByLabel("Standaard consulttype")).toHaveValue("soap");
+    await expect(page.getByLabel("Transcript bewaren (dagen)")).toHaveValue("7");
+    await expect(page.getByLabel(/Medicatiesignalen tonen/)).toHaveAttribute("aria-checked", "false");
+    await expect(page.getByLabel(/Audiofragmenten laten transcriberen/)).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByLabel(/AI-analyse van het transcript inschakelen/)).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByLabel(/J\. Bakker/)).toHaveAttribute("aria-checked", "true");
+
+    // N21 — zonder vastgelegde activatievoorwaarden gaat de module niet aan.
+    const moduleSchakelaar = page.getByLabel("Careon AI is ingeschakeld voor deze organisatie");
+    await expect(moduleSchakelaar).toHaveAttribute("aria-checked", "true");
+    await moduleSchakelaar.click();
+    await expect(moduleSchakelaar).toHaveAttribute("aria-checked", "false");
+    await page.getByLabel("Eigenaar van de DPIA").fill("");
+    await expect(moduleSchakelaar).toBeDisabled();
+    await expect(page.getByText("Eerst de activatievoorwaarden vastleggen:")).toBeVisible();
+    await expect(page.getByRole("listitem").filter({ hasText: "Eigenaar van de DPIA" })).toBeVisible();
+
+    await page.getByLabel("Eigenaar van de DPIA").fill("Functionaris gegevensbescherming");
+    await expect(moduleSchakelaar).toBeEnabled();
+    await expect(page.getByText("Alle activatievoorwaarden zijn vastgelegd; de module mag aan.")).toBeVisible();
+    await moduleSchakelaar.click();
+    await expect(moduleSchakelaar).toHaveAttribute("aria-checked", "true");
+  });
+
+  test("logboek toont de handelingen van deze demo als metadata en levert een CSV", async ({ page }) => {
+    // Eén consult openen levert de leesregel op die N20 zichtbaar wil maken.
+    await page.goto("/scribe/demo-consult-2");
+    await expect(page.getByRole("region", { name: "Verslag" }).getByRole("heading", { name: "Beleid" })).toBeVisible();
+
+    await page.goto("/scribe/logboek");
+    await expect(page.getByRole("heading", { name: "Careon AI-logboek" })).toBeVisible();
+    const tabel = page.getByRole("table");
+    await expect(tabel.getByRole("row").filter({ hasText: "Consult geopend" })).toBeVisible();
+    await expect(tabel.getByRole("row").filter({ hasText: "Consult gestart" })).toBeVisible();
+    await expect(tabel.getByRole("row").filter({ hasText: "Verslag goedgekeurd" })).toBeVisible();
+
+    // N20 — metadata-only: nooit een dossierreferentie of transcripttekst.
+    await expect(page.getByText("D-2026-0392")).toHaveCount(0);
+    await expect(page.getByText("somberheid", { exact: false })).toHaveCount(0);
+
+    await page.getByLabel("Handeling").selectOption("scribe.transcript.read");
+    await expect(tabel.getByRole("row").filter({ hasText: "Consult geopend" })).toBeVisible();
+    await expect(tabel.getByRole("row").filter({ hasText: "Consult gestart" })).toHaveCount(0);
+
+    const downloadPromise = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Logboek downloaden (.csv)" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/^careon-ai-logboek-\d{4}-\d{2}-\d{2}\.csv$/);
   });
 });

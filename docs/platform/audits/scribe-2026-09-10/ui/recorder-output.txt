@@ -1,0 +1,4 @@
+pending_permission_unmount {"trackStopped":false,"expected":true}
+paused_unsent_buffer {"bufferedSeconds":1.024,"unloadWarning":false,"expected":true}
+restart_offsets [{"offsetMs":0,"duurMs":8000},{"offsetMs":7000,"duurMs":1192},{"offsetMs":0,"duurMs":8000},{"offsetMs":7000,"duurMs":1192}]
+unpersisted_gaps_allow_completion {"status":"uit","queueLength":0,"localGaps":2,"computedQueueEmpty":true}

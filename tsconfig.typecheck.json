@@ -7,5 +7,5 @@
   // Route-typevalidatie gebeurt sowieso nog in `next build`.
   "extends": "./tsconfig.json",
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", ".next", ".next-wsl"]
+  "exclude": ["node_modules", ".next", ".next-wsl", ".next-e2e"]
 }

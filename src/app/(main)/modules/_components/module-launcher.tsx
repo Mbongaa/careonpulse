@@ -94,7 +94,13 @@ function ModuleTile({ mod }: Readonly<{ mod: CareonModule }>) {
     );
     // Externe modules (volledige URL, bijv. YAAZ op de comms-plane) vallen
     // buiten de Next-router; interne routes houden client-side navigatie.
-    if (/^https?:\/\//.test(mod.href)) {
+    //
+    // Uitzondering: `hardeNavigatie` (handoff 20 S16). Careon AI krijgt een
+    // eigen `Permissions-Policy: microphone=(self)` en die policy geldt PER
+    // DOCUMENT. Een <Link> zou de policy van /modules (`microphone=()`) laten
+    // staan en getUserMedia stil laten falen; een <a href> zonder prefetch
+    // dwingt een echte documentlading af.
+    if (/^https?:\/\//.test(mod.href) || mod.hardeNavigatie === true) {
       return (
         <a href={mod.href} className={linkClassName}>
           {kaart}
@@ -132,7 +138,16 @@ export function ModuleLauncher({
   // buiten de dashboard-provider, dus de server-pagina geeft hem door. Zonder
   // sessie (demo) valt careonOrgNaam terug op de geauditeerde demo-klant.
   orgNaam,
-}: Readonly<{ modules: readonly CareonModule[]; financieelZichtbaar?: boolean; orgNaam: string }>) {
+  // requireScribePage() stuurt een niet-gemachtigde gebruiker hierheen met
+  // ?scribe=niet-gemachtigd; zonder melding zou die terugsprong onverklaarbaar
+  // zijn (handoff 20 §2.3).
+  scribeMelding = false,
+}: Readonly<{
+  modules: readonly CareonModule[];
+  financieelZichtbaar?: boolean;
+  orgNaam: string;
+  scribeMelding?: boolean;
+}>) {
   const router = useRouter();
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -181,6 +196,11 @@ export function ModuleLauncher({
               </p>
             </div>
           </div>
+          {scribeMelding ? (
+            <p role="alert" className="mx-auto max-w-xl rounded-md border px-3 py-2 text-center text-sm">
+              U bent niet gemachtigd voor Careon AI. Vraag een beheerder van uw organisatie om u te machtigen.
+            </p>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {zichtbareModules.map((mod) => (
               <ModuleTile key={mod.id} mod={mod} />

@@ -1,5 +1,6 @@
 import { magFacturatieZien } from "./careon-facturatie-rol";
 import { magFinancieelZien } from "./careon-financieel-rol";
+import { magScribeBeheren } from "./careon-scribe-rol";
 
 // Serialiseerbare sessie-info voor de client (gezaaid door de dashboard-layout,
 // gedeeld via CareonSessionProvider). Bewust géén "use client"-module: de
@@ -24,6 +25,9 @@ export interface CareonSessionInfo {
   financieelZichtbaar: boolean;
   /** Afgeleid via magFacturatieZien — de enige bron voor facturatie-zichtbaarheid. */
   facturatieZichtbaar: boolean;
+  /** Tegelzichtbaarheid van Careon Scribe (handoff 20 §2.2) — GEEN autorisatie:
+      de echte poort is requireScribePage() + de gemachtigden-query + RLS. */
+  scribeZichtbaar: boolean;
 }
 
 /** Demo/fail-open-weergave: toont alles (dataroutes zelf falen gesloten). */
@@ -38,6 +42,7 @@ export const DEMO_SESSION_INFO: CareonSessionInfo = {
   isSuperadmin: false,
   financieelZichtbaar: true,
   facturatieZichtbaar: true,
+  scribeZichtbaar: true,
 };
 
 export function sessionInfoVan(session: {
@@ -59,5 +64,8 @@ export function sessionInfoVan(session: {
     isSuperadmin: session.isSuperadmin,
     financieelZichtbaar: magFinancieelZien(session),
     facturatieZichtbaar: magFacturatieZien(session),
+    // Elke organisatiegebruiker ziet de tegel (routing-gemak); de gate zit in
+    // requireScribePage() en RLS, niet hier.
+    scribeZichtbaar: magScribeBeheren(session) || session.orgRole === "member",
   };
 }

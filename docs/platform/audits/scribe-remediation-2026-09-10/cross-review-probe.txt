@@ -1,0 +1,3 @@
+{"probe":"demo-future-batch-ASR","first":["sertaline"],"second":["sertaline","sertraline"]}
+{"probe":"unrelated-valid-note-source","section":{"id":"subjectief","titel":"Subjectief","conceptTekst":"Patiënt gebruikt lithium 900 mg en is allergisch voor penicilline.","tekst":"Patiënt gebruikt lithium 900 mg en is allergisch voor penicilline.","status":"concept","bron":[1],"vereistBehandelaar":false}}
+{"probe":"null-note-row","throws":"Cannot read properties of null (reading 'id')"}

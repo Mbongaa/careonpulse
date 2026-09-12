@@ -1,0 +1,4 @@
+Command: wsl -e python3 <repo>/src/scripts/verify-scribe-postgres.py --port 55439 --user hassan
+Database engine: PostgreSQL 15.19 (Debian 15.19-0+deb12u1)
+Result: verify-scribe-postgres: 105 real PostgreSQL checks passed; synthetic database removed
+No app .env or production credentials loaded; no remote provider or production database was used.

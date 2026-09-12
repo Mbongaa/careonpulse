@@ -14,6 +14,14 @@ const AUDIT_RATE_LIMIT_PER_MINUTE = envInt("CAREON_ASSISTANT_AUDIT_RATE_LIMIT_PE
 const AUDIT_RATE_LIMIT_PER_DAY = envInt("CAREON_ASSISTANT_AUDIT_RATE_LIMIT_PER_DAY", 2_000, 1, 100_000);
 const LOGIN_RATE_LIMIT_PER_MINUTE = envInt("CAREON_LOGIN_RATE_LIMIT_PER_MINUTE", 10, 1, 100);
 const LOGIN_RATE_LIMIT_PER_DAY = envInt("CAREON_LOGIN_RATE_LIMIT_PER_DAY", 150, 1, 10_000);
+// Careon Scribe (handoff 20 §8): een consult stuurt elke ~8 seconden een
+// fragment, dus de limiet per behandelaar ligt hoger dan die van de assistent.
+const SCRIBE_RATE_LIMIT_PER_MINUTE = envInt("CAREON_SCRIBE_RATE_LIMIT_PER_MINUTE", 40, 1, 500);
+const SCRIBE_RATE_LIMIT_PER_DAY = envInt("CAREON_SCRIBE_RATE_LIMIT_PER_DAY", 6_000, 1, 100_000);
+// Tweede plafond per organisatie: één gecompromitteerd account mag het budget
+// van de hele praktijk niet leegtrekken.
+const SCRIBE_ORG_RATE_LIMIT_PER_DAY = envInt("CAREON_SCRIBE_RATE_LIMIT_ORG_PER_DAY", 20_000, 1, 100_000);
+const SCRIBE_ORG_RATE_LIMIT_PER_MINUTE = 600;
 const EVENT_RETENTION_DAYS = envInt("CAREON_ASSISTANT_EVENT_RETENTION_DAYS", 90, 7, 365);
 const MAX_MEMORY_RATE_LIMIT_ACTORS = 10_000;
 
@@ -48,6 +56,10 @@ export interface AssistantEvent {
   usage?: AssistantUsage;
   toolNames?: string[];
   metadata?: Record<string, string | number | boolean | null>;
+  /** Eigen promptversie van een module (scribe); leeg = de assistentversie. */
+  promptVersion?: string;
+  /** Gebruikte OpenAI-modus voor deze aanroep; leeg = de assistentmodus. */
+  apiMode?: "responses" | "chat";
   /** Echte identiteit (Supabase-modus); oude rijen kennen alleen actor_hash. */
   orgId?: string | null;
   userId?: string | null;
@@ -108,7 +120,7 @@ export function authenticatedActorHash(userId: string): string {
   return actorHash(`user:${userId}`);
 }
 
-type RateLimitScope = "assistant" | "audit" | "login";
+type RateLimitScope = "assistant" | "audit" | "login" | "scribe";
 
 interface RemoteRateLimitRow {
   allowed?: boolean;
@@ -238,6 +250,25 @@ export function enforceLoginRateLimit(actorHash: string): Promise<RateLimitResul
   return enforceRateLimit("login", actorHash, LOGIN_RATE_LIMIT_PER_MINUTE, LOGIN_RATE_LIMIT_PER_DAY);
 }
 
+/**
+ * Scribe-limiet per behandelaar (handoff 20 §8, quota-scope `scribe` uit de
+ * migratie 20260907120000). Loopt via hetzelfde fail-closed pad als de
+ * assistent: valt de quota-RPC uit, dan wordt de aanvraag geweigerd.
+ */
+export function enforceScribeRateLimit(actorHash: string): Promise<RateLimitResult> {
+  return enforceRateLimit("scribe", actorHash, SCRIBE_RATE_LIMIT_PER_MINUTE, SCRIBE_RATE_LIMIT_PER_DAY);
+}
+
+/** Scribe-limiet per organisatie; de organisatie-id wordt gehasht opgeslagen. */
+export function enforceScribeOrgRateLimit(orgId: string): Promise<RateLimitResult> {
+  return enforceRateLimit(
+    "scribe",
+    actorHash(`org:${orgId}`),
+    SCRIBE_ORG_RATE_LIMIT_PER_MINUTE,
+    SCRIBE_ORG_RATE_LIMIT_PER_DAY,
+  );
+}
+
 export async function writeAssistantEvent(event: AssistantEvent): Promise<void> {
   if (!SUPABASE_URL || !SERVICE_KEY) return;
   const payload = {
@@ -245,8 +276,8 @@ export async function writeAssistantEvent(event: AssistantEvent): Promise<void> 
     actor_hash: event.actorHash,
     event_type: event.eventType,
     model: event.model ?? null,
-    api_mode: ASSISTANT_API_MODE,
-    prompt_version: ASSISTANT_PROMPT_VERSION,
+    api_mode: event.apiMode ?? ASSISTANT_API_MODE,
+    prompt_version: event.promptVersion ?? ASSISTANT_PROMPT_VERSION,
     status_code: event.statusCode ?? null,
     duration_ms: event.durationMs ?? null,
     input_tokens: event.usage?.inputTokens ?? null,

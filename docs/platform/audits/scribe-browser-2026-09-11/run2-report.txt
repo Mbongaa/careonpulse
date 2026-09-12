@@ -1,0 +1,127 @@
+- banner:
+  - generic: Careon Pulse
+  - generic: Technology · Growth · Care
+  - paragraph: Careon AI
+  - paragraph: TGC Groep
+  - link "Naar modules":
+    - /url: /modules
+  - button "Uitloggen":
+    - text: Uitloggen
+- navigation "Careon AI":
+  - link "Consulten":
+    - /url: /scribe
+  - link "Logboek":
+    - /url: /scribe/logboek
+  - link "Instellingen":
+    - /url: /scribe/instellingen
+- main:
+  - heading "QA-EN-A02 Psychiatrisch consult" [level=1]:
+    - text: QA-EN-A02
+    - generic: Psychiatrisch consult
+  - paragraph: Het EPD blijft het juridische dossier.
+  - paragraph: Lokale demo-opslag — geen centrale registratie.
+  - region "Verslag":
+    - heading "Verslag" [level=2]
+    - generic: Versie 1
+    - generic: Verslagformaat
+    - combobox "Verslagformaat":
+      - option "SOAP"
+      - option "Anamnese · Onderzoek · Beoordeling · Plan"
+      - option "Huisartsconsult (SOEP)"
+      - option "Psychiatrisch consult" [selected]
+      - option "Verpleegkundige rapportage"
+      - option "SEH-verslag"
+      - option "Vervolgconsult"
+      - option "Ontslagbrief"
+    - button "Verslag opnieuw genereren":
+      - text: Verslag opnieuw genereren
+    - button "Alles goedkeuren":
+      - text: Alles goedkeuren
+    - paragraph: Lokale demo-opslag — geen centrale registratie.
+    - article:
+      - heading "Reden van komst" [level=3]
+      - paragraph: Beoordeling door behandelaar
+      - generic: Leeg
+      - textbox "Reden van komst":
+        - /placeholder: Beoordeling door behandelaar — wordt niet machinaal geschreven.
+      - generic "Uitgesproken overwegingen uit het transcript"
+      - button "Goedkeuren":
+        - text: Goedkeuren
+    - article:
+      - heading "Speciële anamnese" [level=3]
+      - paragraph: Beoordeling door behandelaar
+      - generic: Leeg
+      - textbox "Speciële anamnese":
+        - /placeholder: Beoordeling door behandelaar — wordt niet machinaal geschreven.
+      - generic "Uitgesproken overwegingen uit het transcript"
+      - button "Goedkeuren":
+        - text: Goedkeuren
+    - article:
+      - heading "Psychiatrisch onderzoek" [level=3]
+      - paragraph: Beoordeling door behandelaar
+      - generic: Leeg
+      - textbox "Psychiatrisch onderzoek":
+        - /placeholder: Beoordeling door behandelaar — wordt niet machinaal geschreven.
+      - generic "Uitgesproken overwegingen uit het transcript"
+      - button "Goedkeuren":
+        - text: Goedkeuren
+    - article:
+      - heading "Somatiek & medicatie" [level=3]
+      - paragraph: Beoordeling door behandelaar
+      - generic: Leeg
+      - textbox "Somatiek & medicatie":
+        - /placeholder: Beoordeling door behandelaar — wordt niet machinaal geschreven.
+      - generic "Uitgesproken overwegingen uit het transcript"
+      - button "Goedkeuren":
+        - text: Goedkeuren
+    - article:
+      - heading "Sociale anamnese" [level=3]
+      - paragraph: Beoordeling door behandelaar
+      - generic: Leeg
+      - textbox "Sociale anamnese":
+        - /placeholder: Beoordeling door behandelaar — wordt niet machinaal geschreven.
+      - generic "Uitgesproken overwegingen uit het transcript"
+      - button "Goedkeuren":
+        - text: Goedkeuren
+    - article:
+      - heading "Risicotaxatie" [level=3]
+      - paragraph: Beoordeling door behandelaar
+      - generic: Leeg
+      - textbox "Risicotaxatie":
+        - /placeholder: Beoordeling door behandelaar — wordt niet machinaal geschreven.
+      - generic "Uitgesproken overwegingen uit het transcript"
+      - button "Goedkeuren":
+        - text: Goedkeuren
+    - article:
+      - heading "Overwegingen" [level=3]
+      - paragraph: Beoordeling door behandelaar
+      - generic: Leeg
+      - textbox "Overwegingen":
+        - /placeholder: Beoordeling door behandelaar — wordt niet machinaal geschreven.
+      - generic "Uitgesproken overwegingen uit het transcript"
+      - button "Goedkeuren":
+        - text: Goedkeuren
+    - article:
+      - heading "Beleid" [level=3]
+      - paragraph: Beoordeling door behandelaar
+      - generic: Leeg
+      - textbox "Beleid":
+        - /placeholder: Beoordeling door behandelaar — wordt niet machinaal geschreven.
+      - generic "Uitgesproken overwegingen uit het transcript"
+      - button "Goedkeuren":
+        - text: Goedkeuren
+    - button "Toestemming ingetrokken — werkkopie wissen":
+      - text: Toestemming ingetrokken — werkkopie wissen
+  - region "Transcript":
+    - heading "Transcript" [level=2]
+    - generic: 1 regels
+    - region "Transcriptregels":
+      - list:
+        - generic: 00:00
+        - 'button "Spreker van regel 1: Patiënt — wijzigen" [disabled]': Patiënt
+        - paragraph:
+          - generic: §1
+          - text: This is a fictional QA example. I have heard two voices for three weeks. I sleep four hours a night. I do not drink alcohol or use recreational drugs. I take risperidone 2 mg at night. I stopped sertraline last month. Penicillin causes a rash. I have no thoughts of harming myself or anyone else. My mother has depression.
+- region "Notifications alt+T"
+- button "Open Next.js Dev Tools":
+- alert

@@ -50,6 +50,17 @@ import { CAREON_MODULES } from "../data/careon/careon-modules";
 import { CAREON_ROUTES } from "../data/careon/careon-pages";
 import { PATIENTEN_METRICS } from "../data/careon/careon-patienten";
 import { PLANNING_METRICS } from "../data/careon/careon-planning";
+import {
+  buildDemoConsult2,
+  DEMO_CONSULT_SCRIPT,
+  DEMO_SCRIBE_INSTELLINGEN,
+  DEMO_SCRIBE_SESSIES,
+  DEMO_SEGMENT_INTERVAL_MS,
+  demoConsult3Notitie,
+  EMPTY_SCRIBE_INSTELLINGEN,
+  migreerScribeInstellingen,
+  STANDAARD_CONSENTTEKST,
+} from "../data/careon/careon-scribe";
 import { CAREON_MONTHLY } from "../data/careon/careon-shared-charts";
 import { sliceTimeframe, timeframeKeys } from "../data/careon/careon-timeframe";
 import type { CareonKpiFormat, CareonMetric } from "../data/careon/careon-types";
@@ -62,6 +73,7 @@ import {
   verwijderFinancieleContext,
 } from "../lib/careon-assistant/financieel-gate";
 import { redigeerFinancieleAssistentResponse } from "../lib/careon-assistant/financieel-redactie";
+import { CAREON_HOSTED_DEMO_EMAIL } from "../lib/careon-demo-account";
 import { facturatieGereedheid } from "../lib/careon-facturatie/gereedheid";
 import { bouwFactuurMail } from "../lib/careon-facturatie/mail.server";
 import {
@@ -95,6 +107,66 @@ import { DESTRUCTIEVE_TOOLS, MIDDELEN_TOOL_NAMES, MIDDELEN_TOOLS } from "../lib/
 import { createConceptMiddelenApi, replayConceptActies } from "../lib/careon-middelen/concept";
 import { isMiddelenState } from "../lib/careon-middelen/types";
 import { CAREON_PROVENANCE, FINANCIELE_WIDGETS, pageLiveCounts } from "../lib/careon-production/provenance";
+import {
+  beleidszin,
+  bouwVerslagDeterministisch,
+  checklistOntbrekend,
+  corrigeerTranscriptDeterministisch,
+  deterministischeRonde,
+  extraheerDeterministisch,
+  extraheerTaken,
+  isBehandelaarsrapportage,
+  NIET_BESPROKEN_TEKST,
+  normaliseerRisicopolariteit,
+  normaliseerRisicozin,
+  rondStaatAf,
+} from "../lib/careon-scribe/deterministisch";
+import { bouwExportTekst } from "../lib/careon-scribe/export-tekst";
+import {
+  beoordelingsSectieIds,
+  isRisicoSectie,
+  RISICO_STRUCTUUR_PLACEHOLDER,
+  structuurPlaceholderVoor,
+  VERSLAG_FORMATEN,
+  vrijeSectieIds,
+} from "../lib/careon-scribe/formaten";
+import {
+  bouwVerslagSchema,
+  isKlinischeStaat,
+  KLINISCHE_STAAT_JSON_SCHEMA,
+  legeKlinischeStaat,
+  mergeKlinischeStaat,
+  STAAT_LABELS,
+  strictSchema,
+  VERSLAG_JSON_SCHEMA,
+} from "../lib/careon-scribe/klinische-staat";
+import {
+  controleerMedicatie,
+  groepenVoorAllergie,
+  MIDDEL_GROEPEN,
+  normaliseerDosering,
+} from "../lib/careon-scribe/medicatie-veiligheid";
+import { getalNaarCijfer, parseNlGetal } from "../lib/careon-scribe/nl-getallen";
+import { verwijderOverlap } from "../lib/careon-scribe/overlap";
+import { berekenRetentie } from "../lib/careon-scribe/retentie";
+import {
+  type Allergiefeit,
+  CONSULT_TYPES,
+  isPatientReferentie,
+  isScribeInstellingen,
+  isScribeNotitie,
+  isScribeSegment,
+  isScribeSessie,
+  isScribeTaak,
+  isVerslagSectie,
+  type Medicatie,
+  type MedicatieDosering,
+  normaliseerScribeInstellingen,
+  type KlinischeStaat as ScribeKlinischeStaat,
+  type ScribeSegment,
+  veiligeBestandsnaam,
+} from "../lib/careon-scribe/types";
+import { magScribeBeheren, magScribeGebruiken } from "../lib/careon-scribe-rol";
 
 let failures = 0;
 let passes = 0;
@@ -1352,8 +1424,12 @@ check(
 );
 const facturatieTegel = CAREON_MODULES.find((mod) => mod.id === "careon-facturatie");
 const yaazTegel = CAREON_MODULES.find((mod) => mod.id === "yaaz");
+const scribeTegel = CAREON_MODULES.find((mod) => mod.id === "careon-scribe");
 check("register: facturatietegel is live op /facturatie", facturatieTegel?.href, "/facturatie");
 check("register: facturatietegel is beheerder-only", facturatieTegel?.zichtbaarVoor, "org_admin");
+check("register: Careon AI-tegel is live", scribeTegel?.status, "live");
+check("register: Careon AI-tegel opent /scribe", scribeTegel?.href, "/scribe");
+check("register: Careon AI-tegel laadt een nieuw document voor microfoonrechten", scribeTegel?.hardeNavigatie, true);
 
 // Tegel-beeldmerken (klantverzoek 14-08-2026): de Directie-tegel draagt het
 // statische Careon-merkteken, Facturatie bewust geen beeldmerk; een
@@ -1837,6 +1913,1536 @@ check(
     isFactuurMaillogRegel({ ...maillogBasis, poging: 0 }),
   ],
   [true, false, false, false],
+);
+
+// ── Scribe (handoff 20) ─────────────────────────────────────────────────────
+// Careon Scribe is een client-goedgekeurde toevoeging buiten de tien
+// geauditeerde secties. Deze asserties leggen vast wat de module veilig maakt:
+// geen diagnose, geen polariteit op risico-uitspraken, een additieve merge die
+// een allergie nooit stil laat verdwijnen, en beoordelingssecties die geen
+// enkele generator invult.
+
+interface ScribeRolGeval {
+  orgId: string | null;
+  orgRole: "org_admin" | "member" | null;
+  isSuperadmin: boolean;
+  email?: string | null;
+}
+const scribeLid: ScribeRolGeval = { orgId: "org-1", orgRole: "member", isSuperadmin: false, email: "arts@tgc.nl" };
+const scribeBeheerder: ScribeRolGeval = { orgId: "org-1", orgRole: "org_admin", isSuperadmin: false, email: "a@b.nl" };
+const scribeSuperadminZonderOrg: ScribeRolGeval = { orgId: null, orgRole: null, isSuperadmin: true, email: "s@b.nl" };
+const scribeDemoAccount: ScribeRolGeval = {
+  orgId: "org-1",
+  orgRole: "member",
+  isSuperadmin: false,
+  email: CAREON_HOSTED_DEMO_EMAIL,
+};
+
+check(
+  "scribe rol: lid zonder machtiging mag de module niet gebruiken",
+  magScribeGebruiken({ ...scribeLid, gemachtigd: false }),
+  false,
+);
+check(
+  "scribe rol: gemachtigd lid mag de module gebruiken",
+  magScribeGebruiken({ ...scribeLid, gemachtigd: true }),
+  true,
+);
+check("scribe rol: gemachtigd lid mag NIET beheren", magScribeBeheren(scribeLid), false);
+check(
+  "scribe rol: org_admin mag beheren en gebruiken",
+  [magScribeBeheren(scribeBeheerder), magScribeGebruiken({ ...scribeBeheerder, gemachtigd: false })],
+  [true, true],
+);
+check(
+  "scribe rol: superadmin zonder organisatie valt buiten de module",
+  [magScribeBeheren(scribeSuperadminZonderOrg), magScribeGebruiken({ ...scribeSuperadminZonderOrg, gemachtigd: true })],
+  [false, false],
+);
+check("scribe rol: demo-account mag beheren (B12)", magScribeBeheren(scribeDemoAccount), true);
+
+// Dossierreferentie (S3): nooit een BSN of geboortedatum in de metadata.
+check(
+  "scribe referentie: allowlist, BSN- en datumweigering",
+  [
+    isPatientReferentie("D-2026-0417"),
+    isPatientReferentie("EPD 12_3.4/5"),
+    isPatientReferentie("123456789"),
+    isPatientReferentie("D-12345678"),
+    isPatientReferentie("01-02-1990"),
+    isPatientReferentie('D"1'),
+    isPatientReferentie("D;1"),
+    isPatientReferentie("AB"),
+    isPatientReferentie("A".repeat(41)),
+    isPatientReferentie("Jan Jansen"),
+  ],
+  [true, true, false, false, false, false, false, false, false, true],
+);
+check(
+  "scribe bestandsnaam: normaliseert, vouwt samen en valt terug op de sessie-id",
+  [
+    veiligeBestandsnaam("consult D-2026/0417"),
+    veiligeBestandsnaam("a??b   c"),
+    veiligeBestandsnaam("§§§", "demo-consult-1"),
+    veiligeBestandsnaam("x".repeat(60)).length,
+  ],
+  ["consult-D-2026-0417", "a-b-c", "demo-consult-1", 40],
+);
+
+// Formaten (§4.2): acht disciplines, ★-secties expliciet, nergens "diagnose".
+check("scribe formaten: acht consulttypen", Object.keys(VERSLAG_FORMATEN).length, 8);
+check(
+  "scribe formaten: geen enkele sectietitel noemt een diagnose (S10)",
+  CONSULT_TYPES.some((type) =>
+    VERSLAG_FORMATEN[type].secties.some((sectie) => /diagnose/i.test(`${sectie.titel} ${sectie.id}`)),
+  ),
+  false,
+);
+check(
+  "scribe formaten: ★-secties per type",
+  CONSULT_TYPES.map((type) => beoordelingsSectieIds(type)),
+  [
+    ["analyse"],
+    ["beoordeling"],
+    ["evaluatie"],
+    ["risicotaxatie", "overwegingen"],
+    // N4 — verpleegkundig en ontslag hadden geen enkele ★-sectie: "Alles
+    // goedkeuren" maakte een volledig machinaal verslag in twee klikken vast.
+    ["reactie-evaluatie"],
+    ["werkhypothese"],
+    ["beoordeling"],
+    ["conclusie-beoordeling"],
+  ],
+);
+check(
+  "scribe formaten: elk formaat heeft minstens één ★-sectie (N4)",
+  CONSULT_TYPES.every((type) => beoordelingsSectieIds(type).length >= 1),
+  true,
+);
+check(
+  "scribe formaten: aantal ★-secties per type",
+  CONSULT_TYPES.map((type) => beoordelingsSectieIds(type).length),
+  [1, 1, 1, 2, 1, 1, 1, 1],
+);
+check(
+  "scribe formaten: alleen de risicotaxatie draagt soort `risico` (C48)",
+  CONSULT_TYPES.flatMap((type) =>
+    VERSLAG_FORMATEN[type].secties.filter((sectie) => isRisicoSectie(type, sectie.id)).map((sectie) => sectie.id),
+  ),
+  ["risicotaxatie"],
+);
+check(
+  "scribe formaten: de risicotaxatie krijgt een structuurplaceholder (N3)",
+  [
+    structuurPlaceholderVoor("psychiatrie", "risicotaxatie"),
+    structuurPlaceholderVoor("psychiatrie", "overwegingen"),
+    RISICO_STRUCTUUR_PLACEHOLDER.split("\n").length,
+  ],
+  [RISICO_STRUCTUUR_PLACEHOLDER, null, 3],
+);
+check(
+  "scribe formaten: vrije en ★-secties zijn complementair",
+  CONSULT_TYPES.every(
+    (type) =>
+      vrijeSectieIds(type).length + beoordelingsSectieIds(type).length === VERSLAG_FORMATEN[type].secties.length,
+  ),
+  true,
+);
+check(
+  "scribe formaten: unieke sectie-id's en een doelgroep per formaat",
+  CONSULT_TYPES.every((type) => {
+    const ids = VERSLAG_FORMATEN[type].secties.map((sectie) => sectie.id);
+    return new Set(ids).size === ids.length && VERSLAG_FORMATEN[type].doelgroep.length > 0;
+  }),
+  true,
+);
+check(
+  "scribe formaten: elke ★-sectie draagt de beoordelingshint",
+  CONSULT_TYPES.every((type) =>
+    VERSLAG_FORMATEN[type].secties
+      .filter((sectie) => sectie.vereistBehandelaar === true)
+      .every((sectie) => sectie.hint.startsWith("Beoordeling door behandelaar")),
+  ),
+  true,
+);
+
+// Guards (§4.3/§4.6): exacte sleutelset en een actief verbod op `diagnose`.
+const scribeLegeStaat = legeKlinischeStaat();
+check("scribe guard: lege staat is geldig", isKlinischeStaat(scribeLegeStaat), true);
+check(
+  "scribe guard: een staat met `diagnose` wordt geweigerd (S10)",
+  isKlinischeStaat({ ...scribeLegeStaat, diagnose: "depressieve episode" }),
+  false,
+);
+check(
+  "scribe guard: ontbrekende of extra sleutel wordt geweigerd",
+  [
+    isKlinischeStaat({ ...scribeLegeStaat, waarschuwingen: undefined }),
+    isKlinischeStaat({ ...scribeLegeStaat, extra: 1 }),
+    isKlinischeStaat(null),
+  ],
+  [false, false, false],
+);
+check(
+  "scribe guard: labels dekken elke staatsleutel",
+  Object.keys(STAAT_LABELS).length === Object.keys(scribeLegeStaat).length,
+  true,
+);
+
+const scribeDemo = buildDemoConsult2();
+check("scribe guard: alle demo-sessies passeren isScribeSessie", DEMO_SCRIBE_SESSIES.every(isScribeSessie), true);
+check(
+  "scribe guard: sessie met BSN-referentie wordt geweigerd",
+  isScribeSessie({ ...DEMO_SCRIBE_SESSIES[0], patientReferentie: "123456789" }),
+  false,
+);
+check("scribe guard: demo-segmenten passeren isScribeSegment", scribeDemo.segmenten.every(isScribeSegment), true);
+check(
+  "scribe guard: segment met volgnummer 0 of te lange tekst wordt geweigerd",
+  [
+    isScribeSegment({ ...scribeDemo.segmenten[0], volgnummer: 0 }),
+    isScribeSegment({ ...scribeDemo.segmenten[0], tekst: "x".repeat(4001) }),
+  ],
+  [false, false],
+);
+check("scribe guard: demo-notitie passeert isScribeNotitie", isScribeNotitie(scribeDemo.notitie), true);
+check("scribe guard: goedgekeurde demo-notitie passeert isScribeNotitie", isScribeNotitie(demoConsult3Notitie()), true);
+check("scribe guard: demo-taken passeren isScribeTaak", scribeDemo.taken.every(isScribeTaak), true);
+check(
+  "scribe guard: verslagsectie-guard",
+  [
+    isVerslagSectie(scribeDemo.notitie.secties[0]),
+    isVerslagSectie({ ...scribeDemo.notitie.secties[0], status: "definitief" }),
+    isVerslagSectie({ ...scribeDemo.notitie.secties[0], bron: ["§3"] }),
+  ],
+  [true, false, false],
+);
+check(
+  "scribe guard: instellingen",
+  [
+    isScribeInstellingen(EMPTY_SCRIBE_INSTELLINGEN),
+    isScribeInstellingen(DEMO_SCRIBE_INSTELLINGEN),
+    isScribeInstellingen({ ...EMPTY_SCRIBE_INSTELLINGEN, transcriptRetentieDagen: 0 }),
+    isScribeInstellingen({ ...EMPTY_SCRIBE_INSTELLINGEN, notitieRetentieDagen: 0 }),
+    isScribeInstellingen({ ...EMPTY_SCRIBE_INSTELLINGEN, standaardFormaat: "heap" }),
+    isScribeInstellingen({ ...EMPTY_SCRIBE_INSTELLINGEN, consenttekst: "" }),
+  ],
+  [true, true, false, true, false, false],
+);
+check(
+  "scribe instellingen: onvolledige snapshot wordt aangevuld, geldige blijft ongewijzigd",
+  [
+    normaliseerScribeInstellingen({ ingeschakeld: true }, EMPTY_SCRIBE_INSTELLINGEN).standaardFormaat,
+    normaliseerScribeInstellingen({ ingeschakeld: true }, EMPTY_SCRIBE_INSTELLINGEN).ingeschakeld,
+    migreerScribeInstellingen(null).ingeschakeld,
+    migreerScribeInstellingen(DEMO_SCRIBE_INSTELLINGEN).standaardFormaat,
+  ],
+  ["soap", true, false, "psychiatrie"],
+);
+
+// Strict JSON-schema's: recursief additionalProperties:false en élke property
+// in `required` — dezelfde eis als verify:assistant aan de tool-schema's stelt.
+function scribeSchemaStrikt(schema: unknown): boolean {
+  if (!schema || typeof schema !== "object") return true;
+  const node = schema as Record<string, unknown>;
+  if (node.type === "object") {
+    if (node.additionalProperties !== false) return false;
+    const properties = (node.properties ?? {}) as Record<string, unknown>;
+    const verplicht = Array.isArray(node.required) ? (node.required as string[]) : [];
+    const sleutels = Object.keys(properties);
+    if (verplicht.length !== sleutels.length) return false;
+    if (!sleutels.every((sleutel) => verplicht.includes(sleutel))) return false;
+    return Object.values(properties).every(scribeSchemaStrikt);
+  }
+  if (node.type === "array") return scribeSchemaStrikt(node.items);
+  return true;
+}
+check("scribe schema: consultstaat is recursief strict", scribeSchemaStrikt(KLINISCHE_STAAT_JSON_SCHEMA), true);
+check("scribe schema: verslagschema is recursief strict", scribeSchemaStrikt(VERSLAG_JSON_SCHEMA), true);
+check(
+  "scribe schema: staat kent geen sleutel `diagnose`",
+  Object.keys((KLINISCHE_STAAT_JSON_SCHEMA.properties ?? {}) as Record<string, unknown>).includes("diagnose"),
+  false,
+);
+check(
+  "scribe schema: modelwaarschuwingen kunnen alleen `model` als herkomst dragen",
+  (
+    (
+      (
+        (KLINISCHE_STAAT_JSON_SCHEMA.properties as Record<string, Record<string, unknown>>).waarschuwingen
+          .items as Record<string, Record<string, Record<string, unknown>>>
+      ).properties as Record<string, Record<string, unknown>>
+    ).herkomst as Record<string, unknown>
+  ).enum as string[],
+  ["model"],
+);
+check(
+  "scribe schema: het verslagschema per formaat kent alleen de niet-★-sectie-id's",
+  (
+    (
+      (
+        (bouwVerslagSchema("psychiatrie").properties as Record<string, Record<string, unknown>>).secties
+          .items as Record<string, Record<string, Record<string, unknown>>>
+      ).properties as Record<string, Record<string, unknown>>
+    ).id as Record<string, unknown>
+  ).enum as string[],
+  vrijeSectieIds("psychiatrie"),
+);
+check(
+  "scribe schema: geen enkel formaat laat een ★-sectie in het verslagschema toe",
+  CONSULT_TYPES.some((type) => {
+    const enumWaarden = (
+      (
+        (
+          (bouwVerslagSchema(type).properties as Record<string, Record<string, unknown>>).secties.items as Record<
+            string,
+            Record<string, Record<string, unknown>>
+          >
+        ).properties as Record<string, Record<string, unknown>>
+      ).id as Record<string, unknown>
+    ).enum as string[];
+    return beoordelingsSectieIds(type).some((id) => enumWaarden.includes(id));
+  }),
+  false,
+);
+const scribeGenormaliseerd = strictSchema({
+  type: "object",
+  properties: { a: { type: "string" }, b: { type: "integer" } },
+  required: ["a"],
+});
+check(
+  "scribe schema: optionele property wordt nullable én verplicht",
+  [
+    scribeGenormaliseerd.required,
+    scribeGenormaliseerd.additionalProperties,
+    (scribeGenormaliseerd.properties as Record<string, Record<string, unknown>>).b.type as string[],
+  ],
+  [["a", "b"], false, ["integer", "null"]],
+);
+
+// Merge (S7): veiligheidskritische feiten verdwijnen nooit door een weglating.
+function scribeMedicatie(
+  naam: string,
+  gebruik: Medicatie["gebruik"],
+  dosering: string | null,
+  bron: number[],
+  doseringen: MedicatieDosering[] = dosering ? [{ waarde: dosering, bron }] : [],
+): Medicatie {
+  return { tekst: naam, bron, ingetrokken: false, naam, dosering, gebruik, doseringen };
+}
+function scribeAllergie(tekst: string, aard: Allergiefeit["aard"] = "allergie", bron: number[] = [2]): Allergiefeit {
+  return { tekst, bron, ingetrokken: false, aard };
+}
+/** Synthetisch transcriptsegment voor de extractie-asserties. */
+function scribeSegment(
+  volgnummer: number,
+  spreker: ScribeSegment["spreker"],
+  tekst: string,
+  bron: ScribeSegment["bron"] = "demo",
+): ScribeSegment {
+  return {
+    id: `verify-seg-${volgnummer}`,
+    volgnummer,
+    spreker,
+    tekst,
+    tekstGecorrigeerd: null,
+    correctieBron: null,
+    beginMs: (volgnummer - 1) * 1000,
+    eindMs: volgnummer * 1000,
+    bron,
+    createdAt: "2026-09-07T10:00:00.000Z",
+  };
+}
+const scribeStaatMetAllergie: ScribeKlinischeStaat = {
+  ...legeKlinischeStaat(),
+  allergieen: [scribeAllergie("amoxicilline")],
+  medicatie: [scribeMedicatie("flucloxacilline", "voorgesteld", "500 mg", [7])],
+  symptomen: [{ tekst: "somberheid", bron: [2], ingetrokken: false }],
+};
+const scribeStaatZonderAllergie: ScribeKlinischeStaat = {
+  ...legeKlinischeStaat(),
+  medicatie: [scribeMedicatie("flucloxacilline", "voorgesteld", "500 mg", [9])],
+  symptomen: [{ tekst: "somberheid", bron: [11], ingetrokken: false }],
+};
+const scribeSamengevoegd = mergeKlinischeStaat(scribeStaatMetAllergie, scribeStaatZonderAllergie);
+check(
+  "scribe merge: een pass zonder allergie wist de allergie niet (additief)",
+  scribeSamengevoegd.allergieen.map((rij) => [rij.tekst, rij.ingetrokken]),
+  [["amoxicilline", false]],
+);
+check(
+  "scribe merge: de regelwaarschuwing blijft na de merge vuren",
+  controleerMedicatie(scribeSamengevoegd.medicatie, scribeSamengevoegd.allergieen).map((rij) => [
+    rij.type,
+    rij.herkomst,
+  ]),
+  [["allergie", "regel"]],
+);
+check(
+  "scribe merge: herkomst blijft behouden bij een niet-additieve categorie",
+  scribeSamengevoegd.symptomen[0].bron,
+  [2, 11],
+);
+check(
+  "scribe merge: intrekking telt alleen mét bron",
+  [
+    mergeKlinischeStaat(scribeStaatMetAllergie, {
+      ...legeKlinischeStaat(),
+      allergieen: [{ ...scribeAllergie("amoxicilline"), ingetrokken: true, bron: [14] }],
+    }).allergieen[0].ingetrokken,
+    mergeKlinischeStaat(scribeStaatMetAllergie, {
+      ...legeKlinischeStaat(),
+      allergieen: [{ ...scribeAllergie("amoxicilline"), ingetrokken: true, bron: [] }],
+    }).allergieen[0].ingetrokken,
+  ],
+  [true, false],
+);
+check(
+  "scribe merge: een modelwaarschuwing wordt nooit een regelwaarschuwing",
+  mergeKlinischeStaat(
+    {
+      ...legeKlinischeStaat(),
+      waarschuwingen: [{ type: "interactie", herkomst: "model", tekst: "signaal", bron: [3] }],
+    },
+    {
+      ...legeKlinischeStaat(),
+      waarschuwingen: [{ type: "interactie", herkomst: "regel", tekst: "signaal", bron: [3] }],
+    },
+  ).waarschuwingen.map((rij) => rij.herkomst),
+  ["model", "regel"],
+);
+check(
+  "scribe merge: een checklist-item verdwijnt nooit en gaat alleen naar besproken",
+  mergeKlinischeStaat(
+    { ...legeKlinischeStaat(), ontbrekend: [{ tekst: "Suïcidaliteit uitvragen", status: "besproken", bron: [13] }] },
+    { ...legeKlinischeStaat(), ontbrekend: [{ tekst: "Suïcidaliteit uitvragen", status: "open", bron: [] }] },
+  ).ontbrekend,
+  [{ tekst: "Suïcidaliteit uitvragen", status: "besproken", bron: [13] }],
+);
+
+// Medicatieveiligheid (§4.4): gecureerde regels, altijd `herkomst: "regel"`.
+check(
+  "scribe medicatie: allergie penicilline treft amoxicilline",
+  controleerMedicatie([scribeMedicatie("amoxicilline", "voorgesteld", null, [4])], [scribeAllergie("penicilline")])
+    .length,
+  1,
+);
+check(
+  "scribe medicatie: allergie amoxicilline treft flucloxacilline via de groep",
+  controleerMedicatie(
+    [scribeMedicatie("flucloxacilline", "voorgesteld", null, [4])],
+    [scribeAllergie("amoxicilline")],
+  ).map((rij) => rij.type),
+  ["allergie"],
+);
+check(
+  "scribe medicatie: NSAID-allergie kruist naar carbasalaatcalcium",
+  controleerMedicatie([scribeMedicatie("carbasalaatcalcium", "huidig", null, [4])], [scribeAllergie("ibuprofen")])
+    .length,
+  1,
+);
+check(
+  "scribe medicatie: penicilline-allergie waarschuwt niet bij azitromycine",
+  controleerMedicatie([scribeMedicatie("azitromycine", "voorgesteld", null, [4])], [scribeAllergie("penicilline")]),
+  [],
+);
+check(
+  "scribe medicatie: allergie amoxicilline lost op naar de penicillinegroep",
+  groepenVoorAllergie("allergisch voor amoxicilline"),
+  ["penicillinen"],
+);
+check(
+  "scribe medicatie: een intolerantie levert nooit een allergieconflict",
+  controleerMedicatie(
+    [scribeMedicatie("amoxicilline", "huidig", null, [4])],
+    [scribeAllergie("amoxicilline", "intolerantie")],
+  ).map((rij) => rij.tekst.includes("Gemelde intolerantie — geen allergie.")),
+  [true],
+);
+check(
+  "scribe medicatie: `onbekend` en `gestopt` gaan niet de veiligheidscheck in",
+  [
+    controleerMedicatie([scribeMedicatie("amoxicilline", "onbekend", null, [4])], [scribeAllergie("penicilline")])
+      .length,
+    controleerMedicatie([scribeMedicatie("amoxicilline", "gestopt", null, [4])], [scribeAllergie("penicilline")])
+      .length,
+  ],
+  [0, 0],
+);
+check(
+  "scribe medicatie: sertraline × tramadol is een serotonerge interactie",
+  controleerMedicatie(
+    [scribeMedicatie("sertraline", "huidig", "50 mg", [16]), scribeMedicatie("tramadol", "huidig", null, [17])],
+    [],
+  ).map((rij) => rij.type),
+  ["interactie"],
+);
+check(
+  "scribe medicatie: twee SSRI's leveren dubbelmedicatie",
+  controleerMedicatie(
+    [scribeMedicatie("sertraline", "huidig", null, [3]), scribeMedicatie("citalopram", "huidig", null, [4])],
+    [],
+  ).map((rij) => rij.type),
+  ["dubbel"],
+);
+check(
+  "scribe medicatie: lithium × ibuprofen waarschuwt op de spiegel",
+  controleerMedicatie(
+    [scribeMedicatie("lithium", "huidig", null, [3]), scribeMedicatie("ibuprofen", "voorgesteld", null, [4])],
+    [],
+  ).map((rij) => rij.type),
+  ["interactie"],
+);
+check(
+  "scribe medicatie: benzodiazepine × opioïd en QT-middelen onderling",
+  [
+    controleerMedicatie(
+      [scribeMedicatie("oxazepam", "huidig", null, [3]), scribeMedicatie("oxycodon", "huidig", null, [4])],
+      [],
+    ).length,
+    controleerMedicatie(
+      [scribeMedicatie("haloperidol", "huidig", null, [3]), scribeMedicatie("methadon", "huidig", null, [4])],
+      [],
+    ).length,
+  ],
+  [1, 1],
+);
+check(
+  "scribe medicatie: doseringsinconsistentie binnen dezelfde gebruiksstatus",
+  controleerMedicatie(
+    [scribeMedicatie("sertraline", "huidig", "50 mg", [3]), scribeMedicatie("sertraline", "huidig", "100 mg", [12])],
+    [],
+  ).map((rij) => rij.tekst),
+  ["Dosering inconsistent genoemd (§3: 50 mg; §12: 100 mg) — controleer."],
+);
+check(
+  "scribe medicatie: een ophoging (ander gebruik) is géén inconsistentie",
+  controleerMedicatie(
+    [
+      scribeMedicatie("sertraline", "huidig", "50 mg", [3]),
+      scribeMedicatie("sertraline", "voorgesteld", "100 mg", [12]),
+    ],
+    [],
+  ).filter((rij) => rij.type === "dosering"),
+  [],
+);
+check(
+  "scribe medicatie: elke gecontroleerde regel draagt herkomst `regel`",
+  controleerMedicatie(
+    [
+      scribeMedicatie("sertraline", "huidig", null, [3]),
+      scribeMedicatie("tramadol", "huidig", null, [4]),
+      scribeMedicatie("citalopram", "huidig", null, [5]),
+    ],
+    [scribeAllergie("penicilline")],
+  ).every((rij) => rij.herkomst === "regel"),
+  true,
+);
+
+// Deterministische extractie op het gescripte demo-consult (§7.7).
+check(
+  "scribe demo: het script levert evenveel segmenten als regels",
+  [scribeDemo.segmenten.length, DEMO_CONSULT_SCRIPT.length],
+  [30, 30],
+);
+check(
+  "scribe extractie: hoofdklacht, duur en beloop",
+  [scribeDemo.staat.hoofdklacht, scribeDemo.staat.duur, scribeDemo.staat.beloop],
+  ["somberheid", "drie maanden", "geleidelijk erger"],
+);
+check(
+  "scribe extractie: samenvatting uit hoofdklacht en duur",
+  scribeDemo.staat.samenvatting,
+  "Somberheid sinds drie maanden.",
+);
+check(
+  "scribe extractie: sertraline vijftig milligram als huidige medicatie",
+  scribeDemo.staat.medicatie
+    .filter((rij) => rij.naam === "sertraline" && rij.gebruik === "huidig")
+    .map((rij) => rij.dosering),
+  ["50 mg"],
+);
+check(
+  "scribe extractie: ophoging naar honderd milligram is `voorgesteld`",
+  scribeDemo.staat.medicatie
+    .filter((rij) => rij.naam === "sertraline" && rij.gebruik === "voorgesteld")
+    .map((rij) => rij.dosering),
+  ["100 mg"],
+);
+check(
+  "scribe extractie: tramadol is herkend",
+  scribeDemo.staat.medicatie.some((rij) => rij.naam === "tramadol" && rij.gebruik === "huidig"),
+  true,
+);
+check(
+  "scribe extractie: allergie amoxicilline, niet als medicatie",
+  [
+    scribeDemo.staat.allergieen.map((rij) => [rij.tekst, rij.aard]),
+    scribeDemo.staat.medicatie.some((rij) => rij.naam === "amoxicilline"),
+  ],
+  [[["amoxicilline", "allergie"]], false],
+);
+check(
+  "scribe extractie: suïcidaliteit is `besproken` en draagt geen polariteit (S10)",
+  scribeDemo.staat.psychisch.filter((rij) => rij.categorie === "suicidaliteit").map((rij) => rij.tekst),
+  ["Suïcidaliteit besproken — beoordeling behandelaar"],
+);
+check(
+  "scribe extractie: geen enkel risicofeit bevat een ontkenning of bevestiging",
+  scribeDemo.staat.psychisch
+    .filter((rij) => ["suicidaliteit", "psychose", "veiligheid", "huiselijk-geweld"].includes(rij.categorie))
+    .some((rij) => /\b(geen|geen|niet|nooit|wel|aanwezig|afwezig)\b/i.test(rij.tekst)),
+  false,
+);
+check(
+  'scribe extractie: "urine" is geen medicijn (GEEN_MEDICIJN)',
+  extraheerDeterministisch(
+    [
+      {
+        id: "s1",
+        volgnummer: 1,
+        spreker: "patient",
+        tekst: "Mijn urine ruikt sterk en ik heb een vaste routine met vitamine.",
+        tekstGecorrigeerd: null,
+        correctieBron: null,
+        beginMs: 0,
+        eindMs: 1000,
+        bron: "handmatig",
+        createdAt: "2026-09-07T10:00:00.000Z",
+      } satisfies ScribeSegment,
+    ],
+    "soap",
+  ).medicatie,
+  [],
+);
+check(
+  "scribe extractie: twee uitgesproken overwegingen, elk met bron",
+  scribeDemo.staat.overwegingen.map((rij) => rij.bron),
+  [[23], [24]],
+);
+check(
+  "scribe extractie: alcohol als leefstijlfeit met hoeveelheid, roken ontkend",
+  [
+    scribeDemo.staat.leefstijl.find((rij) => rij.categorie === "alcohol")?.tekst,
+    scribeDemo.staat.leefstijl.find((rij) => rij.categorie === "roken")?.tekst,
+  ],
+  ["Alcohol: vier glazen", "Roken: ontkend"],
+);
+check(
+  // C49 — `metingen` voedt Objectief/Onderzoek/Bevindingen: per definitie
+  // waarnemingen van de behandelaar. "vier kilo" (gewichtsVERLIES) las daar als
+  // een gemeten gewicht van 4 kg.
+  "scribe extractie: door de cliënt genoemd gewichtsverlies is géén meting",
+  [
+    scribeDemo.staat.metingen.map((rij) => rij.tekst),
+    scribeDemo.staat.begeleidendeSymptomen.some((rij) => rij.tekst.includes("vier kilo afgevallen")),
+    checklistOntbrekend(scribeDemo.staat, "seh")
+      .filter((rij) => rij.tekst.startsWith("Metingen"))
+      .map((rij) => rij.status),
+  ],
+  [[], true, ["open"]],
+);
+check(
+  "scribe extractie: een meting van de behandelaar landt wél in metingen, met deelzincontext",
+  extraheerDeterministisch(
+    [
+      scribeSegment(
+        1,
+        "arts",
+        "Bij onderzoek meet ik een bloeddruk van 150 / 95 en een pols van tachtig slagen per minuut.",
+      ),
+    ],
+    "soap",
+  ).metingen.map((rij) => rij.tekst.includes("bloeddruk") && rij.tekst.includes("slagen per minuut")),
+  [true],
+);
+check(
+  "scribe extractie: een pijnschaal van de cliënt is geen bloeddruk",
+  extraheerDeterministisch([scribeSegment(1, "patient", "Op een schaal van 10 zit ik op 80/100.")], "soap").metingen,
+  [],
+);
+check(
+  "scribe extractie: voorgeschiedenis en familieanamnese",
+  [
+    scribeDemo.staat.voorgeschiedenis.some((rij) => rij.tekst.includes("burn-out") && rij.tekst.includes("2022")),
+    scribeDemo.staat.familieanamnese.some((rij) => rij.tekst.includes("moeder")),
+  ],
+  [true, true],
+);
+check(
+  "scribe extractie: precies één gecontroleerde waarschuwing (sertraline × tramadol)",
+  scribeDemo.staat.waarschuwingen.map((rij) => [rij.type, rij.herkomst]),
+  [["interactie", "regel"]],
+);
+check(
+  "scribe taken: lab, communicatie en vervolgafspraak zijn geëxtraheerd",
+  extraheerTaken(scribeDemo.staat).map((rij) => rij.soort),
+  ["medicatie", "lab", "communicatie", "overig", "vervolgafspraak"],
+);
+const scribeChecklist = checklistOntbrekend(scribeDemo.staat, "psychiatrie");
+check(
+  "scribe checklist: suïcidaliteit staat op besproken met bron",
+  scribeChecklist.filter((rij) => rij.tekst.startsWith("Suïcidaliteit")).map((rij) => [rij.status, rij.bron]),
+  [["besproken", [13]]],
+);
+check(
+  // N8 — de wettelijke en klinische GGZ-onderwerpen staan nu in de lijst en
+  // blijven in het demoscript terecht op `open`.
+  "scribe checklist: de niet-besproken GGZ-onderwerpen blijven open",
+  scribeChecklist.filter((rij) => rij.status === "open").map((rij) => rij.tekst),
+  [
+    "Eerdere suïcidepogingen",
+    "Crisisplan en crisisafspraken",
+    "Psychotische verschijnselen uitvragen",
+    "Veiligheid van anderen en huiselijk geweld",
+    "Kindcheck: kinderen in het gezin en hun veiligheid",
+    "Zwangerschap, kinderwens en anticonceptie",
+    "Bijwerkingen van de medicatie uitvragen",
+    "Therapietrouw uitvragen",
+    "Somatische/metabole controle bij antipsychotica",
+    "Wonen, financiën en schulden",
+    "Vangnetadvies: wanneer contact opnemen",
+  ],
+);
+check(
+  "scribe checklist: kindcheck en zwangerschap schuiven naar besproken zodra ze genoemd zijn (N8)",
+  (() => {
+    const staat = extraheerDeterministisch(
+      [
+        scribeSegment(1, "arts", "Wonen er kinderen in het gezin en hoe gaat het met hen?"),
+        scribeSegment(2, "arts", "Is er een kinderwens of gebruikt u anticonceptie?"),
+        scribeSegment(3, "patient", "Ik heb geen last van bijwerkingen en ik vergeet de medicatie nooit in te nemen."),
+      ],
+      "psychiatrie",
+    );
+    return checklistOntbrekend(staat, "psychiatrie")
+      .filter((rij) =>
+        ["Kindcheck", "Zwangerschap", "Bijwerkingen", "Therapietrouw"].some((kop) => rij.tekst.startsWith(kop)),
+      )
+      .map((rij) => rij.status);
+  })(),
+  ["besproken", "besproken", "besproken", "besproken"],
+);
+check(
+  "scribe checklist: elk consulttype dekt zijn wettelijke GGZ-onderwerpen (N8)",
+  [
+    checklistOntbrekend(legeKlinischeStaat(), "psychiatrie").length,
+    checklistOntbrekend(legeKlinischeStaat(), "vervolg").some((rij) => rij.tekst.startsWith("Bijwerkingen")),
+    checklistOntbrekend(legeKlinischeStaat(), "verpleegkundig").some((rij) => rij.tekst.startsWith("Suïcidaliteit")),
+    checklistOntbrekend(legeKlinischeStaat(), "soep").some((rij) => rij.tekst.startsWith("Vangnetadvies")),
+  ],
+  [21, true, true, true],
+);
+check(
+  "scribe checklist: elk consulttype heeft een eigen lijst",
+  CONSULT_TYPES.every((type) => checklistOntbrekend(legeKlinischeStaat(), type).length > 0),
+  true,
+);
+
+// Verslagopbouw: ★-secties blijven leeg, gaten worden zichtbaar gemaakt.
+check(
+  "scribe verslag: secties volgen het formaat van het consulttype",
+  scribeDemo.notitie.secties.map((sectie) => sectie.id),
+  VERSLAG_FORMATEN.psychiatrie.secties.map((sectie) => sectie.id),
+);
+check(
+  // C48 — de ★-bron is sectie-specifiek: Risicotaxatie citeert de risicofeiten
+  // uit `psychisch` (§13), Overwegingen de uitgesproken overwegingen (§23/§24).
+  "scribe verslag: ★-secties zijn leeg en citeren hun eigen onderwerp",
+  scribeDemo.notitie.secties
+    .filter((sectie) => sectie.vereistBehandelaar)
+    .map((sectie) => [sectie.id, sectie.tekst, sectie.status, sectie.bron, sectie.conceptTekst]),
+  [
+    ["risicotaxatie", "", "leeg", [13], "Suïcidaliteit besproken — beoordeling behandelaar (§13)"],
+    [
+      "overwegingen",
+      "",
+      "leeg",
+      [23, 24],
+      "Uitgesproken overwegingen (§23): Dit zou kunnen passen bij een depressieve episode, maar ik wil een schildklierafwijking uitsluiten.\nUitgesproken overwegingen (§24): De rugpijn en de tramadol beïnvloeden mogelijk ook het slapen.",
+    ],
+  ],
+);
+check(
+  "scribe verslag: een ★-risicosectie draagt nooit een overwegingscitaat (C48)",
+  scribeDemo.notitie.secties
+    .filter((sectie) => isRisicoSectie("psychiatrie", sectie.id))
+    .every(
+      (sectie) =>
+        !sectie.conceptTekst.includes("Uitgesproken overwegingen") &&
+        sectie.bron.every((nummer) =>
+          scribeDemo.staat.psychisch.some((rij) => rij.bron.includes(nummer) && rij.tekst.includes("besproken")),
+        ),
+    ),
+  true,
+);
+check(
+  "scribe verslag: een lege niet-★-sectie meldt dat er niets besproken is",
+  bouwVerslagDeterministisch(legeKlinischeStaat(), [], "soap")
+    .filter((sectie) => !sectie.vereistBehandelaar)
+    .every((sectie) => sectie.tekst === NIET_BESPROKEN_TEKST && sectie.bron.length === 0),
+  true,
+);
+check(
+  "scribe verslag: ontbrekende fragmenten komen in een kopnoot terecht",
+  bouwVerslagDeterministisch(
+    legeKlinischeStaat(),
+    [
+      {
+        id: "gat-1",
+        volgnummer: 1,
+        spreker: "onbekend",
+        tekst: "[Transcriptie onderbroken — circa 8 seconden ontbreken]",
+        tekstGecorrigeerd: null,
+        correctieBron: null,
+        beginMs: 0,
+        eindMs: 8000,
+        bron: "systeem",
+        createdAt: "2026-09-07T10:00:00.000Z",
+      } satisfies ScribeSegment,
+    ],
+    "soap",
+  )[0].tekst.startsWith("Let op: 1 fragmenten ontbreken in het transcript."),
+  true,
+);
+check(
+  "scribe verslag: ★-secties blijven buiten de machinale invulling van elk formaat",
+  CONSULT_TYPES.every((type) =>
+    bouwVerslagDeterministisch(scribeDemo.staat, scribeDemo.segmenten, type)
+      .filter((sectie) => sectie.vereistBehandelaar)
+      .every((sectie) => sectie.tekst === "" && sectie.status === "leeg"),
+  ),
+  true,
+);
+
+// ── Getallenlexicon (C38): een fout getal is gevaarlijker dan een gemist getal ──
+check(
+  "scribe getallen: samengestelde telwoorden leveren de juiste dosering",
+  [
+    "vijfentwintig",
+    "vijfenzeventig",
+    "honderdvijftig",
+    "tweehonderdvijfentwintig",
+    "vijfhonderd",
+    "achthonderd",
+    "duizend",
+    "eenentwintig",
+    "tweeëntwintig",
+    "twaalf komma vijf",
+    "vijftig",
+    "honderd",
+  ].map((woord) => parseNlGetal(woord)),
+  [25, 75, 150, 225, 500, 800, 1000, 21, 22, 12.5, 50, 100],
+);
+check(
+  "scribe getallen: extractie leest samengestelde doseringen als één getal",
+  [
+    "Ik gebruik sertraline vijfentwintig milligram.",
+    "Ik gebruik sertraline vijfenzeventig milligram.",
+    "Ik gebruik quetiapine honderdvijftig milligram.",
+    "Ik gebruik valproaat vijfhonderd milligram.",
+    "Ik gebruik lithium twaalf komma vijf milligram.",
+    "Ik gebruik sertraline vijftig milligram.",
+  ].map(
+    (tekst) => extraheerDeterministisch([scribeSegment(1, "patient", tekst)], "soap").medicatie[0]?.dosering ?? null,
+  ),
+  ["25 mg", "75 mg", "150 mg", "500 mg", "12.5 mg", "50 mg"],
+);
+check(
+  "scribe getallen: duur, meting en leefstijl blijven verankerd",
+  [
+    extraheerDeterministisch([scribeSegment(1, "patient", "Ik ben al vijfentwintig weken somber.")], "soap").duur,
+    extraheerDeterministisch([scribeSegment(1, "arts", "Ik meet vijfentachtig kilo.")], "soap").metingen.length,
+    extraheerDeterministisch(
+      [scribeSegment(1, "patient", "Ik drink vijfentwintig glazen per week.")],
+      "soap",
+    ).leefstijl.find((rij) => rij.categorie === "alcohol")?.tekst,
+  ],
+  ["vijfentwintig weken", 1, "Alcohol: vijfentwintig glazen"],
+);
+check(
+  "scribe getallen: cijfers met en zonder spatie blijven werken",
+  [getalNaarCijfer("50"), getalNaarCijfer("12,5"), normaliseerDosering("50mg"), normaliseerDosering("50 MILLIGRAM")],
+  ["50", "12.5", "50 mg", "50 mg"],
+);
+
+// ── Klinische extractie: ontkenning, uitvraag en context ────────────────────
+check(
+  // C39 — "Nee, ik ben niet allergisch voor penicilline" is de standaarduitkomst
+  // van de allergie-uitvraag; die mocht nooit een gemelde allergie worden.
+  "scribe extractie: een ontkende allergie levert nooit aard `allergie` en geen regelwaarschuwing",
+  (() => {
+    const staat = extraheerDeterministisch(
+      [
+        scribeSegment(1, "patient", "Nee, ik ben niet allergisch voor penicilline."),
+        scribeSegment(2, "arts", "Ik schrijf amoxicilline 500 mg voor."),
+      ],
+      "soap",
+    );
+    return [
+      staat.allergieen.map((rij) => [rij.tekst, rij.aard]),
+      staat.waarschuwingen.filter((rij) => rij.type === "allergie").length,
+      checklistOntbrekend(staat, "soap")
+        .filter((rij) => rij.tekst.startsWith("Allergieën"))
+        .map((rij) => rij.status),
+    ];
+  })(),
+  [[["penicilline — allergie ontkend", "onbekend"]], 0, ["besproken"]],
+);
+check(
+  "scribe extractie: een echte allergie en een intolerantie blijven overeind (C39)",
+  [
+    extraheerDeterministisch(
+      [
+        scribeSegment(1, "patient", "Ik ben allergisch voor penicilline."),
+        scribeSegment(2, "arts", "Ik schrijf amoxicilline 500 mg voor."),
+      ],
+      "soap",
+    ).waarschuwingen.map((rij) => rij.type),
+    extraheerDeterministisch(
+      [scribeSegment(1, "patient", "Ik ben allergisch voor penicilline, verder geen klachten.")],
+      "soap",
+    ).allergieen.map((rij) => rij.aard),
+    extraheerDeterministisch([scribeSegment(1, "patient", "Ik verdraag geen ibuprofen.")], "soap").allergieen.map(
+      (rij) => rij.aard,
+    ),
+  ],
+  [["allergie"], ["allergie"], ["intolerantie"]],
+);
+check(
+  // C41 — zonder komma slokte de allergievangst de restzin op: het middel
+  // verdween uit de staat én leverde een vals conflict met zichzelf.
+  "scribe extractie: de allergievangst stopt vóór de bijzin en de rest wordt op medicatie gescand",
+  (() => {
+    const eerste = extraheerDeterministisch(
+      [scribeSegment(1, "patient", "Ik ben allergisch voor penicilline en ik slik ibuprofen.")],
+      "soap",
+    );
+    const tweede = extraheerDeterministisch(
+      [scribeSegment(1, "patient", "Ik ben allergisch voor amoxicilline en gebruik sertraline vijftig milligram.")],
+      "soap",
+    );
+    const derde = extraheerDeterministisch(
+      [scribeSegment(1, "patient", "Ik ben allergisch voor penicilline en codeïne.")],
+      "soap",
+    );
+    return [
+      eerste.allergieen.map((rij) => rij.tekst),
+      eerste.medicatie.map((rij) => [rij.naam, rij.gebruik]),
+      eerste.waarschuwingen.filter((rij) => rij.type === "allergie").length,
+      tweede.allergieen.map((rij) => rij.tekst),
+      tweede.medicatie.map((rij) => [rij.naam, rij.gebruik, rij.dosering]),
+      derde.allergieen.map((rij) => rij.tekst),
+    ];
+  })(),
+  [
+    ["penicilline"],
+    [["ibuprofen", "huidig"]],
+    0,
+    ["amoxicilline"],
+    [["sertraline", "huidig", "50 mg"]],
+    ["penicilline en codeïne"],
+  ],
+);
+check(
+  // C40 — één screeningsvraag leverde twee NSAID's plus een dubbelmedicatie-
+  // alarm in juist de groep die als geverifieerd wordt gepresenteerd.
+  "scribe extractie: ontkende en uitgevraagde medicatie gaat niet de veiligheidscheck in",
+  (() => {
+    const ontkend = extraheerDeterministisch([scribeSegment(1, "patient", "Nee, ik gebruik geen ibuprofen.")], "soap");
+    const uitvraag = extraheerDeterministisch([scribeSegment(1, "arts", "Gebruikt u ibuprofen of naproxen?")], "soap");
+    const gestopt = extraheerDeterministisch([scribeSegment(1, "patient", "Ik gebruik geen tramadol meer.")], "soap");
+    const huidig = extraheerDeterministisch(
+      [scribeSegment(1, "patient", "Ik heb geen klachten meer sinds ik sertraline gebruik.")],
+      "soap",
+    );
+    return [
+      ontkend.medicatie.map((rij) => [rij.naam, rij.gebruik]),
+      ontkend.waarschuwingen.length,
+      uitvraag.medicatie.map((rij) => [rij.naam, rij.gebruik]),
+      uitvraag.waarschuwingen.length,
+      gestopt.medicatie.map((rij) => [rij.naam, rij.gebruik]),
+      huidig.medicatie.map((rij) => [rij.naam, rij.gebruik]),
+    ];
+  })(),
+  [
+    [["ibuprofen", "onbekend"]],
+    0,
+    [
+      ["ibuprofen", "onbekend"],
+      ["naproxen", "onbekend"],
+    ],
+    0,
+    [["tramadol", "gestopt"]],
+    [["sertraline", "huidig"]],
+  ],
+);
+check(
+  "scribe extractie: een voorgestelde ophoging blijft `voorgesteld` (regressiecontrole C40)",
+  extraheerDeterministisch(
+    [scribeSegment(1, "arts", "Ik wil de sertraline ophogen naar honderd milligram.")],
+    "soap",
+  ).medicatie.map((rij) => [rij.naam, rij.gebruik, rij.dosering]),
+  [["sertraline", "voorgesteld", "100 mg"]],
+);
+check(
+  "scribe extractie: een depot of injectie telt als huidig gebruik (N5)",
+  extraheerDeterministisch(
+    [scribeSegment(1, "arts", "Cliënt krijgt paliperidon depot elke vier weken.", "handmatig")],
+    "psychiatrie",
+  ).medicatie.map((rij) => [rij.naam, rij.gebruik]),
+  [["paliperidon", "huidig"]],
+);
+check(
+  // C43 — extractie én merge dedupliceerden op precies de sleutel waarop de
+  // regel groepeert, dus de tegenstrijdige dosering verdween stil.
+  "scribe extractie: twee doseringen van hetzelfde middel vuren de doseringsregel",
+  (() => {
+    const staat = extraheerDeterministisch(
+      [
+        scribeSegment(1, "patient", "Ik gebruik sertraline vijftig milligram per dag."),
+        scribeSegment(2, "arts", "In het dossier staat dat u sertraline honderd milligram gebruikt."),
+      ],
+      "soap",
+    );
+    const gelijk = extraheerDeterministisch(
+      [
+        scribeSegment(1, "patient", "Ik slik sertraline 50 mg."),
+        scribeSegment(2, "patient", "Die sertraline 50mg helpt wel wat."),
+      ],
+      "soap",
+    );
+    return [
+      staat.medicatie.map((rij) => [rij.naam, rij.gebruik, (rij.doseringen ?? []).map((rows) => rows.waarde)]),
+      staat.waarschuwingen.filter((rij) => rij.type === "dosering").map((rij) => rij.tekst),
+      gelijk.waarschuwingen.filter((rij) => rij.type === "dosering").length,
+      scribeDemo.staat.waarschuwingen.filter((rij) => rij.type === "dosering").length,
+    ];
+  })(),
+  [
+    [["sertraline", "huidig", ["50 mg", "100 mg"]]],
+    ["Dosering inconsistent genoemd (§1: 50 mg; §2: 100 mg) — controleer."],
+    0,
+    0,
+  ],
+);
+check(
+  "scribe extractie: de psychose-uitvraag in normale woordvolgorde is `besproken` (C51)",
+  (() => {
+    const vraag = extraheerDeterministisch(
+      [scribeSegment(1, "arts", "Hoort u weleens stemmen die anderen niet horen?")],
+      "psychiatrie",
+    );
+    const melding = extraheerDeterministisch(
+      [scribeSegment(1, "patient", "Ik hoor stemmen in mijn hoofd.")],
+      "psychiatrie",
+    );
+    const geenTreffer = extraheerDeterministisch(
+      [scribeSegment(1, "arts", "We stemmen dat af met de huisarts.")],
+      "psychiatrie",
+    );
+    return [
+      vraag.psychisch.map((rij) => [rij.categorie, rij.tekst]),
+      checklistOntbrekend(vraag, "psychiatrie")
+        .filter((rij) => rij.tekst.startsWith("Psychotische"))
+        .map((rij) => rij.status),
+      melding.psychisch.map((rij) => rij.categorie),
+      geenTreffer.psychisch.map((rij) => rij.categorie),
+    ];
+  })(),
+  [[["psychose", "Psychose besproken — beoordeling behandelaar"]], ["besproken"], ["psychose"], []],
+);
+check(
+  // N9 — handmatige invoer is het enige invoerpad zonder provider; wie na
+  // afloop dicteert hield een lege consultstaat over.
+  "scribe extractie: declaratieve behandelaarsrapportage levert wél feiten, een vraag niet",
+  (() => {
+    const rapportage = scribeSegment(
+      1,
+      "arts",
+      "Cliënt is somber sinds drie maanden en is bekend met COPD.",
+      "handmatig",
+    );
+    const vraag = scribeSegment(1, "arts", "Bent u somber?", "handmatig");
+    const live = scribeSegment(1, "arts", "Cliënt is somber sinds drie maanden.", "live");
+    return [
+      isBehandelaarsrapportage(rapportage),
+      isBehandelaarsrapportage(vraag),
+      isBehandelaarsrapportage(live),
+      extraheerDeterministisch([rapportage], "soap").hoofdklacht,
+      extraheerDeterministisch([vraag], "soap").symptomen.length,
+    ];
+  })(),
+  [true, false, false, "somberheid", 0],
+);
+
+// ── Medicatieveiligheid: GGZ-kern (N5) ─────────────────────────────────────
+check(
+  "scribe medicatie: de GGZ-groepen bestaan met hun leden (N5)",
+  [
+    MIDDEL_GROEPEN.tca.leden.includes("nortriptyline"),
+    MIDDEL_GROEPEN.stemmingsstabilisatoren.leden.includes("lamotrigine"),
+    MIDDEL_GROEPEN.stimulantia.leden.includes("methylfenidaat"),
+    MIDDEL_GROEPEN.mao_remmers.leden.includes("tranylcypromine"),
+    MIDDEL_GROEPEN.antipsychotica.leden.includes("paliperidon"),
+    MIDDEL_GROEPEN.qt_verlengend.leden.includes("amitriptyline"),
+  ],
+  [true, true, true, true, true, true],
+);
+check(
+  "scribe medicatie: de nieuwe GGZ-interacties vuren elk precies één keer (N5)",
+  (
+    [
+      ["lamotrigine", "valproaat"],
+      ["lithium", "carbamazepine"],
+      ["clozapine", "oxazepam"],
+      ["sertraline", "ibuprofen"],
+      ["sertraline", "acenocoumarol"],
+      ["methylfenidaat", "tranylcypromine"],
+      ["amitriptyline", "sertraline"],
+    ] as const
+  ).map(
+    ([links, rechts]) =>
+      controleerMedicatie(
+        [scribeMedicatie(links, "huidig", null, [3]), scribeMedicatie(rechts, "voorgesteld", null, [4])],
+        [],
+      ).filter((rij) => rij.type === "interactie").length,
+  ),
+  [1, 1, 1, 1, 1, 1, 1],
+);
+check(
+  "scribe medicatie: elke gecontroleerde regel eindigt op de vaste slotzin (N5)",
+  controleerMedicatie(
+    [
+      scribeMedicatie("amitriptyline", "huidig", null, [3]),
+      scribeMedicatie("nortriptyline", "huidig", null, [4]),
+      scribeMedicatie("sertraline", "huidig", null, [5]),
+    ],
+    [],
+  ).every((rij) => rij.tekst.endsWith("Controleer vóór voorschrijven.") && rij.herkomst === "regel"),
+  true,
+);
+check(
+  "scribe medicatie: twee TCA's leveren dubbelmedicatie (N5)",
+  controleerMedicatie(
+    [scribeMedicatie("amitriptyline", "huidig", null, [3]), scribeMedicatie("nortriptyline", "huidig", null, [4])],
+    [],
+  )
+    .filter((rij) => rij.type === "dubbel")
+    .map((rij) => rij.tekst.includes("tricyclische antidepressiva")),
+  [true],
+);
+check(
+  // C45 — het schema staat `onbekend` toe (een gemelde overgevoeligheid waarvan
+  // de aard onduidelijk is); die groep verdween volledig uit de controle.
+  "scribe medicatie: overgevoeligheid met onbekende aard levert een neutrale regel, geen allergieoordeel",
+  controleerMedicatie(
+    [scribeMedicatie("amoxicilline", "voorgesteld", null, [4])],
+    [scribeAllergie("penicilline", "onbekend")],
+  ).map((rij) => [
+    rij.type,
+    rij.herkomst,
+    rij.tekst.includes("Gemelde allergie"),
+    rij.tekst.includes("aard onbekend"),
+    rij.tekst.endsWith("Controleer vóór voorschrijven."),
+  ]),
+  [["allergie", "regel", false, true, true]],
+);
+check(
+  "scribe medicatie: de intolerantiemelding noemt het middel één keer en behoudt de groep (C52)",
+  [
+    controleerMedicatie(
+      [scribeMedicatie("ibuprofen", "huidig", null, [4])],
+      [scribeAllergie("ibuprofen", "intolerantie")],
+    ).map((rij) => rij.tekst),
+    controleerMedicatie(
+      [scribeMedicatie("carbasalaatcalcium", "huidig", null, [4])],
+      [scribeAllergie("ibuprofen", "intolerantie")],
+    ).map((rij) => rij.tekst.includes("behoort tot de groep salicylaten van de gemelde ibuprofen")),
+  ],
+  [["ibuprofen: Gemelde intolerantie — geen allergie. Controleer vóór voorschrijven."], [true]],
+);
+
+// ── Merge: `aard` is monotoon (C44) ────────────────────────────────────────
+check(
+  "scribe merge: een latere pass degradeert een allergie niet",
+  (["intolerantie", "onbekend"] as const).map(
+    (aard) =>
+      mergeKlinischeStaat(scribeStaatMetAllergie, {
+        ...legeKlinischeStaat(),
+        allergieen: [scribeAllergie("amoxicilline", aard, [9])],
+      }).allergieen[0].aard,
+  ),
+  ["allergie", "allergie"],
+);
+check(
+  "scribe merge: het allergieconflict blijft vuren na een intolerantie-/onbekend-pass",
+  (["intolerantie", "onbekend"] as const).map((aard) => {
+    const samen = mergeKlinischeStaat(scribeStaatMetAllergie, {
+      ...legeKlinischeStaat(),
+      allergieen: [scribeAllergie("amoxicilline", aard, [9])],
+    });
+    return controleerMedicatie(samen.medicatie, samen.allergieen).some((rij) =>
+      rij.tekst.startsWith("Gemelde allergie voor amoxicilline"),
+    );
+  }),
+  [true, true],
+);
+check(
+  "scribe merge: een opwaardering van intolerantie naar allergie mag wél",
+  mergeKlinischeStaat(
+    { ...legeKlinischeStaat(), allergieen: [scribeAllergie("amoxicilline", "intolerantie", [2])] },
+    { ...legeKlinischeStaat(), allergieen: [scribeAllergie("amoxicilline", "allergie", [9])] },
+  ).allergieen.map((rij) => [rij.aard, rij.bron]),
+  [["allergie", [2, 9]]],
+);
+check(
+  "scribe merge: doseringvermeldingen van beide passes blijven bestaan (C43)",
+  (() => {
+    const samen = mergeKlinischeStaat(
+      { ...legeKlinischeStaat(), medicatie: [scribeMedicatie("sertraline", "huidig", "50 mg", [3])] },
+      { ...legeKlinischeStaat(), medicatie: [scribeMedicatie("sertraline", "huidig", "100 mg", [12])] },
+    );
+    return [
+      samen.medicatie.length,
+      (samen.medicatie[0].doseringen ?? []).map((rij) => rij.waarde),
+      controleerMedicatie(samen.medicatie, []).filter((rij) => rij.type === "dosering").length,
+    ];
+  })(),
+  [1, ["50 mg", "100 mg"], 1],
+);
+
+// ── S10 als code: risicopolariteit (C42) ───────────────────────────────────
+check(
+  "scribe risico: een modelantwoord met polariteit wordt ontpolariseerd",
+  normaliseerRisicopolariteit({
+    ...legeKlinischeStaat(),
+    psychisch: [
+      { categorie: "suicidaliteit", tekst: "Geen suïcidale gedachten; geen plannen", bron: [14], ingetrokken: false },
+    ],
+  }).psychisch,
+  [
+    {
+      categorie: "suicidaliteit",
+      tekst: "Suïcidaliteit besproken — beoordeling behandelaar",
+      bron: [14],
+      ingetrokken: false,
+    },
+  ],
+);
+check(
+  "scribe risico: alleen de risicozin wordt herschreven, de rest blijft staan",
+  normaliseerRisicozin("Patiënt ontkent suïcidale gedachten. Slaapt slecht."),
+  "Suïcidaliteit besproken — beoordeling behandelaar. Slaapt slecht.",
+);
+check(
+  "scribe risico: `rondStaatAf` is idempotent op deterministische uitvoer",
+  JSON.stringify(rondStaatAf(scribeDemo.staat)) === JSON.stringify(scribeDemo.staat),
+  true,
+);
+check(
+  "scribe risico: een polaire uitspraak in een vrij tekstveld verdwijnt eveneens",
+  rondStaatAf({
+    ...legeKlinischeStaat(),
+    onderzoek: [{ tekst: "Er zijn geen suïcidale gedachten.", bron: [8], ingetrokken: false }],
+  }).onderzoek.map((rij) => rij.tekst),
+  ["Suïcidaliteit besproken — beoordeling behandelaar."],
+);
+
+// ── Eén deterministische ronde voor server én demo (C21) ───────────────────
+check(
+  "scribe ronde: dezelfde motor levert sprekers, correcties en staat",
+  (() => {
+    const segmenten = [
+      scribeSegment(1, "onbekend", "Waarvoor komt u vandaag bij mij?"),
+      scribeSegment(2, "onbekend", "Ik gebruik sertaline en tramadal."),
+    ];
+    const ronde = deterministischeRonde(segmenten, segmenten, "soap", legeKlinischeStaat());
+    // De ASR-correctie landt op het segment; de extractie van DEZE ronde draait
+    // nog op de brontekst, de volgende ronde ziet de gecorrigeerde regel.
+    const gecorrigeerd = [segmenten[0], { ...segmenten[1], tekstGecorrigeerd: ronde.correcties[0].tekstGecorrigeerd }];
+    const tweede = deterministischeRonde(gecorrigeerd, gecorrigeerd, "soap", ronde.staat);
+    return [
+      ronde.sprekers,
+      ronde.correcties,
+      tweede.staat.waarschuwingen.map((rij) => [rij.type, rij.herkomst]),
+      JSON.stringify(tweede.staat) ===
+        JSON.stringify(rondStaatAf(mergeKlinischeStaat(ronde.staat, extraheerDeterministisch(gecorrigeerd, "soap")))),
+    ];
+  })(),
+  [
+    [
+      { volgnummer: 1, spreker: "arts" },
+      { volgnummer: 2, spreker: "patient" },
+    ],
+    [{ volgnummer: 2, tekstGecorrigeerd: "Ik gebruik sertraline en tramadol." }],
+    [["interactie", "regel"]],
+    true,
+  ],
+);
+
+// ── Verslagopbouw: bereik, ontdubbeling en zinsassemblage (N2/N7/C50) ──────
+check(
+  // N2 — medicatie en allergieën vielen bij soap, soep, verpleegkundig en
+  // vervolg uit ELKE sectie: het paneel waarschuwde, het verslag zweeg.
+  "scribe verslag: elke medicatie- en allergieregel komt in élk formaat in minstens één sectie voor",
+  CONSULT_TYPES.every((type) => {
+    const secties = bouwVerslagDeterministisch(scribeDemo.staat, scribeDemo.segmenten, type).filter(
+      (sectie) => !sectie.vereistBehandelaar,
+    );
+    const tekst = secties.map((sectie) => sectie.conceptTekst).join("\n");
+    const medicatie = scribeDemo.staat.medicatie.filter((rij) => !rij.ingetrokken);
+    const allergieen = scribeDemo.staat.allergieen.filter((rij) => !rij.ingetrokken);
+    return medicatie.every((rij) => tekst.includes(rij.naam)) && allergieen.every((rij) => tekst.includes(rij.tekst));
+  }),
+  true,
+);
+check(
+  "scribe verslag: elke sectie noemt een feit hoogstens één keer (C50)",
+  CONSULT_TYPES.every((type) =>
+    bouwVerslagDeterministisch(scribeDemo.staat, scribeDemo.segmenten, type)
+      .filter((sectie) => !sectie.vereistBehandelaar)
+      .every((sectie) => {
+        const zinnen = sectie.conceptTekst
+          .replace(/\s*\(§[^)]*\)\s*$/, "")
+          .split(/(?<=\.)\s+/)
+          .map((zin) => zin.trim().toLowerCase())
+          .filter((zin) => zin.length > 0);
+        return new Set(zinnen).size === zinnen.length;
+      }),
+  ),
+  true,
+);
+check(
+  // N7 — zonder AI is dit het enige actieve verslagpad; een trefwoordenlijst
+  // met §-markeringen kost de behandelaar meer tijd dan zij bespaart.
+  "scribe verslag: de beleidssectie is verslagtekst zonder eerste persoon",
+  scribeDemo.notitie.secties.find((sectie) => sectie.id === "beleid")?.conceptTekst,
+  "Sertraline ophogen naar 100 mg. Aanvragen via de huisarts een TSH-bepaling om de schildklier te laten controleren. Overleg met de huisarts over de tramadol. Psycho-educatie en cliënt krijgt adviezen over slaaphygiëne. Vervolgafspraak over twee weken. (§25, §26, §27, §28, §29)",
+);
+check(
+  "scribe verslag: de anamnestische secties zijn Nederlandse zinnen met gebundelde bronnen (N7)",
+  [
+    scribeDemo.notitie.secties.find((sectie) => sectie.id === "reden-van-komst")?.conceptTekst,
+    scribeDemo.notitie.secties.find((sectie) => sectie.id === "somatiek-medicatie")?.conceptTekst,
+  ],
+  [
+    "Cliënt meldt somberheid sinds drie maanden, beloop geleidelijk erger.",
+    "Medicatie: sertraline 50 mg (huidig), tramadol (huidig) en sertraline 100 mg (voorgesteld). Allergieën: amoxicilline (allergie). Voorgeschiedenis: In 2022 heb ik een burn-out gehad, toen ben ik drie maanden thuis geweest. (§16, §17, §19, §21, §24, §25, §27)",
+  ],
+);
+check(
+  "scribe verslag: geen enkele niet-★-sectie bevat nog een eerste-persoonsbeleidszin (N7)",
+  CONSULT_TYPES.every((type) =>
+    bouwVerslagDeterministisch(scribeDemo.staat, scribeDemo.segmenten, type)
+      .filter((sectie) => !sectie.vereistBehandelaar)
+      .every((sectie) => !/(^|\s)Ik (wil|vraag|overleg|geef)\b/.test(sectie.conceptTekst)),
+  ),
+  true,
+);
+check(
+  "scribe verslag: beleidszin normaliseert de dosering en de aanhef",
+  [
+    beleidszin("Ik wil de sertraline ophogen naar honderd milligram."),
+    beleidszin("We maken een vervolgafspraak over twee weken."),
+    beleidszin("Ik overleg met de huisarts over de tramadol."),
+  ],
+  ["Sertraline ophogen naar 100 mg.", "Vervolgafspraak over twee weken.", "Overleg met de huisarts over de tramadol."],
+);
+
+// Transcriptcorrectie (S9) en fragmentontdubbeling (§5.3/§7.6).
+check(
+  "scribe correctie: bekende ASR-fouten in medische termen",
+  corrigeerTranscriptDeterministisch("de patiënt gebruikt sertaline en tramadal"),
+  "de patiënt gebruikt sertraline en tramadol",
+);
+check(
+  "scribe correctie: niets te corrigeren levert null",
+  corrigeerTranscriptDeterministisch("niets bijzonders"),
+  null,
+);
+check(
+  "scribe overlap: herhaalde kop verdwijnt",
+  verwijderOverlap("de patiënt gebruikt sertraline vijftig", "sertraline vijftig milligram sinds zes weken"),
+  "milligram sinds zes weken",
+);
+check(
+  "scribe overlap: een op de grens afgekapte medicijnnaam blijft volledig staan",
+  verwijderOverlap("de patiënt gebruikt sertra", "sertraline vijftig milligram"),
+  "sertraline vijftig milligram",
+);
+check(
+  "scribe overlap: zonder overlap blijft de tekst ongewijzigd, volledige herhaling wordt leeg",
+  [
+    verwijderOverlap("helemaal iets anders", "sertraline vijftig milligram"),
+    verwijderOverlap("sertraline vijftig milligram", "sertraline vijftig milligram"),
+    verwijderOverlap("", "sertraline vijftig milligram"),
+  ],
+  ["sertraline vijftig milligram", "", "sertraline vijftig milligram"],
+);
+
+// Retentie (§4.7): het transcript volgt altijd de kortste termijn.
+const scribeNu = new Date("2026-09-07T00:00:00.000Z");
+check(
+  "scribe retentie: actief consult volgt de transcripttermijn",
+  berekenRetentie("actief", EMPTY_SCRIBE_INSTELLINGEN, scribeNu),
+  { transcriptVerwijderNa: "2026-10-07T00:00:00.000Z", sessieVerwijderNa: "2026-10-07T00:00:00.000Z" },
+);
+check(
+  "scribe retentie: bij overname wordt het transcript direct gewist",
+  berekenRetentie("overgenomen", EMPTY_SCRIBE_INSTELLINGEN, scribeNu),
+  { transcriptVerwijderNa: "2026-09-07T00:00:00.000Z", sessieVerwijderNa: "2026-10-07T00:00:00.000Z" },
+);
+check(
+  "scribe retentie: zonder direct wissen geldt de kortste van beide termijnen",
+  berekenRetentie(
+    "overgenomen",
+    { ...EMPTY_SCRIBE_INSTELLINGEN, transcriptWissenBijOvername: false, notitieRetentieDagen: 7 },
+    scribeNu,
+  ),
+  { transcriptVerwijderNa: "2026-09-14T00:00:00.000Z", sessieVerwijderNa: "2026-09-14T00:00:00.000Z" },
+);
+check(
+  "scribe retentie: verslagtermijn 0 laat niets achter",
+  berekenRetentie("overgenomen", { ...EMPTY_SCRIBE_INSTELLINGEN, notitieRetentieDagen: 0 }, scribeNu),
+  { transcriptVerwijderNa: "2026-09-07T00:00:00.000Z", sessieVerwijderNa: "2026-09-07T00:00:00.000Z" },
+);
+check(
+  "scribe retentie: annuleren wist het transcript direct, metadata na één dag",
+  berekenRetentie("geannuleerd", EMPTY_SCRIBE_INSTELLINGEN, scribeNu),
+  { transcriptVerwijderNa: "2026-09-07T00:00:00.000Z", sessieVerwijderNa: "2026-09-08T00:00:00.000Z" },
+);
+
+// Seeds (§7.7) — demonstratiedata, geen echte cliëntgegevens.
+check(
+  "scribe seeds: module staat in productie uit",
+  [EMPTY_SCRIBE_INSTELLINGEN.ingeschakeld, EMPTY_SCRIBE_INSTELLINGEN.standaardFormaat],
+  [false, "soap"],
+);
+check(
+  "scribe seeds: demo staat aan met het GGZ-formaat",
+  [DEMO_SCRIBE_INSTELLINGEN.ingeschakeld, DEMO_SCRIBE_INSTELLINGEN.standaardFormaat],
+  [true, "psychiatrie"],
+);
+check(
+  "scribe seeds: retentiestandaarden 30/30 met direct wissen bij overname",
+  [
+    EMPTY_SCRIBE_INSTELLINGEN.transcriptRetentieDagen,
+    EMPTY_SCRIBE_INSTELLINGEN.notitieRetentieDagen,
+    EMPTY_SCRIBE_INSTELLINGEN.transcriptWissenBijOvername,
+    EMPTY_SCRIBE_INSTELLINGEN.klinischeAanwijzingenAan,
+    EMPTY_SCRIBE_INSTELLINGEN.medicatiecheckAan,
+  ],
+  [30, 30, true, true, true],
+);
+check(
+  "scribe seeds: toestemmingstekst noemt transcriptie, verwijdering, verwerker en vaststelling",
+  [
+    STANDAARD_CONSENTTEKST.length <= 1000,
+    STANDAARD_CONSENTTEKST.includes("getranscribeerd"),
+    STANDAARD_CONSENTTEKST.includes("verwerkersovereenkomst"),
+    STANDAARD_CONSENTTEKST.includes("niet wordt bewaard"),
+    STANDAARD_CONSENTTEKST.endsWith("heeft hiermee ingestemd."),
+  ],
+  [true, true, true, true, true],
+);
+check(
+  "scribe seeds: consenttekst van de instellingen is de standaardtekst",
+  EMPTY_SCRIBE_INSTELLINGEN.consenttekst,
+  STANDAARD_CONSENTTEKST,
+);
+check("scribe seeds: demo-tempo", DEMO_SEGMENT_INTERVAL_MS, 1500);
+check(
+  "scribe seeds: drie demo-consulten met de audited referentie voor het actieve consult",
+  DEMO_SCRIBE_SESSIES.map((sessie) => [sessie.id, sessie.status, sessie.patientReferentie]),
+  [
+    ["demo-consult-1", "actief", "D-2026-0417"],
+    ["demo-consult-2", "afgerond", "D-2026-0392"],
+    ["demo-consult-3", "overgenomen", "D-2026-0355"],
+  ],
+);
+check(
+  "scribe seeds: elk demo-consult draagt een bevroren toestemming",
+  DEMO_SCRIBE_SESSIES.every(
+    (sessie) =>
+      sessie.consentTekst === STANDAARD_CONSENTTEKST &&
+      sessie.consentRevisie >= 1 &&
+      !Number.isNaN(Date.parse(sessie.consentBevestigdOp)),
+  ),
+  true,
+);
+check(
+  "scribe seeds: het overgenomen consult heeft geen transcript meer",
+  [
+    DEMO_SCRIBE_SESSIES[2].segmentTeller,
+    DEMO_SCRIBE_SESSIES[2].transcriptVerwijderNa === DEMO_SCRIBE_SESSIES[2].overgenomenOp,
+  ],
+  [0, true],
+);
+check(
+  "scribe seeds: sessieteller van het afgeronde consult volgt het script",
+  [DEMO_SCRIBE_SESSIES[1].segmentTeller, scribeDemo.segmenten.length],
+  [DEMO_CONSULT_SCRIPT.length, DEMO_CONSULT_SCRIPT.length],
+);
+check(
+  "scribe seeds: staat en verslag komen uit dezelfde deterministische motor",
+  JSON.stringify(extraheerDeterministisch(scribeDemo.segmenten, "psychiatrie")) === JSON.stringify(scribeDemo.staat),
+  true,
+);
+check(
+  "scribe seeds: het script schrijft getallen als woord (alleen het jaartal is een cijfer)",
+  DEMO_CONSULT_SCRIPT.flatMap((regel) => regel.tekst.match(/\d+/g) ?? []),
+  ["2022"],
+);
+check(
+  "scribe seeds: geen naam, geboortedatum of BSN in de dossierreferenties",
+  DEMO_SCRIBE_SESSIES.every((sessie) => isPatientReferentie(sessie.patientReferentie)),
+  true,
+);
+
+// Export (§5.3, S2/S3): één pure opbouw voor route én demo-pad.
+const scribeExportSessie = DEMO_SCRIBE_SESSIES[2];
+const scribeExportNotitie = demoConsult3Notitie();
+const scribeExportTekst = bouwExportTekst({
+  sessie: scribeExportSessie,
+  notitie: scribeExportNotitie,
+  taken: [
+    { omschrijving: "TSH laten bepalen via de huisarts", soort: "lab", status: "goedgekeurd" },
+    { omschrijving: "Niet-goedgekeurde actie", soort: "overig", status: "voorgesteld" },
+  ],
+});
+check(
+  "scribe export: kop draagt de dossierreferentie en de toestemmingsversie",
+  scribeExportTekst.includes(`Dossierreferentie: ${scribeExportSessie.patientReferentie}`) &&
+    scribeExportTekst.includes(`(tekstversie ${scribeExportSessie.consentRevisie})`),
+  true,
+);
+check(
+  "scribe export: geen e-mailadres, geen behandelaarsnaam en de EPD-regel aanwezig",
+  !/[^\s@]+@[^\s@]+\.[^\s@]+/.test(scribeExportTekst) &&
+    scribeExportTekst.includes("Het EPD blijft het juridische dossier"),
+  true,
+);
+check(
+  "scribe export: elke sectietitel staat in het bestand; alleen goedgekeurde taken gaan mee",
+  scribeExportNotitie.secties.every((sectie) => scribeExportTekst.includes(sectie.titel.toUpperCase())) &&
+    scribeExportTekst.includes("- TSH laten bepalen via de huisarts (") &&
+    !scribeExportTekst.includes("Niet-goedgekeurde actie"),
+  true,
+);
+check(
+  "scribe export: markdown-variant gebruikt koppen en dezelfde inhoud",
+  bouwExportTekst({ sessie: scribeExportSessie, notitie: scribeExportNotitie, taken: [], formaat: "md" }).startsWith(
+    "# Consultverslag",
+  ),
+  true,
+);
+check(
+  "scribe export: bestandsnaam bevat nooit de dossierreferentie",
+  veiligeBestandsnaam(`consult-${scribeExportSessie.id.slice(0, 8)}-2026-09-07`, scribeExportSessie.id).includes(
+    scribeExportSessie.patientReferentie,
+  ),
+  false,
 );
 
 // Pdf-pijplijn: dezelfde renderer als de definitief-route. Tekststromen in de

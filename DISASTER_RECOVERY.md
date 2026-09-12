@@ -132,6 +132,20 @@ Remove-Item Env:CAREON_FACTURATIE_BACKUP_ALLOW_PLAINTEXT
 Until the client-owned destination, schedule and isolated non-empty fetch/restore acceptance are active, this remains a
 tested fail-closed recovery boundary—not proof that the Storage RPO is met.
 
+## Careon Scribe backup boundary (handoff 20)
+
+The eight `careon_scribe_*` tables are ordinary Postgres tables and are therefore fully covered by the managed Supabase
+database backups and point-in-time recovery, under the same RTO/RPO targets as the rest of the dashboard schema. There
+is **no Storage object to protect**: consult audio is never stored (fragments are relayed to the transcription provider
+and discarded), so the `facturen` exception above does not apply here and no separate copy routine is needed.
+
+Retention purges are **intentional deletions, not data loss**: the definer RPCs erase transcript and clinical state
+synchronously on transfer to the EPD and on cancellation, and `careon_prune_scribe()` removes expired transcripts,
+states, reports and sessions during the daily maintenance run. Nothing recreates them. Beyond the active point-in-time
+window they are unrecoverable by design, and restoring an older point in time to retrieve a purged consult would
+reintroduce special-category data that the organization's retention setting deliberately removed — treat that as a
+decision for the controller, not an operational recovery step.
+
 ## Quarterly restore drill
 
 1. Create an isolated Supabase branch or disposable project; never restore into production.

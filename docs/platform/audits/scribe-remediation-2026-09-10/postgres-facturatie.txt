@@ -1,0 +1,1 @@
+verify-facturatie-postgres: 26 real PostgreSQL checks passed; synthetic database removed

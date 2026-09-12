@@ -1,0 +1,272 @@
+- banner:
+  - generic: Careon Pulse
+  - generic: Technology · Growth · Care
+  - paragraph: Careon AI
+  - paragraph: TGC Groep
+  - link "Naar modules":
+    - /url: /modules
+  - button "Uitloggen":
+    - text: Uitloggen
+- navigation "Careon AI":
+  - link "Consulten":
+    - /url: /scribe
+  - link "Logboek":
+    - /url: /scribe/logboek
+  - link "Instellingen":
+    - /url: /scribe/instellingen
+- main:
+  - heading "QA-EN-A03 Psychiatrisch consult" [level=1]:
+    - text: QA-EN-A03
+    - generic: Psychiatrisch consult
+  - paragraph: Het EPD blijft het juridische dossier.
+  - paragraph: Lokale demo-opslag — geen centrale registratie.
+  - region "Verslag":
+    - heading "Verslag" [level=2]
+    - generic: Versie 1
+    - generic: Verslagformaat
+    - combobox "Verslagformaat":
+      - option "SOAP"
+      - option "Anamnese · Onderzoek · Beoordeling · Plan"
+      - option "Huisartsconsult (SOEP)"
+      - option "Psychiatrisch consult" [selected]
+      - option "Verpleegkundige rapportage"
+      - option "SEH-verslag"
+      - option "Vervolgconsult"
+      - option "Ontslagbrief"
+    - button "Verslag opnieuw genereren":
+      - text: Verslag opnieuw genereren
+    - button "Alles goedkeuren":
+      - text: Alles goedkeuren
+    - paragraph: Lokale demo-opslag — geen centrale registratie.
+    - article:
+      - heading "Reden van komst" [level=3]
+      - paragraph: Beoordeling door behandelaar
+      - generic: Leeg
+      - textbox "Reden van komst":
+        - /placeholder: Beoordeling door behandelaar — wordt niet machinaal geschreven.
+      - generic "Uitgesproken overwegingen uit het transcript"
+      - button "Goedkeuren":
+        - text: Goedkeuren
+    - article:
+      - heading "Speciële anamnese" [level=3]
+      - paragraph: Beoordeling door behandelaar
+      - generic: Leeg
+      - textbox "Speciële anamnese":
+        - /placeholder: Beoordeling door behandelaar — wordt niet machinaal geschreven.
+      - generic "Uitgesproken overwegingen uit het transcript"
+      - button "Goedkeuren":
+        - text: Goedkeuren
+    - article:
+      - heading "Psychiatrisch onderzoek" [level=3]
+      - paragraph: Beoordeling door behandelaar
+      - generic: Leeg
+      - textbox "Psychiatrisch onderzoek":
+        - /placeholder: Beoordeling door behandelaar — wordt niet machinaal geschreven.
+      - generic "Uitgesproken overwegingen uit het transcript"
+      - button "Goedkeuren":
+        - text: Goedkeuren
+    - article:
+      - heading "Somatiek & medicatie" [level=3]
+      - paragraph: Beoordeling door behandelaar
+      - generic: Leeg
+      - textbox "Somatiek & medicatie":
+        - /placeholder: Beoordeling door behandelaar — wordt niet machinaal geschreven.
+      - generic "Uitgesproken overwegingen uit het transcript"
+      - button "Goedkeuren":
+        - text: Goedkeuren
+    - article:
+      - heading "Sociale anamnese" [level=3]
+      - paragraph: Beoordeling door behandelaar
+      - generic: Leeg
+      - textbox "Sociale anamnese":
+        - /placeholder: Beoordeling door behandelaar — wordt niet machinaal geschreven.
+      - generic "Uitgesproken overwegingen uit het transcript"
+      - button "Goedkeuren":
+        - text: Goedkeuren
+    - article:
+      - heading "Risicotaxatie" [level=3]
+      - paragraph: Beoordeling door behandelaar
+      - generic: Leeg
+      - textbox "Risicotaxatie":
+        - /placeholder: Beoordeling door behandelaar — wordt niet machinaal geschreven.
+      - generic "Uitgesproken overwegingen uit het transcript"
+      - button "Goedkeuren":
+        - text: Goedkeuren
+    - article:
+      - heading "Overwegingen" [level=3]
+      - paragraph: Beoordeling door behandelaar
+      - generic: Leeg
+      - textbox "Overwegingen":
+        - /placeholder: Beoordeling door behandelaar — wordt niet machinaal geschreven.
+      - generic "Uitgesproken overwegingen uit het transcript"
+      - button "Goedkeuren":
+        - text: Goedkeuren
+    - article:
+      - heading "Beleid" [level=3]
+      - paragraph: Beoordeling door behandelaar
+      - generic: Leeg
+      - textbox "Beleid":
+        - /placeholder: Beoordeling door behandelaar — wordt niet machinaal geschreven.
+      - generic "Uitgesproken overwegingen uit het transcript"
+      - button "Goedkeuren":
+        - text: Goedkeuren
+    - button "Toestemming ingetrokken — werkkopie wissen":
+      - text: Toestemming ingetrokken — werkkopie wissen
+  - region "Transcript":
+    - heading "Transcript" [level=2]
+    - generic: 30 regels
+    - region "Transcriptregels":
+      - list:
+        - generic: 00:00
+        - 'button "Spreker van regel 1: Arts — wijzigen" [disabled]': Arts
+        - paragraph:
+          - generic: §1
+          - text: Goedemiddag, fijn dat u er bent. Waarvoor komt u vandaag bij mij?
+        - generic: 00:08
+        - 'button "Spreker van regel 2: Patiënt — wijzigen" [disabled]': Patiënt
+        - paragraph:
+          - generic: §2
+          - text: Ik voel me al een tijd erg somber en ik krijg bijna niets meer gedaan.
+        - generic: 00:16
+        - 'button "Spreker van regel 3: Arts — wijzigen" [disabled]': Arts
+        - paragraph:
+          - generic: §3
+          - text: Hoe lang speelt die somberheid al?
+        - generic: 00:24
+        - 'button "Spreker van regel 4: Patiënt — wijzigen" [disabled]': Patiënt
+        - paragraph:
+          - generic: §4
+          - text: Sinds drie maanden ongeveer, en het wordt geleidelijk erger.
+        - generic: 00:32
+        - 'button "Spreker van regel 5: Patiënt — wijzigen" [disabled]': Patiënt
+        - paragraph:
+          - generic: §5
+          - text: Ik slaap heel slecht, ik lig uren wakker en ik pieker de hele nacht door.
+        - generic: 00:40
+        - 'button "Spreker van regel 6: Arts — wijzigen" [disabled]': Arts
+        - paragraph:
+          - generic: §6
+          - text: En hoe is uw eetlust?
+        - generic: 00:48
+        - 'button "Spreker van regel 7: Patiënt — wijzigen" [disabled]': Patiënt
+        - paragraph:
+          - generic: §7
+          - text: Mijn eetlust is verminderd, ik ben ongeveer vier kilo afgevallen.
+        - generic: 00:56
+        - 'button "Spreker van regel 8: Arts — wijzigen" [disabled]': Arts
+        - paragraph:
+          - generic: §8
+          - text: Zijn er dingen die het erger maken?
+        - generic: 01:04
+        - 'button "Spreker van regel 9: Patiënt — wijzigen" [disabled]': Patiënt
+        - paragraph:
+          - generic: §9
+          - text: Werkstress vooral; er is een reorganisatie op mijn werk en de druk is hoog.
+        - generic: 01:12
+        - 'button "Spreker van regel 10: Patiënt — wijzigen" [disabled]': Patiënt
+        - paragraph:
+          - generic: §10
+          - text: Als ik ga wandelen met mijn hond voelt het even wat lichter.
+        - generic: 01:20
+        - 'button "Spreker van regel 11: Arts — wijzigen" [disabled]': Arts
+        - paragraph:
+          - generic: §11
+          - text: Gebruikt u alcohol of andere middelen?
+        - generic: 01:28
+        - 'button "Spreker van regel 12: Patiënt — wijzigen" [disabled]': Patiënt
+        - paragraph:
+          - generic: §12
+          - text: In het weekend drink ik vier glazen wijn op een avond, doordeweeks niet. Roken doe ik niet.
+        - generic: 01:36
+        - 'button "Spreker van regel 13: Arts — wijzigen" [disabled]': Arts
+        - paragraph:
+          - generic: §13
+          - text: "Ik wil u iets vragen wat ik iedereen vraag: denkt u er weleens aan om een einde aan uw leven te maken?"
+        - generic: 01:44
+        - 'button "Spreker van regel 14: Patiënt — wijzigen" [disabled]': Patiënt
+        - paragraph:
+          - generic: §14
+          - text: Nee, daar denk ik niet aan. Ik wil gewoon dat het beter gaat.
+        - generic: 01:52
+        - 'button "Spreker van regel 15: Arts — wijzigen" [disabled]': Arts
+        - paragraph:
+          - generic: §15
+          - text: Welke medicijnen gebruikt u op dit moment?
+        - generic: 02:00
+        - 'button "Spreker van regel 16: Patiënt — wijzigen" [disabled]': Patiënt
+        - paragraph:
+          - generic: §16
+          - text: Ik gebruik sertraline vijftig milligram, sinds zes weken.
+        - generic: 02:08
+        - 'button "Spreker van regel 17: Patiënt — wijzigen" [disabled]': Patiënt
+        - paragraph:
+          - generic: §17
+          - text: En sinds vorige week gebruik ik tramadol voor mijn rugpijn.
+        - generic: 02:16
+        - 'button "Spreker van regel 18: Arts — wijzigen" [disabled]': Arts
+        - paragraph:
+          - generic: §18
+          - text: Bent u ergens allergisch voor?
+        - generic: 02:24
+        - 'button "Spreker van regel 19: Patiënt — wijzigen" [disabled]': Patiënt
+        - paragraph:
+          - generic: §19
+          - text: Ik ben allergisch voor amoxicilline, daar krijg ik uitslag van.
+        - generic: 02:32
+        - 'button "Spreker van regel 20: Arts — wijzigen" [disabled]': Arts
+        - paragraph:
+          - generic: §20
+          - text: Bent u eerder behandeld voor psychische klachten, en komt er in uw familie iets voor?
+        - generic: 02:40
+        - 'button "Spreker van regel 21: Patiënt — wijzigen" [disabled]': Patiënt
+        - paragraph:
+          - generic: §21
+          - text: In 2022 heb ik een burn-out gehad, toen ben ik drie maanden thuis geweest.
+        - generic: 02:48
+        - 'button "Spreker van regel 22: Patiënt — wijzigen" [disabled]': Patiënt
+        - paragraph:
+          - generic: §22
+          - text: Mijn moeder heeft een depressie gehad toen ik jong was.
+        - generic: 02:56
+        - 'button "Spreker van regel 23: Arts — wijzigen" [disabled]': Arts
+        - paragraph:
+          - generic: §23
+          - text: Dit zou kunnen passen bij een depressieve episode, maar ik wil een schildklierafwijking uitsluiten.
+        - generic: 03:04
+        - 'button "Spreker van regel 24: Arts — wijzigen" [disabled]': Arts
+        - paragraph:
+          - generic: §24
+          - text: De rugpijn en de tramadol beïnvloeden mogelijk ook het slapen.
+        - generic: 03:12
+        - 'button "Spreker van regel 25: Arts — wijzigen" [disabled]': Arts
+        - paragraph:
+          - generic: §25
+          - text: Ik wil de sertraline ophogen naar honderd milligram.
+        - generic: 03:20
+        - 'button "Spreker van regel 26: Arts — wijzigen" [disabled]': Arts
+        - paragraph:
+          - generic: §26
+          - text: Ik vraag via de huisarts een TSH-bepaling aan om de schildklier te laten controleren.
+        - generic: 03:28
+        - 'button "Spreker van regel 27: Arts — wijzigen" [disabled]': Arts
+        - paragraph:
+          - generic: §27
+          - text: Ik overleg met de huisarts over de tramadol.
+        - generic: 03:36
+        - 'button "Spreker van regel 28: Arts — wijzigen" [disabled]': Arts
+        - paragraph:
+          - generic: §28
+          - text: We doen psycho-educatie en ik geef u adviezen over slaaphygiëne.
+        - generic: 03:44
+        - 'button "Spreker van regel 29: Arts — wijzigen" [disabled]': Arts
+        - paragraph:
+          - generic: §29
+          - text: We maken een vervolgafspraak over twee weken.
+        - generic: 03:52
+        - 'button "Spreker van regel 30: Patiënt — wijzigen" [disabled]': Patiënt
+        - paragraph:
+          - generic: §30
+          - text: Dat is goed, dank u wel.
+- region "Notifications alt+T"
+- button "Open Next.js Dev Tools":
+- alert

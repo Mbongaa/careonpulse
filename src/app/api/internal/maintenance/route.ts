@@ -3,7 +3,8 @@ import { scheduleAuditEvent } from "@/lib/careon-audit/audit.server";
 import { timingSafeEqual } from "node:crypto";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+// Bounded sequential maintenance requests can need more than 30 seconds.
+export const maxDuration = 120;
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -142,6 +143,31 @@ export async function GET(request: Request) {
     } catch (error) {
       console.error("Facturatie maillog-sweep unavailable", error);
     }
+    // Careon Scribe (handoff 20 §5.4): eigen opschoon-RPC, bewust niet in
+    // careon_prune_runtime_data gevlochten — consulttranscripten volgen hun
+    // eigen, per organisatie instelbare bewaartermijn. Een fout maakt de run
+    // zichtbaar onvolledig (502). Nooit inhoud in het log, alleen aantallen.
+    let scribeOpgeruimd: Record<string, number> | null = null;
+    try {
+      const scribeResponse = await fetch(`${SUPABASE_URL}/rest/v1/rpc/careon_prune_scribe`, {
+        method: "POST",
+        headers: {
+          apikey: SERVICE_KEY,
+          Authorization: `Bearer ${SERVICE_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+        cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (scribeResponse.ok) {
+        scribeOpgeruimd = (await scribeResponse.json()) as Record<string, number>;
+      } else {
+        console.error("Scribe prune failed", { status: scribeResponse.status });
+      }
+    } catch (error) {
+      console.error("Scribe prune unavailable", error);
+    }
     scheduleAuditEvent({
       action: "maintenance.prune",
       resource: "careon_prune_runtime_data",
@@ -151,10 +177,22 @@ export async function GET(request: Request) {
         audit: String(AUDIT_RETENTION_DAYS),
         facturatieConcepten: conceptenOpgeruimd === null ? "failed" : String(conceptenOpgeruimd),
         mailwachtrij: mailwachtrijOpgeruimd === null ? "failed" : String(mailwachtrijOpgeruimd),
+        scribe: scribeOpgeruimd === null ? "failed" : JSON.stringify(scribeOpgeruimd),
       },
     });
+    if (scribeOpgeruimd === null) {
+      scheduleAuditEvent({
+        action: "maintenance.prune_failed",
+        resource: "careon_prune_scribe",
+        detail: { status: "scribe_failed" },
+      });
+      return Response.json(
+        { status: "partial_failed", result, scribe: null, timestamp: new Date().toISOString() },
+        { status: 502, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     return Response.json(
-      { status: "completed", result, timestamp: new Date().toISOString() },
+      { status: "completed", result, scribe: scribeOpgeruimd, timestamp: new Date().toISOString() },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

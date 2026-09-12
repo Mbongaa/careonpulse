@@ -1,0 +1,2 @@
+clear_scribe_cache {"demoCacheCleared":true,"clinicalDraftCleared":false,"expectedDraftCleared":true}
+typing_during_submit {"firstSentenceSubmitted":true,"secondSentenceSubmitted":false,"secondSentenceStillInEditor":false,"secondSentenceStillInDraft":false}

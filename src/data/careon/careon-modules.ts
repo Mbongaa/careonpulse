@@ -35,6 +35,13 @@ export type CareonModule = {
   href?: string;
   /** Default "iedereen". */
   zichtbaarVoor?: CareonModuleZichtbaarheid;
+  /**
+   * Documentlading in plaats van clientnavigatie. Nodig voor modules met een
+   * eigen `Permissions-Policy` (handoff 20 S16): die policy geldt PER DOCUMENT,
+   * dus een <Link> vanaf /modules laat `microphone=()` van deze pagina staan en
+   * faalt getUserMedia stil. De launcher rendert deze entry's als <a href>.
+   */
+  hardeNavigatie?: boolean;
 };
 
 // YAAZ (Module 2 — communicatie, HumHub op de comms-plane) gaat live zodra de
@@ -52,7 +59,7 @@ const YAAZ_LOGO: CareonModuleLogo = { type: "wordmark", label: "YAAZ" };
 export const CAREON_MODULES: readonly CareonModule[] = [
   {
     id: "careon-pulse-directie",
-    name: "Careon Pulse Directie",
+    name: "Careon Dashboard",
     description: "Zorgdashboard met KPI's, signaleringen, financieel en de AI-assistent.",
     status: "live",
     href: "/dashboard/directiecockpit",
@@ -74,6 +81,32 @@ export const CAREON_MODULES: readonly CareonModule[] = [
         status: "coming-soon",
         logo: YAAZ_LOGO,
       },
+  // Klantverzoek 10-09-2026: aankondigingen voor alle medewerkers.
+  // Zonder href kunnen deze tegels geen module openen of activeren.
+  {
+    id: "careon-academie",
+    name: "Careon Academie/Academy",
+    description: "Opleidingen, trainingen en kennis voor uw professionele ontwikkeling.",
+    status: "coming-soon",
+  },
+  // Careon AI is de nieuwe productnaam van Careon Scribe (handoff 20).
+  // De bestaande module-id blijft behouden voor shell- en deeplinkcompatibiliteit.
+  // De afgeschermde /scribe-route houdt haar eigen machtigingen en activatievoorwaarden.
+  {
+    id: "careon-scribe",
+    name: "Careon AI",
+    description:
+      "Live gespreksverslag tijdens het consult: transcriptie, gestructureerde notities en een verslag ter goedkeuring.",
+    status: "live",
+    href: "/scribe",
+    hardeNavigatie: true,
+  },
+  {
+    id: "careon-kwaliteitshandboek",
+    name: "Careon Kwaliteitshandboek",
+    description: "Protocollen, richtlijnen en werkafspraken op één plek.",
+    status: "coming-soon",
+  },
   // Facturatie (handoff 15): beheerdersmodule — alleen zichtbaar voor
   // org_admins/superadmins mét organisatie (en het demo-account, B12).
   {

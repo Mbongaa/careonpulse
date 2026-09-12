@@ -1,0 +1,24 @@
+import { genereerVerslag } from "../../src/lib/careon-scribe/agent.server";
+import { deterministischeRonde, extraheerDeterministisch } from "../../src/lib/careon-scribe/deterministisch";
+import type { ScribeSegment } from "../../src/lib/careon-scribe/types";
+
+process.env.CAREON_SCRIBE_LIVE = "1";
+process.env.CAREON_ASSISTANT_LIVE = "1";
+process.env.OPENAI_API_KEY = "synthetic-local-placeholder";
+let modelResponse: unknown;
+globalThis.fetch = async () => new Response(JSON.stringify({ output_text: JSON.stringify(modelResponse), choices: [{ message: { content: JSON.stringify(modelResponse) } }] }), { status: 200 });
+const segment: ScribeSegment = { id: "synthetic", volgnummer: 1, tekst: "Ik heb hoofdpijn.", spreker: "patient", tekstGecorrigeerd: null, correctieBron: null, beginMs: 0, eindMs: 5000, bron: "handmatig", createdAt: "2026-09-10T00:00:00Z" };
+const input = { staat: extraheerDeterministisch([segment], "soap"), citaten: [segment], gatSegmenten: [], consultType: "soap" as const, taal: "nl" as const, actorHash: "synthetic", orgId: null, userId: null, signal: new AbortController().signal, aiToegestaan: true };
+async function main() {
+  const longTranscript = Array.from({length: 41}, (_, i) => ({ ...segment, id: `synthetic-${i+1}`, volgnummer: i+1, tekst: i === 40 ? "Ik gebruik sertaline 50 mg." : "Goedemiddag." }));
+  const firstBatch = deterministischeRonde(longTranscript, longTranscript.slice(0, 40), "soap", extraheerDeterministisch([], "soap"));
+  const secondBatch = deterministischeRonde(longTranscript, longTranscript.slice(40), "soap", firstBatch.staat);
+  console.log(JSON.stringify({ probe: "demo-future-batch-ASR", first: firstBatch.staat.medicatie.map(r => r.naam), second: secondBatch.staat.medicatie.map(r => r.naam) }));
+  modelResponse = { secties: [{ id: "subjectief", tekst: "Patiënt gebruikt lithium 900 mg en is allergisch voor penicilline.", bron: [1] }] };
+  const output = await genereerVerslag(input);
+  console.log(JSON.stringify({ probe: "unrelated-valid-note-source", section: output.secties.find((row) => row.id === "subjectief") }));
+  modelResponse = { secties: [null] };
+  try { const malformed = await genereerVerslag(input); console.log(JSON.stringify({ probe: "null-note-row", returned: malformed.bron })); }
+  catch (error) { console.log(JSON.stringify({ probe: "null-note-row", throws: error instanceof Error ? error.message : "error" })); }
+}
+void main();

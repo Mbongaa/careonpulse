@@ -1,10 +1,19 @@
 # Careon Pulse — Project Status & Timeline
 
-**Last updated:** 12 September 2026 · **Companion to:** `docs/platform/PLATFORM_BLUEPRINT.md` (v2.9, authoritative) · **Delivery gaps:** `docs/platform/PLATFORM_GAP_REGISTER.md`
+**Last updated:** 12 September 2026 · **Companion to:** `docs/platform/PLATFORM_BLUEPRINT.md` (v2.10, authoritative) · **Delivery gaps:** `docs/platform/PLATFORM_GAP_REGISTER.md`
 
 This file tracks where the platform stands: what exists, what is in progress, and what comes next. Agents and developers update it when a milestone changes state. Section references (§) point into the blueprint.
 
 Legend: ✅ done · 🔵 current focus · ⬜ not started
+
+**12 Sep 2026 — complete Careon AI release being verified for owner testing.**
+The owner explicitly requested publication of the remaining local Careon work and then superseded
+an initial Coming soon request: the web Careon AI tile must remain accessible in production and
+locally. The existing organization, clinician and provider controls remain authoritative; native
+shell launch is still withheld. A loopback-only `npm run dev:local` opens the complete synthetic demo
+without production credentials or provider calls. All four additive Scribe migrations have been
+locally tested and applied successfully. Full code checks and all 169 isolated browser tests pass.
+Organization/provider settings are unchanged; application publication is next. See [release evidence](./CAREON_AI_RELEASE_2026-09-12.md).
 
 **12 Sep 2026 — invoice contact/download repair deployed and live contact/draft download verified.**
 Release `845d105` is live on the canonical Careon domain. The owner's TGC contact now saves centrally
@@ -16,6 +25,66 @@ complete for PDF use, independently of email. The existing draft still needs rec
 address and service dates; it was not issued or emailed. See
 [acceptance evidence](./FACTURATIE_READINESS_2026-09-12.md). G12 remains In progress only for the
 client's controlled real invoice lifecycle acceptance; unrelated Careon AI work was not released.
+
+**11 Sep 2026 — owner-requested Scribe engine repair implemented locally; clinical readiness remains open.**
+English analysis now keeps source quotations separately and accepts a limited set of literal facts only from
+explicitly confirmed speaker turns. Repeated real-provider controls exposed and verified repairs for later-batch
+fact loss, stopping-medication evidence, source binding, stale-source approval and post-finish regeneration.
+Remaining quotations stay visible alongside factual drafts; long fields have bounded scrolling and expansion.
+Three additive migrations passed 626 database assertions plus 106 shared TypeScript fixture controls; 53 English
+examples agree between TypeScript and SQL, and 186 complete-analysis assertions pass. A real-provider synthetic
+browser flow verifies role confirmation, dose correction, regeneration, individual approval and reload.
+The full 252-turn teaching control still retains only one fact under synthetic role assumptions; unknown-speaker
+recording runs produce quotations rather than complete clinical notes. Speaker/answer grounding, concise note
+composition and clinician-adjudicated recording acceptance remain unresolved. No production rollout or activation.
+[Repair evidence](./SCRIBE_ENGINE_ITERATION_2026-09-11.md) ·
+[Acceptance contract](./SCRIBE_ENGINE_ACCEPTANCE_2026-09-11.md). G20 remains In progress; D24 remains Proposed.
+
+**11 Sep 2026 — English teaching-recording verification completed locally; automatic note acceptance remains open.**
+Reusable isolated tools exercised real transcription, clinical validation and note providers, then two complete
+12:29 browser recordings against an immutable build, including pause/resume. Both captured 92 successful fragments
+and reached the closing discussion with no transport gaps or browser errors. Both retained zero clinical facts,
+all 92 speaker roles remained unknown, and all six factual report sections were blank (the two assessment sections
+correctly remain clinician-authored). Alternate chunking/diarization and an experimental prompt did not resolve this;
+the prompt experiment also produced incorrect role labels and was withdrawn. Six UI clarity/approval fixes remain.
+`verify:ci` passes with zero dependency vulnerabilities; the full 162-scenario browser suite passed with one known
+cancellation timing retry, then that test received a precise synchronization fix and passed five repeats without
+retries. Earlier development-server replays were excluded from full acceptance after Fast Refresh stopped capture;
+the harness now checks track continuity and source-tail delivery. [Full audit](./SCRIBE_RECORDING_AUDIT_2026-09-11.md)
+and [reusable tools](./SCRIBE_RECORDING_VERIFICATION.md). This is in-memory test persistence and teaching-source
+verification, not production API/RLS or clinical acceptance. No deployment, migration or organization activation;
+production prompt/provider defaults and D24 status remain unchanged. G20 remains In progress.
+
+**10 Sep 2026 — client-requested module presentation implemented and verified locally.** Employees see
+Careon Dashboard, YAAZ, Careon Academie/Academy, Careon AI and Careon Kwaliteitshandboek, in that order.
+The last three are disabled "Binnenkort beschikbaar" previews; administrators additionally retain Facturatie.
+The existing Scribe product copy, settings, errors and export labels use Careon AI, while stable module IDs,
+routes, stored historical consent and authorization/activation gates remain intact. The Flutter launcher now
+displays compatible disabled previews while keeping launch, handoff, notification and deep-link resolution
+restricted to enabled modules. Full `verify:ci` passes with zero dependency vulnerabilities; the optimized
+browser build completes 162 scenarios (161 direct passes and one Scribe draft-cleanup test passed on retry).
+Flutter passes all 77 tests, with focused analysis and formatting clean. Four desktop/phone captures in light
+and Careon themes have no overflow or browser errors. [Evidence](./audits/module-launcher-2026-09-10/README.md).
+No deployment or activation; installed native clients need a shell update to display the previews.
+
+**10 Sep 2026 — Careon Scribe audit fixes implemented in four phases and verified locally.** All 35 audited engineering
+findings have fixes and regression coverage: database/privacy and versioned approval, clinical extraction/provider
+safeguards, recorder/workflow reliability, then dependency and release verification. The
+[remediation record](./SCRIBE_REMEDIATION_2026-09-10.md) contains the complete mapping, source manifests and rollout
+sequence. Scribe gates pass 124 server/provider, 97 domain, 120 clinical and 55 route checks plus client lifecycle
+regressions; real PostgreSQL passes 105 baseline + 125 upgraded Scribe assertions, with related authorization/invoice/EPD
+suites also passing. The optimized build and all 162 browser scenarios completed (161 direct passes; one asynchronous
+checkbox assertion passed on retry, then its test-only wait correction passed five retry-free repetitions). Six final
+visual captures pass. The final full `verify:ci` passes after that test correction, with zero dependency vulnerabilities.
+The original applied migration is unchanged;
+`20260910120000_scribe_audit_integrity.sql` is prepared locally and requires coordinated application/schema release,
+legacy-data review and real Supabase acceptance. The historical audit below is the pre-fix baseline. G20 remains
+In progress and D24 Proposed for deployment, contractual, clinical and device/provider acceptance. No production
+deployment, migration or activation was performed.
+
+**10 Sep 2026 — Careon Scribe independent audit reopens engineering acceptance.** The [detailed audit](./SCRIBE_AUDIT_2026-09-10.md) records 35 distinct findings across clinical extraction/AI provenance, database lifecycle and concurrency, browser drafts/recording, provider contracts and release readiness. Fresh synthetic probes reproduce wrong dose assignment, normal/family statements entering the patient's clinical state, administrator deletion affecting zero rows, stale analysis/overwritten note edits, terminal-state content reinsertion, multi-item EPD import failure and browser draft/data-loss defects. Existing scribe server/domain checks (93/97) and PostgreSQL checks (105) pass, demonstrating missing negative coverage rather than closure of those findings. The isolated optimized build and complete browser suite also pass (159/159, including all 12 scribe flow tests and three-theme accessibility); none of those baseline passes supersedes the new reproduced failures. The fresh aggregate CI gate fails pre-existing `tsconfig.json` formatting, and the independently run dependency audit reports four vulnerable packages, including critical Next.js advisories. Source remains the uncommitted working-tree implementation; production app/schema parity was not reverified. G20 remains In progress with engineering fixes and the existing owner/contract/clinical acceptance gates required. D24 remains Proposed. This audit adds reports/evidence only; it does not activate providers, enable an organization, deploy changes, or apply application fixes.
+
+**7 Sep 2026 — Careon Scribe built inside Module 1; activation deliberately withheld.** The clinical live scribe of `agent-handoff/20-clinical-scribe.md` is implemented at `/scribe`: microphone capture in short self-contained fragments, near-live transcription through a server-side provider adapter, one evolving clinical state with per-fact provenance, deterministic medication-safety rules, eight discipline report formats and a per-section clinician approval before the report leaves the module. Migration `20260907120000_careon_scribe.sql` adds eight tables whose RLS is **owner-bound** — only the treating clinician reads consult content; an `org_admin` sees metadata without dossier reference or consult type, may delete, and may release the approved report (never the transcript) once and audited to a named colleague; superadmins without organization membership are excluded. Status transitions and retention are database-enforced through `security invoker` RPCs plus freeze triggers (bypass only under the `careon.scribe_rpc` GUC; the sole definer function is the service-role-only prune), and Careon stores **no audio**. A second wave the same day added organisation-level controls: activation preconditions (DPIA, processor agreement, approved consent text) gate the module switch in code and SQL, external processing needs the organisation's own `transcriptieAan`/`aiAnalyseAan` switches on top of the platform opt-in, clinicians can correct or retract extracted facts, and `org_admin`s read their own scribe audit trail on `/scribe/logboek`. The module is **opt-in and fail-closed**: no provider call happens without `CAREON_SCRIBE_LIVE=1`, and it stays off per organization until an `org_admin` enables it and authorizes clinicians; without a provider the whole workflow still runs deterministically and the demo path (`careon-scribe-v1`) is fully e2e-covered. Deliberate security change: `Permissions-Policy: microphone=(self)` on `/scribe*` only, with hard document navigation into the module. Blueprint v2.10 records this as **proposed decision D24** (owner confirmation required, including the D17 amendment for EU Vertex transcription) and adds the consult transcript to the §18 processing inventory as special-category data. **Activation gates (G20):** owner confirmation of D24; DPA incl. API-input retention/ZDR per provider; an established DPIA; the consent text approved with the client's counsel; per-organization enablement plus authorized clinicians. The shell tile is withheld — `shellReady: false` keeps the mobile entry disabled until the D12 phase-2 microphone permission profile exists. The migration **is applied** to `careon-zsg` (7 Sep 2026, Management API; verified against `pg_policies`, `pg_proc`, `pg_constraint` and `pg_trigger`, recorded as `20260907120000 careon_scribe`), so the schema exists in production while every activation switch stays off. No production activation took place.
 
 **5 Sep 2026 — fresh Microsoft login and complete Careon route pass; two additional fixes deployed.** The additional owner-requested Edge walkthrough clicked Microsoft sign-in and covered all 31 Careon page patterns, 46 valid KPI IDs, expected admin denial/record-not-found states and expanded YAAZ/Microsoft pages. It exposed Calendar 1.8.17 in production despite the earlier 1.8.16 fixture: container startup automatically ran marketplace `module/update-all` during release restart. Platform `01af713` deploys a read-only startup override and SSO 1.4.1's expired-XHR→protected-page renewal fix. All three remote workflows passed against the current 1.8.17 artifact; production restart preserved every marketplace file and the image/settings, and all 300 SSO checks, 22 capabilities and full health pass. No downgrade or feature activation occurred. The unchanged-dependency claim for the earlier release is superseded. G07 remains offline. See the [fresh browser checklist](./BROWSER_ROUTE_VERIFICATION_2026-09-05.md) for precise coverage and timed SSO acceptance.
 
@@ -109,6 +178,7 @@ client's controlled real invoice lifecycle acceptance; unrelated Careon AI work 
 - Phase 0 meeting work now includes the isolated native bridge proof plus the dormant production server boundary (22 Aug 2026): sibling `humhub-meeting-modules` foundation commit `32d4484` and reproducible-package commit `7aeb52f`; deployment commits `ca39055`/`0d2cf64`. `meeting-core` 0.1.0 adds exact Careon-subject resolution, invitation/session/window authorization, literal rooms and 15-minute RS256 JaaS tokens from a 4096-bit owner-only server key. The exact archive (`0a98c0e3…681e3`) is installed/enabled on production for migrations and health only, with `JAAS_MEETINGS_ENABLED=0` and `JAAS_MEMBER_CREATE_ENABLED=0`. Pure checks are **46/46**, transactional HumHub checks **13/13**, full host health and browser/endpoint acceptance are green. No real JaaS account/key/token, navigation entry or shipping-shell media permission exists. Tenant/DPA/region, native integration and signed physical-device joins remain open.
 - Superadmin dashboard brought up to its own spec (29 Jul 2026): role mutations (promote/demote, membership add/remove, account delete), organisation rename/delete, composable audit-log filters (org / user / action / period) with pagination, per-org detail view, and explicit error states instead of silent empty ones — see `docs/AUDIT_2026-07-29.md`
 - Facturatie module live at `/facturatie` (9 Aug 2026, D19): admin-only invoicing inside this repo with its own module shell and menu (invoice list, editor with live PDF preview, contacts incl. employee union, template library), schema `0020` + private Storage bucket `facturen`, access limited to `org_admin` + superadmins with org membership on four layers — spec in `agent-handoff/15-facturatie.md`. **Phase B (e-mail dispatch) built 13 Aug 2026**: send an issued invoice as a Resend transactional mail (owner decision 13 Aug, deviating from the EU-sovereign proposal — D19 amendment) with the archived PDF attached, one mail-log row per attempt (`0021`, RLS select-only), rate-limited on the `mail` quota scope — **fail-closed until the DPA**: with the `CAREON_MAIL_` keys empty the route answers 503 and nothing can be sent
+- Careon Scribe module built at `/scribe` (7 Sep 2026, handoff 20; blueprint **D24 proposed**): live consult transcription, one structured clinical state with provenance, deterministic medication-safety checks, eight report formats and per-section clinician approval, on schema `20260907120000_careon_scribe.sql` (eight tables, owner-bound RLS, DB-enforced status/retention, no Storage and no stored audio). Access runs per authorized clinician on four layers; every provider call is opt-in behind `CAREON_SCRIBE_LIVE` and the module is off per organization until an `org_admin` enables it. **Not activated**: D24 confirmation, provider DPA/ZDR, DPIA and approved consent wording are open, and the shell tile stays withheld until D12 phase 2 (G20). Schema applied to `careon-zsg` on 7 Sep 2026; switches off
 - Quality gates: `verify:ci` suites, Playwright e2e + WCAG-AA audits, `RELEASE_GATES.md`, production readiness audit (24 Jul 2026)
 - TGC EPD snapshot automation live locally (central monitoring accepted 22 Aug 2026): the authenticated browser runner inventories and refreshes all five full-history exports, applies source field minimisation, validates with the production parsers, pushes atomically to Supabase, verifies central read-back, and runs weekly Monday 06:00 through Windows Task Scheduler. Databron keeps the manual importer and adds **Update imports through AI** with live queued/login/export/validation/upload/verification status. The Windows worker emits a metadata-only heartbeat every 30 seconds; administrators see **beschikbaar**, **niet bereikbaar** or **onbekend**, and an offline request remains safely queued. A secret-protected Vercel cron checks that metadata every five minutes; one invoker-only transaction deduplicates the coarse transition, audit event and durable alert-outbox row. Offline/unknown stays visible through HTTP 503. A fail-closed Teams Workflows dispatcher with short claims, stale-lease recovery, bounded retries and opaque incident IDs is deployed but deliberately disabled until TGC names the channel and redundant/service owner. The Supabase queue/heartbeat are organization-scoped and the TGC credential stays only in the local ignored worker environment — operations and exact portal routes in `docs/TGC_EXPORT_AUTOMATION.md`
 - G06 CareCheck handoff boundary live (22 Aug 2026, Careon `8e82d26`): the client export's dossier URL now survives only for exact HTTPS `tgc.zsg.nl` ZPM/uninsured paths with no credentials, query or fragment, and every patient/drill renderer reapplies that policy. The current 1,059-record export retains 1,055 safe links and zero invalid stored links without logging patient rows. CareCheck remains the legal dossier and all clinical writes remain blocked until a supported per-user SSO/API/audit/idempotency contract is supplied; `docs/CARECHECK_INTEGRATION_BOUNDARY.md` records the vendor request and staged acceptance.

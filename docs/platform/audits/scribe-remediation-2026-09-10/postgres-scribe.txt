@@ -1,0 +1,2 @@
+scribe audit integrity: 125 actual PostgreSQL assertions passed, including competing connections
+verify-scribe-postgres: 105 base-schema + 125 upgraded-schema checks passed; synthetic database removed
